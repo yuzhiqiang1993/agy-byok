@@ -1,0 +1,32 @@
+[package]
+name = "agy-byok"
+version = "0.1.0"
+edition = "2021"
+description = "Custom models and API providers proxy for Antigravity"
+authors = ["yuzhiqiang"]
+license = "MIT"
+
+[dependencies]
+# Async Runtime & HTTP
+tokio = { version = "1.38", features = ["full"] }
+tokio-stream = "0.1"
+hyper = { version = "1.4", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization & Data
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.8", features = ["v4", "serde"] }
+bytes = "1.6"
+async-trait = "0.1"
+futures = "0.3"
+
+# System Security & Logging
+keyring = "2.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-test = "0.4"

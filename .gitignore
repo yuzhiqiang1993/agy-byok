@@ -1,18 +1,70 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Operating system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.TemporaryItems/
 
-# Other files and folders
-.settings/
+# Rust and Cargo
+**/target/
+**/*.rs.bk
+*.profraw
+*.dSYM/
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# Keep the workspace lockfile for reproducible desktop builds
+!Cargo.lock
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# Node.js and frontend package managers
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+*.key
+*.p12
+*.pfx
+.tauri-signing-private-key*
+
+# Frontend, test, and release outputs
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+.vite/
+.cache/
+playwright-report/
+test-results/
+*.app/
+*.dmg
+*.pkg
+
+# IDE and editor-local files
+.vscode/
+.idea/
+.fleet/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# AI collaboration records and local temporary files
+.ai-local/
+*.log
+.tmp/
+temp/
+tmp/

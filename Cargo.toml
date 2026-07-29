@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/proxy-core"]
+resolver = "2"
