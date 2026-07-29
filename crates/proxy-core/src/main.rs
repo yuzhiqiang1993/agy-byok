@@ -1,5 +1,5 @@
 use agy_byok::proxy::{HttpServerOptions, LoopbackHttpServer, ProxyServer};
-use agy_byok::storage::{AppConfig, ConfigStore, KeychainStore};
+use agy_byok::storage::{default_config_path, ConfigStore, KeychainStore};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -13,7 +13,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting AGY BYOK Proxy Core v0.1.0...");
 
-    let config_store = ConfigStore::in_memory(AppConfig::default());
+    let config_path = default_config_path().map_err(std::io::Error::other)?;
+    let config_file_exists = config_path.exists();
+    let config_store = ConfigStore::load_from_file(&config_path).map_err(std::io::Error::other)?;
+    if !config_file_exists {
+        config_store
+            .update_config(config_store.get_config())
+            .map_err(std::io::Error::other)?;
+    }
     let key_store = Arc::new(KeychainStore::new());
 
     let server = Arc::new(ProxyServer::new(config_store, key_store, 50999));

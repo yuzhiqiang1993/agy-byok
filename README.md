@@ -41,9 +41,10 @@ AGY BYOK 只解决四个核心问题：
 | Provider、UpstreamModel、VirtualModel | 已建立 |
 | Canonical Protocol 与 Reasoning Capability | 已建立 |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
-| Mock 上游、协议与流式数据面 | 已有 41 个测试覆盖 |
+| Mock 上游、协议与流式数据面 | 已有 45 个测试覆盖 |
 | `127.0.0.1:50999` HTTP 监听与 Health Probe | 已实现 |
 | SSE 端到端流式转发 | 自定义 VirtualModel HTTP 路径已实现 |
+| 配置持久化与启动校验 | 已实现，管理 UI 尚未接入 |
 | Tool Call/Thinking 状态机 | Provider 与 Egress 聚合已实现，宿主 Tool Result 关联待 Fixture |
 | Tauri 2 菜单栏和管理界面 | 未实现 |
 | Antigravity App/IDE 接入与恢复 | 未实现 |
@@ -148,7 +149,13 @@ cargo test --workspace --locked
 
 ### 当前限制
 
-`cargo run -p agy-byok` 会绑定 `127.0.0.1:50999` 并在启动阶段执行内部 Health Probe。除 Health 外的路由默认要求进程内生成的本地 Token；当前配置仍是空的内存配置，Token 分发和 Provider/Model 配置需要后续 Tauri 控制面，因此现阶段仍不能直接接入 Antigravity。
+`cargo run -p agy-byok` 会加载并校验配置，绑定 `127.0.0.1:50999`，然后执行内部 Health Probe。首次启动会创建：
+
+```text
+~/Library/Application Support/AGY BYOK/config.v1.json
+```
+
+开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。除 Health 外的路由默认要求进程内生成的本地 Token；Provider/Model 管理和 Keychain 写入入口仍需后续 Tauri 控制面，因此现阶段仍不能直接接入 Antigravity。
 
 ## 实现原则
 
