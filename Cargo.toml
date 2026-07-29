@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/proxy-core"]
+members = ["crates/proxy-core", "crates/host-integration"]
 resolver = "2"

@@ -18,7 +18,7 @@ AGY BYOK 只解决四个核心问题：
 3. 支持文本、图片、工具调用和模型思考等级。
 4. 安全地应用和恢复宿主补丁，恢复时不使用旧备份覆盖厂商新版本。
 
-项目采用独立桌面 App 和本地代理，不把 Provider 管理、密钥存储、自动更新等业务逻辑注入宿主应用。宿主补丁只负责将必要的 Cloud Code 流量导向 AGY BYOK。
+项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。宿主补丁只负责将必要的 Cloud Code 流量导向 AGY BYOK。
 
 ## 目标能力
 
@@ -27,28 +27,30 @@ AGY BYOK 只解决四个核心问题：
 - **思考等级**：同一上游模型可配置 `Low`、`Medium`、`High`、`XHigh`、`Max` 等虚拟变体，并由 Adapter 映射为 Provider 原生参数。
 - **中立协议**：先将 Antigravity/Gemini 请求转换为 Canonical Protocol，再适配目标 Provider。
 - **多模态与工具**：保留文本、图片顺序、Function Calling、流式 Tool Call 和公开的 Thinking Summary。
-- **系统密钥保护**：API Key 存储在 macOS Keychain，普通配置只保存引用。
+- **本地直接配置**：Provider 地址、API Key 和自定义 Header 统一保存在本地配置中，空 API Key 可连接无鉴权上游。
 - **透明路由**：用户选择哪个模型就请求哪个模型，不静默跨模型切换。
 - **安全补丁**：根据精确版本、文件哈希和 Patch Profile 应用补丁，并通过事务快照和运行探针完成恢复。
 
 ## 当前状态
 
-当前代码位于 `crates/proxy-core/`，已经建立 Canonical Protocol、三种 Provider Adapter、状态化 SSE 数据面和仅监听 Loopback 的入站 HTTP 代理。当前 HTTP 路径只处理自定义 VirtualModel，原生模型透明转发尚未实现。
+当前代码已经建立 `proxy-core` 和 `host-integration` 两个 Rust crate。代理具备 Canonical Protocol、三种 Provider Adapter、状态化 SSE、模型目录合并和原生 Cloud Code 透明转发；宿主集成具备只读发现、精确 Profile、候选生成、事务快照、Receipt、Apply/Restore 和失败回滚库。真实安装目录尚未应用新补丁。
 
 | 范围 | 当前状态 |
 | :--- | :--- |
 | Cargo Workspace 与架构契约 | 已建立 |
 | Provider、UpstreamModel、VirtualModel | 已建立 |
 | Canonical Protocol 与 Reasoning Capability | 已建立 |
-| Cloud Code 生成请求与响应 Envelope | 已实现，模型发现 Fixture 待补 |
+| Cloud Code 生成请求与响应 Envelope | 已实现 |
+| IDE 2.1.1 模型发现 | 已验证 `fetchAvailableModels` JSON 会进入 `GetAvailableModels`；无需第二补丁 Anchor |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
-| Mock 上游、协议与流式数据面 | 已有 47 个测试覆盖 |
+| Mock 上游、协议、HTTP 与补丁事务 | 已有 58 个测试覆盖 |
 | `127.0.0.1:50999` HTTP 监听与 Health Probe | 已实现 |
 | SSE 端到端流式转发 | 自定义 VirtualModel HTTP 路径已实现 |
 | 配置持久化与启动校验 | 已实现，管理 UI 尚未接入 |
 | Tool Call/Thinking 状态机 | Provider 与 Egress 聚合已实现，宿主 Tool Result 关联待 Fixture |
 | Tauri 2 菜单栏和管理界面 | 未实现 |
-| Antigravity App/IDE 接入与恢复 | 未实现 |
+| Antigravity IDE 接入与恢复 | Rust 库和临时 `.app` Fixture 已实现；真实 Dry Run/Apply 尚未通过 |
+| Antigravity App 接入 | 尚未进入新项目实现 |
 
 当前二进制会绑定 `127.0.0.1:50999`，提供 Health、模型列表以及非流式和流式生成路由。详细的已知缺口、目标架构和验收边界见 [系统架构与实现方案](docs/ARCHITECTURE.md)。
 
@@ -62,7 +64,7 @@ flowchart TD
         UI[菜单栏与管理界面]
         Integration[Host Integration]
         Transaction[Patch Transaction]
-        Keychain[macOS Keychain]
+        Config[Local Config]
 
         subgraph Core[proxy-core]
             Server[Loopback HTTP Server]
@@ -87,14 +89,15 @@ flowchart TD
     Adapters --> Upstream
     Upstream --> Egress
     Egress --> Host
-    Core --> Keychain
+    UI --> Config
+    Config --> Core
 ```
 
 核心约束：
 
 - `proxy-core` 不依赖 Tauri，不操作宿主安装目录。
 - Host Integration 不读取 Provider API Key，也不参与协议转换。
-- 前端不能直接访问 Keychain、代理 Socket、文件系统或补丁命令。
+- UI 通过桌面 Command 管理配置、代理生命周期和补丁命令，不向宿主注入这些能力。
 - 原生模型透明转发，自定义 VirtualModel 才进入 BYOK 协议转换。
 
 ## Workspace 结构
@@ -104,7 +107,8 @@ agy-byok/
 ├── Cargo.toml                 # Cargo Workspace
 ├── Cargo.lock                 # 可复现依赖锁文件
 ├── crates/
-│   └── proxy-core/            # 代理领域、路由与 Provider Adapter 原型
+│   ├── proxy-core/            # 代理领域、路由与 Provider Adapter
+│   └── host-integration/       # 宿主发现、精确 Profile、补丁事务与恢复
 ├── docs/
 │   └── ARCHITECTURE.md        # 系统架构、风险边界与实施路线
 ├── LICENSE
@@ -114,7 +118,6 @@ agy-byok/
 计划新增但尚未初始化：
 
 ```text
-crates/host-integration/       # 宿主发现、Profile、补丁事务与恢复
 src-tauri/                     # Tauri 控制面
 src/                           # 菜单栏和管理界面
 patch-profiles/                # 经过验证的宿主兼容 Profile
@@ -156,7 +159,9 @@ cargo test --workspace --locked
 ~/Library/Application Support/AGY BYOK/config.v1.json
 ```
 
-开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。除 Health 外的路由默认要求进程内生成的本地 Token；Provider/Model 管理和 Keychain 写入入口仍需后续 Tauri 控制面，因此现阶段仍不能直接接入 Antigravity。
+开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。管理模型列表路由仍要求进程内 Token；当前 IDE Profile 使用的模型发现和生成路由仅允许 Loopback，但不要求宿主携带随机 Token，因为运行探针确认 Language Server 没有可用的 Token 注入通道。这意味着同一用户权限下的其他本地进程也能访问这些宿主路由。
+
+当前机器已重装 Antigravity IDE `2.1.1`，厂商原始 `extension.js` 哈希和 Google 签名均已恢复，尚未执行新 Profile 的真实 Dry Run 或 Apply。Provider/Model 管理入口仍需后续 Tauri 控制面。Provider API Key 直接写入本地配置。
 
 ## 实现原则
 
@@ -193,7 +198,7 @@ cargo test --workspace --locked
 - [x] 建立 Cargo Workspace
 - [x] 建立架构与安全恢复契约
 - [x] 建立格式、Clippy 和测试基线
-- [ ] 整理协议 Fixture 和兼容性事实
+- [x] 整理 IDE 2.1.1 模型发现与 Endpoint 兼容性事实
 
 ### M1：Canonical 与 Adapter 收口
 
@@ -206,22 +211,22 @@ cargo test --workspace --locked
 ### M2：HTTP 与 SSE
 
 - [x] 实现 Loopback HTTP Server 和 Health Probe
-- [ ] 实现原生模型透明转发
+- [x] 实现原生模型透明转发
 - [x] 实现增量 UTF-8、SSE Frame 和 Provider Decoder
 - [x] 实现客户端取消、请求/空闲超时、并发限制和 Graceful Shutdown
 
 ### M3：Tauri 控制面
 
 - [ ] 初始化 Tauri 2 菜单栏应用
-- [ ] 接入 Provider/Model CRUD 和 macOS Keychain
+- [ ] 接入 Provider/Model CRUD 和本地配置
 - [ ] 实现 Proxy Supervisor、Overview 和 Settings
 
 ### M4：macOS 宿主接入
 
-- [ ] Antigravity IDE 最小 Endpoint Profile
+- [x] Antigravity IDE 2.1.1 最小 Endpoint Profile 库
 - [ ] Antigravity App 分层接入 Profile
-- [ ] Patch Transaction、Snapshot、Apply 和 Restore
-- [ ] 签名、运行探针和厂商升级检测
+- [x] Patch Transaction、Snapshot、Apply 和 Restore 库及临时 Fixture 测试
+- [ ] 真实 IDE Dry Run、签名和运行探针
 
 ### M5：发布与平台扩展
 
