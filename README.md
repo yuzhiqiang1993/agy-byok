@@ -33,7 +33,7 @@ AGY BYOK 只解决四个核心问题：
 
 ## 当前状态
 
-当前代码位于 `crates/proxy-core/`，已经建立 Canonical Protocol、三种 Provider Adapter 和内部 SSE 数据面，但还没有形成真实的入站 HTTP 代理。
+当前代码位于 `crates/proxy-core/`，已经建立 Canonical Protocol、三种 Provider Adapter、状态化 SSE 数据面和仅监听 Loopback 的入站 HTTP 代理。当前 HTTP 路径只处理自定义 VirtualModel，原生模型透明转发尚未实现。
 
 | 范围 | 当前状态 |
 | :--- | :--- |
@@ -41,14 +41,14 @@ AGY BYOK 只解决四个核心问题：
 | Provider、UpstreamModel、VirtualModel | 已建立 |
 | Canonical Protocol 与 Reasoning Capability | 已建立 |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
-| Mock 上游、协议与流式数据面 | 已有 36 个测试覆盖 |
-| `127.0.0.1:50999` HTTP 监听 | 未实现 |
-| SSE 端到端流式转发 | 内部数据面已实现，入站 HTTP 输出未接入 |
+| Mock 上游、协议与流式数据面 | 已有 41 个测试覆盖 |
+| `127.0.0.1:50999` HTTP 监听与 Health Probe | 已实现 |
+| SSE 端到端流式转发 | 自定义 VirtualModel HTTP 路径已实现 |
 | Tool Call/Thinking 状态机 | Provider 与 Egress 聚合已实现，宿主 Tool Result 关联待 Fixture |
 | Tauri 2 菜单栏和管理界面 | 未实现 |
 | Antigravity App/IDE 接入与恢复 | 未实现 |
 
-当前二进制只初始化代理核心对象并等待退出，不会监听端口。详细的已知缺口、目标架构和验收边界见 [系统架构与实现方案](docs/ARCHITECTURE.md)。
+当前二进制会绑定 `127.0.0.1:50999`，提供 Health、模型列表以及非流式和流式生成路由。详细的已知缺口、目标架构和验收边界见 [系统架构与实现方案](docs/ARCHITECTURE.md)。
 
 ## 计划架构
 
@@ -148,7 +148,7 @@ cargo test --workspace --locked
 
 ### 当前限制
 
-`cargo run -p agy-byok` 目前只启动原型进程并等待 `Ctrl-C`，不会绑定 `50999`。内部已经可以通过 `ProxyServer::handle_chat_stream` 验证流式数据面，但在 HTTP Server、Health Probe 和配置持久化接入前，不应将进程日志中的“initialized”视为代理已经可用。
+`cargo run -p agy-byok` 会绑定 `127.0.0.1:50999` 并在启动阶段执行内部 Health Probe。除 Health 外的路由默认要求进程内生成的本地 Token；当前配置仍是空的内存配置，Token 分发和 Provider/Model 配置需要后续 Tauri 控制面，因此现阶段仍不能直接接入 Antigravity。
 
 ## 实现原则
 
@@ -197,10 +197,10 @@ cargo test --workspace --locked
 
 ### M2：HTTP 与 SSE
 
-- [ ] 实现 Loopback HTTP Server 和 Health Probe
+- [x] 实现 Loopback HTTP Server 和 Health Probe
 - [ ] 实现原生模型透明转发
 - [x] 实现增量 UTF-8、SSE Frame 和 Provider Decoder
-- [ ] 实现取消、总超时、并发限制和 Graceful Shutdown
+- [x] 实现客户端取消、请求/空闲超时、并发限制和 Graceful Shutdown
 
 ### M3：Tauri 控制面
 
