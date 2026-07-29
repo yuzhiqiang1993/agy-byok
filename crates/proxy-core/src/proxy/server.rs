@@ -1,11 +1,14 @@
 use super::activity::{ActivityItem, ActivityLog};
 use super::auth::AuthManager;
-use crate::antigravity::{AntigravityModelDescriptor, AntigravityResponseEncoder};
+use super::streaming::StreamPipe;
+use crate::antigravity::{
+    AntigravityModelDescriptor, AntigravityResponseEncoder, AntigravityStreamEncoder,
+};
 use crate::domain::{ErrorCategory, NeutralChatRequest, ProxyError};
-use crate::providers::get_adapter;
+use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
 use crate::storage::{ConfigStore, KeyStore};
-use reqwest::Client;
+use reqwest::{Client, Response};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -52,26 +55,35 @@ impl ProxyServer {
         &self,
         request: &NeutralChatRequest,
     ) -> Result<String, ProxyError> {
+        if request.stream {
+            let mut encoded_stream = String::new();
+            self.handle_chat_stream(request, |frame| {
+                encoded_stream.push_str(&frame);
+                Ok(())
+            })
+            .await?;
+            return Ok(encoded_stream);
+        }
+
         let start_time = Instant::now();
         let config = self.config_store.get_config();
 
         let route = match RouteTable::resolve(&config, request) {
-            Ok(r) => r,
-            Err(e) => {
+            Ok(route) => route,
+            Err(error) => {
                 self.record_activity(
                     &request.virtual_model_id,
                     "unknown",
-                    e.status_code,
+                    error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", e.category)),
+                    Some(format!("{:?}", error.category)),
                 );
-                return Err(e);
+                return Err(error);
             }
         };
 
-        // 尝试首次主路由执行
         match self.execute_route(&route, request).await {
-            Ok(resp_str) => {
+            Ok(response) => {
                 self.record_activity(
                     &route.virtual_model.id,
                     &route.provider.id,
@@ -79,21 +91,20 @@ impl ProxyServer {
                     start_time.elapsed().as_millis() as u64,
                     None,
                 );
-                Ok(resp_str)
+                Ok(response)
             }
-            Err(err) => {
-                // 如果开启了备用路由，且错误符合可降级条件，尝试降级
-                if err.is_retryable_for_fallback() {
+            Err(error) => {
+                if error.is_retryable_for_fallback() {
                     if let Ok(Some(fallback_route)) = RouteTable::resolve_fallback(&config, &route)
                     {
                         tracing::info!(
                             "Primary route {} failed with {:?}, attempting fallback to {}",
                             route.virtual_model.id,
-                            err.category,
+                            error.category,
                             fallback_route.virtual_model.id
                         );
 
-                        if let Ok(fallback_resp) =
+                        if let Ok(fallback_response) =
                             self.execute_route(&fallback_route, request).await
                         {
                             self.record_activity(
@@ -103,7 +114,7 @@ impl ProxyServer {
                                 start_time.elapsed().as_millis() as u64,
                                 None,
                             );
-                            return Ok(fallback_resp);
+                            return Ok(fallback_response);
                         }
                     }
                 }
@@ -111,11 +122,103 @@ impl ProxyServer {
                 self.record_activity(
                     &route.virtual_model.id,
                     &route.provider.id,
-                    err.status_code,
+                    error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", err.category)),
+                    Some(format!("{:?}", error.category)),
                 );
-                Err(err)
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn handle_chat_stream<F>(
+        &self,
+        request: &NeutralChatRequest,
+        mut on_frame: F,
+    ) -> Result<(), ProxyError>
+    where
+        F: FnMut(String) -> Result<(), ProxyError> + Send,
+    {
+        if !request.stream {
+            return Err(ProxyError::new(
+                ErrorCategory::InvalidRequest,
+                "Streaming handler requires request.stream = true",
+                400,
+            ));
+        }
+
+        let start_time = Instant::now();
+        let config = self.config_store.get_config();
+        let route = match RouteTable::resolve(&config, request) {
+            Ok(route) => route,
+            Err(error) => {
+                self.record_activity(
+                    &request.virtual_model_id,
+                    "unknown",
+                    error.status_code,
+                    start_time.elapsed().as_millis() as u64,
+                    Some(format!("{:?}", error.category)),
+                );
+                return Err(error);
+            }
+        };
+
+        let mut emitted_frame = false;
+        match self
+            .execute_stream_route(&route, request, &mut on_frame, &mut emitted_frame)
+            .await
+        {
+            Ok(()) => {
+                self.record_activity(
+                    &route.virtual_model.id,
+                    &route.provider.id,
+                    200,
+                    start_time.elapsed().as_millis() as u64,
+                    None,
+                );
+                Ok(())
+            }
+            Err(primary_error) => {
+                if !emitted_frame && primary_error.is_retryable_for_fallback() {
+                    if let Ok(Some(fallback_route)) = RouteTable::resolve_fallback(&config, &route)
+                    {
+                        tracing::info!(
+                            "Primary stream route {} failed with {:?}, attempting fallback to {}",
+                            route.virtual_model.id,
+                            primary_error.category,
+                            fallback_route.virtual_model.id
+                        );
+
+                        if self
+                            .execute_stream_route(
+                                &fallback_route,
+                                request,
+                                &mut on_frame,
+                                &mut emitted_frame,
+                            )
+                            .await
+                            .is_ok()
+                        {
+                            self.record_activity(
+                                &fallback_route.virtual_model.id,
+                                &fallback_route.provider.id,
+                                200,
+                                start_time.elapsed().as_millis() as u64,
+                                None,
+                            );
+                            return Ok(());
+                        }
+                    }
+                }
+
+                self.record_activity(
+                    &route.virtual_model.id,
+                    &route.provider.id,
+                    primary_error.status_code,
+                    start_time.elapsed().as_millis() as u64,
+                    Some(format!("{:?}", primary_error.category)),
+                );
+                Err(primary_error)
             }
         }
     }
@@ -125,25 +228,88 @@ impl ProxyServer {
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
     ) -> Result<String, ProxyError> {
+        let (adapter, response) = self.send_upstream(route, request).await?;
+        let status = response.status().as_u16();
+        let body = response.text().await.map_err(|error| {
+            ProxyError::new(
+                ErrorCategory::Internal,
+                format!("Failed to read upstream response body: {error}"),
+                500,
+            )
+        })?;
+        let neutral_response = adapter.parse_response(status, &body, &route.upstream_model)?;
+        Ok(AntigravityResponseEncoder::encode_response(
+            &neutral_response,
+        ))
+    }
+
+    async fn execute_stream_route<F>(
+        &self,
+        route: &ResolvedRoute,
+        request: &NeutralChatRequest,
+        on_frame: &mut F,
+        emitted_frame: &mut bool,
+    ) -> Result<(), ProxyError>
+    where
+        F: FnMut(String) -> Result<(), ProxyError> + Send,
+    {
+        let (adapter, response) = self.send_upstream(route, request).await?;
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let body = response.text().await.map_err(|error| {
+                ProxyError::new(
+                    ErrorCategory::Internal,
+                    format!("Failed to read upstream error body: {error}"),
+                    500,
+                )
+            })?;
+            return match adapter.parse_response(status, &body, &route.upstream_model) {
+                Err(error) => Err(error),
+                Ok(_) => Err(ProxyError::new(
+                    ErrorCategory::UpstreamServerError,
+                    format!("Unexpected successful parse for upstream status {status}"),
+                    502,
+                )),
+            };
+        }
+
+        let mut provider_decoder = adapter.create_stream_decoder(&route.upstream_model);
+        let mut response_encoder = AntigravityStreamEncoder::new();
+        StreamPipe::process_stream(
+            response,
+            route.provider.stream_idle_timeout_ms,
+            provider_decoder.as_mut(),
+            |event| {
+                for frame in response_encoder.encode_event(&event)? {
+                    *emitted_frame = true;
+                    on_frame(frame)?;
+                }
+                Ok(())
+            },
+        )
+        .await
+    }
+
+    async fn send_upstream(
+        &self,
+        route: &ResolvedRoute,
+        request: &NeutralChatRequest,
+    ) -> Result<(Arc<dyn ProviderAdapter>, Response), ProxyError> {
         let adapter = get_adapter(&route.provider.protocol);
         let payload = adapter.build_request_payload(route, request)?;
-
-        // 从 KeyStore 安全取回秘钥
         let api_key = self
             .key_store
             .get_secret(&route.provider.api_key_ref)
             .await
             .unwrap_or_default();
+        let headers = adapter.build_headers(&route.provider, &api_key)?;
 
-        let headers_map = adapter.build_headers(&route.provider, &api_key)?;
-
-        let mut req_builder = self
+        let mut request_builder = self
             .http_client
             .post(&route.provider.generate_endpoint)
             .json(&payload);
-
-        for (k, v) in headers_map {
-            req_builder = req_builder.header(k, v);
+        for (name, value) in headers {
+            request_builder = request_builder.header(name, value);
         }
 
         let timeout_ms = if route.provider.request_timeout_ms > 0 {
@@ -151,39 +317,27 @@ impl ProxyServer {
         } else {
             60000
         };
-
-        let response = req_builder
+        let response = request_builder
             .timeout(Duration::from_millis(timeout_ms))
             .send()
             .await
-            .map_err(|e| {
-                if e.is_timeout() {
+            .map_err(|error| {
+                if error.is_timeout() {
                     ProxyError::new(
                         ErrorCategory::Timeout,
-                        format!("Upstream timeout: {}", e),
+                        format!("Upstream timeout: {error}"),
                         504,
                     )
                 } else {
                     ProxyError::new(
                         ErrorCategory::ConnectionFailed,
-                        format!("Failed to connect to upstream: {}", e),
+                        format!("Failed to connect to upstream: {error}"),
                         502,
                     )
                 }
             })?;
 
-        let status = response.status().as_u16();
-        let body_text = response.text().await.map_err(|e| {
-            ProxyError::new(
-                ErrorCategory::Internal,
-                format!("Failed to read upstream response body: {}", e),
-                500,
-            )
-        })?;
-
-        let neutral_resp = adapter.parse_response(status, &body_text, &route.upstream_model)?;
-        let encoded_resp = AntigravityResponseEncoder::encode_response(&neutral_resp);
-        Ok(encoded_resp)
+        Ok((adapter, response))
     }
 
     fn record_activity(
@@ -196,7 +350,7 @@ impl ProxyServer {
     ) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
+            .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
 
         self.activity_log.record(ActivityItem {

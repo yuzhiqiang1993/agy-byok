@@ -1,4 +1,4 @@
-use super::traits::ProviderAdapter;
+use super::traits::{ProviderAdapter, ProviderStreamDecoder};
 use crate::domain::model::ReasoningMapping;
 use crate::domain::response::{FinishReason, NeutralChoice};
 use crate::domain::{
@@ -8,7 +8,7 @@ use crate::domain::{
 use crate::routing::ResolvedRoute;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct GeminiAdapter;
@@ -22,7 +22,7 @@ impl GeminiAdapter {
         let role_str = match msg.role {
             MessageRole::User | MessageRole::System => "user",
             MessageRole::Assistant => "model",
-            MessageRole::Tool => "function",
+            MessageRole::Tool => "user",
         };
 
         let mut parts = Vec::new();
@@ -160,6 +160,166 @@ impl GeminiAdapter {
             | "IMAGE_PROHIBITED_CONTENT" => FinishReason::ContentFilter,
             _ => FinishReason::Other,
         }
+    }
+}
+
+struct GeminiStreamDecoder {
+    model: String,
+    response_started: bool,
+    response_ended: bool,
+    emitted_tool_calls: HashSet<(u32, u32)>,
+    finished_choices: HashSet<u32>,
+}
+
+impl GeminiStreamDecoder {
+    fn new(model: String) -> Self {
+        Self {
+            model,
+            response_started: false,
+            response_ended: false,
+            emitted_tool_calls: HashSet::new(),
+            finished_choices: HashSet::new(),
+        }
+    }
+
+    fn response_end(&mut self) -> Vec<NeutralStreamEvent> {
+        if self.response_ended {
+            Vec::new()
+        } else {
+            self.response_ended = true;
+            vec![NeutralStreamEvent::ResponseEnd]
+        }
+    }
+}
+
+impl ProviderStreamDecoder for GeminiStreamDecoder {
+    fn decode_data(&mut self, data: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
+        if self.response_ended {
+            return Ok(Vec::new());
+        }
+        if data.trim() == "[DONE]" {
+            return Ok(self.response_end());
+        }
+
+        let value: Value = serde_json::from_str(data).map_err(|error| {
+            ProxyError::new(
+                ErrorCategory::StreamInterrupted,
+                format!("Failed to parse Gemini stream data: {error}"),
+                502,
+            )
+        })?;
+
+        let mut events = Vec::new();
+        if !self.response_started {
+            self.response_started = true;
+            events.push(NeutralStreamEvent::ResponseStart {
+                response_id: value
+                    .get("responseId")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                model: self.model.clone(),
+            });
+        }
+
+        let mut finish_events = Vec::new();
+        if let Some(candidates) = value.get("candidates").and_then(Value::as_array) {
+            for (candidate_position, candidate) in candidates.iter().enumerate() {
+                let choice_index = candidate
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| u32::try_from(index).ok())
+                    .unwrap_or(candidate_position as u32);
+
+                if let Some(parts) = candidate
+                    .get("content")
+                    .and_then(|content| content.get("parts"))
+                    .and_then(Value::as_array)
+                {
+                    for (part_position, part) in parts.iter().enumerate() {
+                        let part_index = part_position as u32;
+                        if part
+                            .get("thought")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                                events.push(NeutralStreamEvent::ThinkingDelta {
+                                    choice_index,
+                                    text: text.to_string(),
+                                });
+                            }
+                        } else if let Some(text) = part.get("text").and_then(Value::as_str) {
+                            events.push(NeutralStreamEvent::TextDelta {
+                                choice_index,
+                                text: text.to_string(),
+                            });
+                        } else if let Some(function_call) = part.get("functionCall") {
+                            if self.emitted_tool_calls.insert((choice_index, part_index)) {
+                                let name = function_call
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string();
+                                let arguments = function_call
+                                    .get("args")
+                                    .cloned()
+                                    .unwrap_or(Value::Null)
+                                    .to_string();
+                                events.push(NeutralStreamEvent::ToolCallStart {
+                                    choice_index,
+                                    tool_call_index: part_index,
+                                    id: format!("call_{choice_index}_{part_index}"),
+                                    name,
+                                });
+                                events.push(NeutralStreamEvent::ToolCallArgumentsDelta {
+                                    choice_index,
+                                    tool_call_index: part_index,
+                                    arguments_delta: arguments,
+                                });
+                                events.push(NeutralStreamEvent::ToolCallEnd {
+                                    choice_index,
+                                    tool_call_index: part_index,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if let Some(reason) = candidate.get("finishReason").and_then(Value::as_str) {
+                    if self.finished_choices.insert(choice_index) {
+                        finish_events.push(NeutralStreamEvent::Finish {
+                            choice_index,
+                            reason: GeminiAdapter::normalize_finish_reason(reason),
+                            raw_finish_reason: Some(reason.to_string()),
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(usage) = value.get("usageMetadata").and_then(Value::as_object) {
+            events.push(NeutralStreamEvent::UsageUpdate(UsageInfo {
+                prompt_tokens: usage
+                    .get("promptTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                completion_tokens: usage
+                    .get("candidatesTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+                total_tokens: usage
+                    .get("totalTokenCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32,
+            }));
+        }
+
+        events.extend(finish_events);
+        Ok(events)
+    }
+
+    fn finish(&mut self) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
+        Ok(self.response_end())
     }
 }
 
@@ -353,91 +513,171 @@ impl ProviderAdapter for GeminiAdapter {
         })
     }
 
-    fn parse_stream_chunk(&self, chunk: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
-        let mut content_events = Vec::new();
-        let mut usage_events = Vec::new();
-        let mut finish_events = Vec::new();
-        for line in chunk.lines() {
-            let line = line.trim();
-            if !line.starts_with("data:") {
-                continue;
-            }
-            let data_str = line["data:".len()..].trim();
-            let val: Value = match serde_json::from_str(data_str) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
+    fn create_stream_decoder(
+        &self,
+        upstream_model: &UpstreamModel,
+    ) -> Box<dyn ProviderStreamDecoder> {
+        Box::new(GeminiStreamDecoder::new(
+            upstream_model.upstream_model_id.clone(),
+        ))
+    }
+}
 
-            if let Some(candidates) = val["candidates"].as_array() {
-                for (candidate_position, candidate) in candidates.iter().enumerate() {
-                    let choice_index = candidate["index"]
-                        .as_u64()
-                        .and_then(|index| u32::try_from(index).ok())
-                        .unwrap_or(candidate_position as u32);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-                    if let Some(parts) = candidate["content"]["parts"].as_array() {
-                        for (part_position, part) in parts.iter().enumerate() {
-                            if part
-                                .get("thought")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false)
-                            {
-                                if let Some(t) = part["text"].as_str() {
-                                    content_events.push(NeutralStreamEvent::ThinkingDelta {
-                                        choice_index,
-                                        text: t.to_string(),
-                                    });
-                                }
-                            } else if let Some(t) = part["text"].as_str() {
-                                content_events.push(NeutralStreamEvent::TextDelta {
-                                    choice_index,
-                                    text: t.to_string(),
-                                });
-                            } else if let Some(fc) = part.get("functionCall") {
-                                let name = fc["name"].as_str().map(|s| s.to_string());
-                                let args = fc["args"].to_string();
-                                content_events.push(NeutralStreamEvent::ToolCallDelta {
-                                    choice_index,
-                                    tool_call_index: part_position as u32,
-                                    id: None,
-                                    name,
-                                    arguments_delta: args,
-                                });
-                            }
+    #[test]
+    fn tool_messages_are_encoded_as_user_turns() {
+        let message = NeutralMessage {
+            role: MessageRole::Tool,
+            blocks: vec![NeutralContentBlock::ToolResult {
+                tool_call_id: "lookup".to_string(),
+                content: r#"{"result":"ok"}"#.to_string(),
+            }],
+        };
+
+        let converted = GeminiAdapter::convert_message(&message);
+
+        assert_eq!(converted["role"], "user");
+    }
+
+    #[test]
+    fn decoder_emits_all_candidates_with_usage_before_finish() {
+        let mut decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+
+        let events = decoder
+            .decode_data(
+                r#"{
+                    "responseId":"response-1",
+                    "candidates":[
+                        {
+                            "index":4,
+                            "content":{"parts":[
+                                {"text":"answer"},
+                                {"thought":true,"text":"reason"},
+                                {"functionCall":{"name":"lookup","args":{"query":"rust"}}}
+                            ]},
+                            "finishReason":"TOOL_CALL"
+                        },
+                        {
+                            "content":{"parts":[{"text":"alternative"}]},
+                            "finishReason":"MAX_TOKENS"
                         }
+                    ],
+                    "usageMetadata":{
+                        "promptTokenCount":3,
+                        "candidatesTokenCount":5,
+                        "totalTokenCount":8
                     }
+                }"#,
+            )
+            .unwrap();
 
-                    if let Some(reason) = candidate["finishReason"].as_str() {
-                        finish_events.push(NeutralStreamEvent::Finish {
-                            choice_index,
-                            reason: Self::normalize_finish_reason(reason),
-                            raw_finish_reason: Some(reason.to_string()),
-                        });
-                    }
-                }
-            }
+        assert_eq!(
+            events,
+            vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: Some("response-1".to_string()),
+                    model: "gemini-upstream".to_string(),
+                },
+                NeutralStreamEvent::TextDelta {
+                    choice_index: 4,
+                    text: "answer".to_string(),
+                },
+                NeutralStreamEvent::ThinkingDelta {
+                    choice_index: 4,
+                    text: "reason".to_string(),
+                },
+                NeutralStreamEvent::ToolCallStart {
+                    choice_index: 4,
+                    tool_call_index: 2,
+                    id: "call_4_2".to_string(),
+                    name: "lookup".to_string(),
+                },
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 4,
+                    tool_call_index: 2,
+                    arguments_delta: r#"{"query":"rust"}"#.to_string(),
+                },
+                NeutralStreamEvent::ToolCallEnd {
+                    choice_index: 4,
+                    tool_call_index: 2,
+                },
+                NeutralStreamEvent::TextDelta {
+                    choice_index: 1,
+                    text: "alternative".to_string(),
+                },
+                NeutralStreamEvent::UsageUpdate(UsageInfo {
+                    prompt_tokens: 3,
+                    completion_tokens: 5,
+                    total_tokens: 8,
+                }),
+                NeutralStreamEvent::Finish {
+                    choice_index: 4,
+                    reason: FinishReason::ToolCall,
+                    raw_finish_reason: Some("TOOL_CALL".to_string()),
+                },
+                NeutralStreamEvent::Finish {
+                    choice_index: 1,
+                    reason: FinishReason::MaxTokens,
+                    raw_finish_reason: Some("MAX_TOKENS".to_string()),
+                },
+            ]
+        );
+    }
 
-            if let Some(u) = val["usageMetadata"].as_object() {
-                let usage = UsageInfo {
-                    prompt_tokens: u
-                        .get("promptTokenCount")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                    completion_tokens: u
-                        .get("candidatesTokenCount")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                    total_tokens: u
-                        .get("totalTokenCount")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                };
-                usage_events.push(NeutralStreamEvent::UsageUpdate(usage));
-            }
-        }
+    #[test]
+    fn decoder_deduplicates_tool_parts_and_choice_finish() {
+        let mut decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+        let data = r#"{
+            "candidates":[{
+                "index":2,
+                "content":{"parts":[{
+                    "functionCall":{"name":"lookup","args":{"query":"rust"}}
+                }]},
+                "finishReason":"STOP"
+            }]
+        }"#;
 
-        content_events.extend(usage_events);
-        content_events.extend(finish_events);
-        Ok(content_events)
+        let first_events = decoder.decode_data(data).unwrap();
+        let repeated_events = decoder.decode_data(data).unwrap();
+
+        assert_eq!(first_events.len(), 5);
+        assert!(repeated_events.is_empty());
+    }
+
+    #[test]
+    fn decoder_ends_once_for_done_or_eof() {
+        let mut done_decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+        assert_eq!(
+            done_decoder.decode_data("[DONE]").unwrap(),
+            vec![NeutralStreamEvent::ResponseEnd]
+        );
+        assert!(done_decoder.decode_data("{}").unwrap().is_empty());
+        assert!(done_decoder.finish().unwrap().is_empty());
+
+        let mut eof_decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+        assert_eq!(
+            eof_decoder.finish().unwrap(),
+            vec![NeutralStreamEvent::ResponseEnd]
+        );
+        assert!(eof_decoder.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn decoder_starts_without_response_id_and_rejects_invalid_json() {
+        let mut decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+        assert_eq!(
+            decoder.decode_data("{}").unwrap(),
+            vec![NeutralStreamEvent::ResponseStart {
+                response_id: None,
+                model: "gemini-upstream".to_string(),
+            }]
+        );
+
+        let error = decoder.decode_data("data: {}").unwrap_err();
+        assert_eq!(error.category, ErrorCategory::StreamInterrupted);
+        assert_eq!(error.status_code, 502);
     }
 }

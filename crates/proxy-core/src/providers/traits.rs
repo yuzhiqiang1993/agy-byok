@@ -4,11 +4,13 @@ use crate::domain::{
 };
 use crate::routing::ResolvedRoute;
 use async_trait::async_trait;
-use futures::Stream;
 use std::collections::HashMap;
-use std::pin::Pin;
 
-pub type EventStream = Pin<Box<dyn Stream<Item = Result<NeutralStreamEvent, ProxyError>> + Send>>;
+pub trait ProviderStreamDecoder: Send {
+    fn decode_data(&mut self, data: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError>;
+
+    fn finish(&mut self) -> Result<Vec<NeutralStreamEvent>, ProxyError>;
+}
 
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
@@ -34,6 +36,9 @@ pub trait ProviderAdapter: Send + Sync {
         upstream_model: &UpstreamModel,
     ) -> Result<NeutralChatResponse, ProxyError>;
 
-    /// 解析 SSE chunk 为 0~N 个 NeutralStreamEvent
-    fn parse_stream_chunk(&self, chunk: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError>;
+    /// 为单次上游请求创建独立的有状态流解码器
+    fn create_stream_decoder(
+        &self,
+        upstream_model: &UpstreamModel,
+    ) -> Box<dyn ProviderStreamDecoder>;
 }

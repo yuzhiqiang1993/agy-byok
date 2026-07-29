@@ -42,4 +42,42 @@ impl MockProviderServer {
 
         (url, handle)
     }
+
+    pub async fn start_chunked(
+        status: u16,
+        chunks: Vec<Vec<u8>>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
+
+        let handle = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let service = hyper::service::service_fn(move |_request| {
+                    let chunks = chunks.clone();
+                    async move {
+                        let frames = chunks.into_iter().map(|chunk| {
+                            Ok::<_, Infallible>(hyper::body::Frame::data(bytes::Bytes::from(chunk)))
+                        });
+                        let body = http_body_util::StreamBody::new(futures::stream::iter(frames));
+                        let response = hyper::Response::builder()
+                            .status(status)
+                            .header("Content-Type", "text/event-stream")
+                            .body(body)
+                            .unwrap();
+                        Ok::<_, Infallible>(response)
+                    }
+                });
+
+                let _ = hyper_util::server::conn::auto::Builder::new(
+                    hyper_util::rt::TokioExecutor::new(),
+                )
+                .serve_connection(io, service)
+                .await;
+            }
+        });
+
+        (url, handle)
+    }
 }

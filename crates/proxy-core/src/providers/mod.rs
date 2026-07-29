@@ -6,7 +6,7 @@ pub mod traits;
 pub use anthropic::AnthropicAdapter;
 pub use gemini::GeminiAdapter;
 pub use openai::OpenAIAdapter;
-pub use traits::{EventStream, ProviderAdapter};
+pub use traits::{ProviderAdapter, ProviderStreamDecoder};
 
 use crate::domain::ProviderProtocol;
 use std::sync::Arc;

@@ -4,4 +4,4 @@ pub mod response_encoder;
 
 pub use model_descriptor::AntigravityModelDescriptor;
 pub use request_parser::AntigravityRequestParser;
-pub use response_encoder::AntigravityResponseEncoder;
+pub use response_encoder::{AntigravityResponseEncoder, AntigravityStreamEncoder};

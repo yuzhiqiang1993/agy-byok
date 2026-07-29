@@ -33,17 +33,18 @@ AGY BYOK 只解决四个核心问题：
 
 ## 当前状态
 
-当前代码位于 `crates/proxy-core/`，已经建立领域模型和三种 Provider Adapter 原型，但还没有形成真实的入站 HTTP 代理。
+当前代码位于 `crates/proxy-core/`，已经建立 Canonical Protocol、三种 Provider Adapter 和内部 SSE 数据面，但还没有形成真实的入站 HTTP 代理。
 
 | 范围 | 当前状态 |
 | :--- | :--- |
 | Cargo Workspace 与架构契约 | 已建立 |
-| Provider、UpstreamModel、VirtualModel | 原型已建立 |
-| OpenAI、Anthropic、Gemini Adapter | 基础非流式转换已实现 |
-| Mock 上游请求与模型列表注入 | 已有 7 个测试覆盖 |
+| Provider、UpstreamModel、VirtualModel | 已建立 |
+| Canonical Protocol 与 Reasoning Capability | 已建立 |
+| OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
+| Mock 上游、协议与流式数据面 | 已有 36 个测试覆盖 |
 | `127.0.0.1:50999` HTTP 监听 | 未实现 |
-| SSE 端到端流式转发 | 未实现 |
-| 完整 Tool Call/Thinking 状态机 | 未实现 |
+| SSE 端到端流式转发 | 内部数据面已实现，入站 HTTP 输出未接入 |
+| Tool Call/Thinking 状态机 | Provider 与 Egress 聚合已实现，宿主 Tool Result 关联待 Fixture |
 | Tauri 2 菜单栏和管理界面 | 未实现 |
 | Antigravity App/IDE 接入与恢复 | 未实现 |
 
@@ -147,7 +148,7 @@ cargo test --workspace --locked
 
 ### 当前限制
 
-`cargo run -p agy-byok` 目前只启动原型进程并等待 `Ctrl-C`，不会绑定 `50999`。在 HTTP Server、Health Probe 和配置持久化接入前，不应将进程日志中的“initialized”视为代理已经可用。
+`cargo run -p agy-byok` 目前只启动原型进程并等待 `Ctrl-C`，不会绑定 `50999`。内部已经可以通过 `ProxyServer::handle_chat_stream` 验证流式数据面，但在 HTTP Server、Health Probe 和配置持久化接入前，不应将进程日志中的“initialized”视为代理已经可用。
 
 ## 实现原则
 
@@ -188,18 +189,18 @@ cargo test --workspace --locked
 
 ### M1：Canonical 与 Adapter 收口
 
-- [ ] 重构中立 Request、Response 和 Stream Event
-- [ ] 建立强类型 Reasoning Capability
-- [ ] 修复 Tool Call ID 和并行调用关联
+- [x] 重构中立 Request、Response 和 Stream Event
+- [x] 建立强类型 Reasoning Capability
+- [ ] 完成宿主 Tool Result 与真实 Tool Call ID 的 Fixture 和关联验证
 - [ ] 收紧 `extra_body` 和配置不变量
-- [ ] 完善三种 Adapter 非流式测试
+- [x] 完善三种 Adapter 非流式测试
 
 ### M2：HTTP 与 SSE
 
 - [ ] 实现 Loopback HTTP Server 和 Health Probe
 - [ ] 实现原生模型透明转发
-- [ ] 实现增量 UTF-8、SSE Frame 和 Provider Decoder
-- [ ] 实现取消、超时、并发限制和 Graceful Shutdown
+- [x] 实现增量 UTF-8、SSE Frame 和 Provider Decoder
+- [ ] 实现取消、总超时、并发限制和 Graceful Shutdown
 
 ### M3：Tauri 控制面
 

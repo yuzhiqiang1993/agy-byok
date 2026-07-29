@@ -434,46 +434,56 @@ mod tests {
     #[test]
     fn openai_stream_preserves_choice_and_tool_indexes() {
         let adapter = OpenAIAdapter::new();
-        let chunk = format!(
-            "data: {}\n\n",
-            json!({
-                "choices": [
-                    {
-                        "index": 2,
-                        "delta": {
-                            "content": "hello",
-                            "tool_calls": [{
-                                "index": 4,
-                                "id": "call-4",
-                                "function": { "name": "lookup", "arguments": "{\"id\":" }
-                            }]
-                        },
-                        "finish_reason": null
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        let data = json!({
+            "id": "chat-stream",
+            "model": "gpt-stream",
+            "choices": [
+                {
+                    "index": 2,
+                    "delta": {
+                        "content": "hello",
+                        "tool_calls": [{
+                            "index": 4,
+                            "id": "call-4",
+                            "function": { "name": "lookup", "arguments": "{\"id\":" }
+                        }]
                     },
-                    { "index": 3, "delta": {}, "finish_reason": "length" }
-                ],
-                "usage": {
-                    "prompt_tokens": 1,
-                    "completion_tokens": 2,
-                    "total_tokens": 3
-                }
-            })
-        );
+                    "finish_reason": "tool_calls"
+                },
+                { "index": 3, "delta": {}, "finish_reason": "length" }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "total_tokens": 3
+            }
+        })
+        .to_string();
 
-        let events = adapter.parse_stream_chunk(&chunk).unwrap();
+        let events = decoder.decode_data(&data).unwrap();
 
         assert_eq!(
             events,
             vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: Some("chat-stream".to_string()),
+                    model: "gpt-stream".to_string(),
+                },
                 NeutralStreamEvent::TextDelta {
                     choice_index: 2,
                     text: "hello".to_string(),
                 },
-                NeutralStreamEvent::ToolCallDelta {
+                NeutralStreamEvent::ToolCallStart {
                     choice_index: 2,
                     tool_call_index: 4,
-                    id: Some("call-4".to_string()),
-                    name: Some("lookup".to_string()),
+                    id: "call-4".to_string(),
+                    name: "lookup".to_string(),
+                },
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 2,
+                    tool_call_index: 4,
                     arguments_delta: "{\"id\":".to_string(),
                 },
                 NeutralStreamEvent::UsageUpdate(UsageInfo {
@@ -481,6 +491,15 @@ mod tests {
                     completion_tokens: 2,
                     total_tokens: 3,
                 }),
+                NeutralStreamEvent::ToolCallEnd {
+                    choice_index: 2,
+                    tool_call_index: 4,
+                },
+                NeutralStreamEvent::Finish {
+                    choice_index: 2,
+                    reason: FinishReason::ToolCall,
+                    raw_finish_reason: Some("tool_calls".to_string()),
+                },
                 NeutralStreamEvent::Finish {
                     choice_index: 3,
                     reason: FinishReason::MaxTokens,
@@ -491,94 +510,257 @@ mod tests {
     }
 
     #[test]
-    fn openai_done_marker_does_not_fabricate_finish_event() {
-        let events = OpenAIAdapter::new()
-            .parse_stream_chunk("data: [DONE]\n\n")
+    fn openai_stream_buffers_arguments_until_tool_metadata_arrives() {
+        let adapter = OpenAIAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+
+        let first_events = decoder
+            .decode_data(
+                &json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 1,
+                                "function": { "arguments": "{\"id\":" }
+                            }]
+                        },
+                        "finish_reason": null
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let second_events = decoder
+            .decode_data(
+                &json!({
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{
+                                "index": 1,
+                                "id": "call-1",
+                                "function": { "name": "lookup", "arguments": "1}" }
+                            }]
+                        },
+                        "finish_reason": "tool_calls"
+                    }]
+                })
+                .to_string(),
+            )
             .unwrap();
 
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn anthropic_stream_uses_content_block_index() {
-        let adapter = AnthropicAdapter::new();
-        let chunk = format!(
-            "data: {}\n\ndata: {}\n\n",
-            json!({
-                "type": "content_block_delta",
-                "index": 6,
-                "delta": { "type": "input_json_delta", "partial_json": "{\"q\":" }
-            }),
-            json!({
-                "type": "message_delta",
-                "delta": { "stop_reason": "tool_use" },
-                "usage": { "output_tokens": 9 }
-            })
-        );
-
-        let events = adapter.parse_stream_chunk(&chunk).unwrap();
-
         assert_eq!(
-            events,
+            first_events,
+            vec![NeutralStreamEvent::ResponseStart {
+                response_id: None,
+                model: "test-model".to_string(),
+            }]
+        );
+        assert_eq!(
+            second_events,
             vec![
-                NeutralStreamEvent::ToolCallDelta {
+                NeutralStreamEvent::ToolCallStart {
                     choice_index: 0,
-                    tool_call_index: 6,
-                    id: None,
-                    name: None,
-                    arguments_delta: "{\"q\":".to_string(),
+                    tool_call_index: 1,
+                    id: "call-1".to_string(),
+                    name: "lookup".to_string(),
                 },
-                NeutralStreamEvent::UsageUpdate(UsageInfo {
-                    prompt_tokens: 0,
-                    completion_tokens: 9,
-                    total_tokens: 9,
-                }),
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 0,
+                    tool_call_index: 1,
+                    arguments_delta: "{\"id\":".to_string(),
+                },
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 0,
+                    tool_call_index: 1,
+                    arguments_delta: "1}".to_string(),
+                },
+                NeutralStreamEvent::ToolCallEnd {
+                    choice_index: 0,
+                    tool_call_index: 1,
+                },
                 NeutralStreamEvent::Finish {
                     choice_index: 0,
                     reason: FinishReason::ToolCall,
-                    raw_finish_reason: Some("tool_use".to_string()),
+                    raw_finish_reason: Some("tool_calls".to_string()),
                 },
             ]
         );
     }
 
     #[test]
-    fn gemini_stream_uses_candidate_and_part_indexes() {
-        let adapter = GeminiAdapter::new();
-        let chunk = format!(
-            "data: {}\n\n",
-            json!({
-                "candidates": [{
-                    "index": 5,
-                    "content": { "parts": [
-                        { "text": "hello" },
-                        { "functionCall": { "name": "lookup", "args": { "id": 1 } } }
-                    ] },
-                    "finishReason": "STOP"
-                }],
-                "usageMetadata": {
-                    "promptTokenCount": 2,
-                    "candidatesTokenCount": 3,
-                    "totalTokenCount": 5
-                }
-            })
-        );
+    fn openai_done_marker_only_ends_response() {
+        let adapter = OpenAIAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
 
-        let events = adapter.parse_stream_chunk(&chunk).unwrap();
+        assert_eq!(
+            decoder.decode_data("[DONE]").unwrap(),
+            vec![NeutralStreamEvent::ResponseEnd]
+        );
+        assert!(decoder.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn anthropic_stream_uses_content_block_index() {
+        let adapter = AnthropicAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        let mut events = Vec::new();
+        for data in [
+            json!({
+                "type": "message_start",
+                "message": {
+                    "id": "message-1",
+                    "model": "claude-stream",
+                    "usage": { "input_tokens": 2, "output_tokens": 0 }
+                }
+            }),
+            json!({
+                "type": "content_block_start",
+                "index": 6,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "tool-6",
+                    "name": "lookup",
+                    "input": {}
+                }
+            }),
+            json!({
+                "type": "content_block_delta",
+                "index": 6,
+                "delta": { "type": "input_json_delta", "partial_json": "{\"q\":1}" }
+            }),
+            json!({ "type": "content_block_stop", "index": 6 }),
+            json!({
+                "type": "message_delta",
+                "delta": { "stop_reason": "tool_use" },
+                "usage": { "output_tokens": 9 }
+            }),
+            json!({ "type": "message_stop" }),
+        ] {
+            events.extend(decoder.decode_data(&data.to_string()).unwrap());
+        }
 
         assert_eq!(
             events,
             vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: Some("message-1".to_string()),
+                    model: "claude-stream".to_string(),
+                },
+                NeutralStreamEvent::ToolCallStart {
+                    choice_index: 0,
+                    tool_call_index: 6,
+                    id: "tool-6".to_string(),
+                    name: "lookup".to_string(),
+                },
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 0,
+                    tool_call_index: 6,
+                    arguments_delta: "{\"q\":1}".to_string(),
+                },
+                NeutralStreamEvent::ToolCallEnd {
+                    choice_index: 0,
+                    tool_call_index: 6,
+                },
+                NeutralStreamEvent::UsageUpdate(UsageInfo {
+                    prompt_tokens: 2,
+                    completion_tokens: 9,
+                    total_tokens: 11,
+                }),
+                NeutralStreamEvent::Finish {
+                    choice_index: 0,
+                    reason: FinishReason::ToolCall,
+                    raw_finish_reason: Some("tool_use".to_string()),
+                },
+                NeutralStreamEvent::ResponseEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn anthropic_stream_rejects_delta_for_unopened_block() {
+        let adapter = AnthropicAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        decoder
+            .decode_data(
+                &json!({
+                    "type": "message_start",
+                    "message": { "id": "message-1", "model": "claude-stream" }
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+        let error = decoder
+            .decode_data(
+                &json!({
+                    "type": "content_block_delta",
+                    "index": 3,
+                    "delta": { "type": "input_json_delta", "partial_json": "{}" }
+                })
+                .to_string(),
+            )
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::StreamInterrupted);
+    }
+
+    #[test]
+    fn gemini_stream_uses_candidate_and_part_indexes() {
+        let adapter = GeminiAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        let data = json!({
+            "responseId": "gemini-stream",
+            "candidates": [{
+                "index": 5,
+                "content": { "parts": [
+                    { "text": "hello" },
+                    { "functionCall": { "name": "lookup", "args": { "id": 1 } } }
+                ] },
+                "finishReason": "STOP"
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 2,
+                "candidatesTokenCount": 3,
+                "totalTokenCount": 5
+            }
+        })
+        .to_string();
+
+        let mut events = decoder.decode_data(&data).unwrap();
+        events.extend(decoder.finish().unwrap());
+
+        assert_eq!(
+            events,
+            vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: Some("gemini-stream".to_string()),
+                    model: "test-model".to_string(),
+                },
                 NeutralStreamEvent::TextDelta {
                     choice_index: 5,
                     text: "hello".to_string(),
                 },
-                NeutralStreamEvent::ToolCallDelta {
+                NeutralStreamEvent::ToolCallStart {
                     choice_index: 5,
                     tool_call_index: 1,
-                    id: None,
-                    name: Some("lookup".to_string()),
+                    id: "call_5_1".to_string(),
+                    name: "lookup".to_string(),
+                },
+                NeutralStreamEvent::ToolCallArgumentsDelta {
+                    choice_index: 5,
+                    tool_call_index: 1,
                     arguments_delta: "{\"id\":1}".to_string(),
+                },
+                NeutralStreamEvent::ToolCallEnd {
+                    choice_index: 5,
+                    tool_call_index: 1,
                 },
                 NeutralStreamEvent::UsageUpdate(UsageInfo {
                     prompt_tokens: 2,
@@ -590,6 +772,7 @@ mod tests {
                     reason: FinishReason::Stop,
                     raw_finish_reason: Some("STOP".to_string()),
                 },
+                NeutralStreamEvent::ResponseEnd,
             ]
         );
     }

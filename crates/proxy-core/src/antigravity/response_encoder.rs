@@ -1,5 +1,9 @@
-use crate::domain::{FinishReason, NeutralChatResponse, NeutralContentBlock, NeutralStreamEvent};
+use crate::domain::{
+    ErrorCategory, FinishReason, NeutralChatResponse, NeutralContentBlock, NeutralStreamEvent,
+    ProxyError,
+};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub struct AntigravityResponseEncoder;
 
@@ -74,23 +78,49 @@ impl AntigravityResponseEncoder {
 
         payload.to_string()
     }
+}
 
-    pub fn encode_stream_event(event: &NeutralStreamEvent) -> Option<String> {
+#[derive(Debug)]
+struct PendingToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Debug, Default)]
+pub struct AntigravityStreamEncoder {
+    pending_tool_calls: HashMap<(u32, u32), PendingToolCall>,
+    response_ended: bool,
+}
+
+impl AntigravityStreamEncoder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn encode_event(&mut self, event: &NeutralStreamEvent) -> Result<Vec<String>, ProxyError> {
+        if self.response_ended {
+            return match event {
+                NeutralStreamEvent::ResponseEnd => Ok(Vec::new()),
+                _ => Err(Self::stream_error(
+                    "Received stream event after response end",
+                )),
+            };
+        }
+
         match event {
-            NeutralStreamEvent::TextDelta { choice_index, text } => {
-                let payload = json!({
-                    "candidates": [{
-                        "index": choice_index,
-                        "content": {
-                            "role": "model",
-                            "parts": [{ "text": text }]
-                        }
-                    }]
-                });
-                Some(format!("data: {}\n\n", payload))
-            }
+            NeutralStreamEvent::ResponseStart { .. } => Ok(Vec::new()),
+            NeutralStreamEvent::TextDelta { choice_index, text } => Ok(vec![Self::sse(json!({
+                "candidates": [{
+                    "index": choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{ "text": text }]
+                    }
+                }]
+            }))]),
             NeutralStreamEvent::ThinkingDelta { choice_index, text } => {
-                let payload = json!({
+                Ok(vec![Self::sse(json!({
                     "candidates": [{
                         "index": choice_index,
                         "content": {
@@ -98,42 +128,127 @@ impl AntigravityResponseEncoder {
                             "parts": [{ "thought": true, "text": text }]
                         }
                     }]
-                });
-                Some(format!("data: {}\n\n", payload))
+                }))])
             }
-            NeutralStreamEvent::ToolCallDelta { .. } => None,
-            NeutralStreamEvent::UsageUpdate(usage) => {
-                let payload = json!({
-                    "usageMetadata": {
-                        "promptTokenCount": usage.prompt_tokens,
-                        "candidatesTokenCount": usage.completion_tokens,
-                        "totalTokenCount": usage.total_tokens
-                    }
-                });
-                Some(format!("data: {}\n\n", payload))
+            NeutralStreamEvent::ToolCallStart {
+                choice_index,
+                tool_call_index,
+                id,
+                name,
+            } => {
+                let key = (*choice_index, *tool_call_index);
+                if self.pending_tool_calls.contains_key(&key) {
+                    return Err(Self::stream_error(format!(
+                        "Tool call choice {} index {} started more than once",
+                        choice_index, tool_call_index
+                    )));
+                }
+                self.pending_tool_calls.insert(
+                    key,
+                    PendingToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                        arguments: String::new(),
+                    },
+                );
+                Ok(Vec::new())
             }
+            NeutralStreamEvent::ToolCallArgumentsDelta {
+                choice_index,
+                tool_call_index,
+                arguments_delta,
+            } => {
+                let pending = self
+                    .pending_tool_calls
+                    .get_mut(&(*choice_index, *tool_call_index))
+                    .ok_or_else(|| {
+                        Self::stream_error(format!(
+                            "Tool arguments reference unopened choice {} index {}",
+                            choice_index, tool_call_index
+                        ))
+                    })?;
+                pending.arguments.push_str(arguments_delta);
+                Ok(Vec::new())
+            }
+            NeutralStreamEvent::ToolCallEnd {
+                choice_index,
+                tool_call_index,
+            } => {
+                let pending = self
+                    .pending_tool_calls
+                    .remove(&(*choice_index, *tool_call_index))
+                    .ok_or_else(|| {
+                        Self::stream_error(format!(
+                            "Tool end references unopened choice {} index {}",
+                            choice_index, tool_call_index
+                        ))
+                    })?;
+                let arguments = if pending.arguments.is_empty() {
+                    json!({})
+                } else {
+                    serde_json::from_str(&pending.arguments).map_err(|error| {
+                        Self::stream_error(format!(
+                            "Invalid tool arguments JSON for choice {} index {}: {}",
+                            choice_index, tool_call_index, error
+                        ))
+                    })?
+                };
+                Ok(vec![Self::sse(json!({
+                    "candidates": [{
+                        "index": choice_index,
+                        "content": {
+                            "role": "model",
+                            "parts": [{
+                                "functionCall": {
+                                    "id": pending.id,
+                                    "name": pending.name,
+                                    "args": arguments
+                                }
+                            }]
+                        }
+                    }]
+                }))])
+            }
+            NeutralStreamEvent::UsageUpdate(usage) => Ok(vec![Self::sse(json!({
+                "usageMetadata": {
+                    "promptTokenCount": usage.prompt_tokens,
+                    "candidatesTokenCount": usage.completion_tokens,
+                    "totalTokenCount": usage.total_tokens
+                }
+            }))]),
             NeutralStreamEvent::Finish {
                 choice_index,
                 reason,
                 ..
-            } => {
-                let payload = json!({
-                    "candidates": [{
-                        "index": choice_index,
-                        "finishReason": Self::finish_reason_value(*reason)
-                    }]
-                });
-                Some(format!("data: {}\n\n", payload))
+            } => Ok(vec![Self::sse(json!({
+                "candidates": [{
+                    "index": choice_index,
+                    "finishReason": AntigravityResponseEncoder::finish_reason_value(*reason)
+                }]
+            }))]),
+            NeutralStreamEvent::ResponseEnd => {
+                if !self.pending_tool_calls.is_empty() {
+                    return Err(Self::stream_error(
+                        "Response ended while tool calls were still open",
+                    ));
+                }
+                self.response_ended = true;
+                Ok(vec!["data: [DONE]\n\n".to_string()])
             }
-            NeutralStreamEvent::Error { message, code } => {
-                let payload = json!({
-                    "error": {
-                        "code": code,
-                        "message": message
-                    }
-                });
-                Some(format!("data: {}\n\n", payload))
-            }
+            NeutralStreamEvent::Error { message, code } => Ok(vec![Self::sse(json!({
+                "error": {
+                    "code": code,
+                    "message": message
+                }
+            }))]),
         }
+    }
+
+    fn sse(payload: Value) -> String {
+        format!("data: {}\n\n", payload)
+    }
+
+    fn stream_error(message: impl Into<String>) -> ProxyError {
+        ProxyError::new(ErrorCategory::StreamInterrupted, message, 502)
     }
 }

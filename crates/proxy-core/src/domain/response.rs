@@ -36,6 +36,10 @@ pub struct NeutralChatResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NeutralStreamEvent {
+    ResponseStart {
+        response_id: Option<String>,
+        model: String,
+    },
     TextDelta {
         choice_index: u32,
         text: String,
@@ -44,12 +48,20 @@ pub enum NeutralStreamEvent {
         choice_index: u32,
         text: String,
     },
-    ToolCallDelta {
+    ToolCallStart {
         choice_index: u32,
         tool_call_index: u32,
-        id: Option<String>,
-        name: Option<String>,
+        id: String,
+        name: String,
+    },
+    ToolCallArgumentsDelta {
+        choice_index: u32,
+        tool_call_index: u32,
         arguments_delta: String,
+    },
+    ToolCallEnd {
+        choice_index: u32,
+        tool_call_index: u32,
     },
     UsageUpdate(UsageInfo),
     Finish {
@@ -57,6 +69,7 @@ pub enum NeutralStreamEvent {
         reason: FinishReason,
         raw_finish_reason: Option<String>,
     },
+    ResponseEnd,
     Error {
         message: String,
         code: u16,

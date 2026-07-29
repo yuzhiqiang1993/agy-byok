@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::antigravity::{AntigravityRequestParser, AntigravityResponseEncoder};
+    use crate::antigravity::{
+        AntigravityRequestParser, AntigravityResponseEncoder, AntigravityStreamEncoder,
+    };
     use crate::domain::*;
     use crate::proxy::ProxyServer;
     use crate::storage::{AppConfig, ConfigStore, KeyStore, MemoryKeyStore};
@@ -96,6 +98,132 @@ mod tests {
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
         assert_eq!(activities[0].virtual_model_id, "vm-test-1");
+        assert_eq!(activities[0].status_code, 200);
+    }
+
+    #[tokio::test]
+    async fn proxy_server_streams_chunked_sse_with_complete_tool_call() {
+        let upstream_sse = format!(
+            "data: {}\n\ndata: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+            json!({
+                "id": "chat-stream-1",
+                "model": "gpt-4o",
+                "choices": [{
+                    "index": 0,
+                    "delta": { "content": "你" },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": "call-9",
+                            "function": { "name": "lookup", "arguments": "{\"id\":" }
+                        }]
+                    },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "function": { "arguments": "1}" }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5
+                }
+            })
+        );
+        let unicode_offset = upstream_sse.find('你').unwrap();
+        let upstream_bytes = upstream_sse.into_bytes();
+        let chunks = vec![
+            upstream_bytes[..unicode_offset + 1].to_vec(),
+            upstream_bytes[unicode_offset + 1..unicode_offset + 2].to_vec(),
+            upstream_bytes[unicode_offset + 2..].to_vec(),
+        ];
+        let (mock_url, _handle) = MockProviderServer::start_chunked(200, chunks).await;
+
+        let config = AppConfig {
+            providers: vec![Provider {
+                id: "p-stream".to_string(),
+                name: "Mock Stream Provider".to_string(),
+                protocol: ProviderProtocol::Openai,
+                models_endpoint: format!("{mock_url}/v1/models"),
+                generate_endpoint: format!("{mock_url}/v1/chat/completions"),
+                api_key_ref: "key-ref-stream".to_string(),
+                headers: HashMap::new(),
+                default_parameters: ParameterOverrides::default(),
+                connect_timeout_ms: 3000,
+                request_timeout_ms: 5000,
+                stream_idle_timeout_ms: 5000,
+                enabled: true,
+            }],
+            upstream_models: vec![UpstreamModel {
+                id: "um-stream".to_string(),
+                provider_id: "p-stream".to_string(),
+                upstream_model_id: "gpt-4o".to_string(),
+                display_name: "GPT-4o".to_string(),
+                capabilities: ModelCapabilities {
+                    vision: false,
+                    tools: true,
+                    reasoning: ReasoningCapability::default(),
+                },
+                parameter_overrides: ParameterOverrides::default(),
+                enabled: true,
+            }],
+            virtual_models: vec![VirtualModel {
+                id: "vm-stream".to_string(),
+                upstream_model_id: "um-stream".to_string(),
+                display_name: "Stream Model".to_string(),
+                default_reasoning_level: None,
+                parameter_overrides: ParameterOverrides::default(),
+                fallback_virtual_model_id: None,
+                enabled: true,
+            }],
+        };
+        let key_store = Arc::new(MemoryKeyStore::new());
+        key_store
+            .set_secret("key-ref-stream", "sk-stream")
+            .await
+            .unwrap();
+        let server = ProxyServer::new(ConfigStore::in_memory(config), key_store, 0);
+        let request = NeutralChatRequest {
+            virtual_model_id: "vm-stream".to_string(),
+            messages: vec![NeutralMessage {
+                role: MessageRole::User,
+                blocks: vec![NeutralContentBlock::Text("stream".to_string())],
+            }],
+            system_instruction: None,
+            tools: vec![],
+            reasoning_level: None,
+            stream: true,
+            generation_parameters: ParameterOverrides::default(),
+            extra_body: HashMap::new(),
+        };
+
+        let response = server.handle_chat_request(&request).await.unwrap();
+
+        assert!(response.contains('你'));
+        assert!(response.contains("\"id\":\"call-9\""));
+        assert!(response.contains("\"args\":{\"id\":1}"));
+        assert_eq!(response.matches("data: [DONE]").count(), 1);
+        assert!(
+            response.find("\"functionCall\"").unwrap()
+                < response.find("\"finishReason\":\"TOOL_CALL\"").unwrap()
+        );
+        let activities = server.activity_log().get_recent();
+        assert_eq!(activities.len(), 1);
         assert_eq!(activities[0].status_code, 200);
     }
 
@@ -238,18 +366,89 @@ mod tests {
     }
 
     #[test]
-    fn antigravity_stream_encoder_does_not_treat_tool_argument_delta_as_complete_json() {
-        let event = NeutralStreamEvent::ToolCallDelta {
-            choice_index: 0,
-            tool_call_index: 0,
-            id: Some("call-1".to_string()),
-            name: Some("lookup".to_string()),
-            arguments_delta: "{\"id\":".to_string(),
-        };
+    fn antigravity_stream_encoder_waits_for_complete_tool_arguments() {
+        let mut encoder = AntigravityStreamEncoder::new();
 
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::ToolCallStart {
+                choice_index: 0,
+                tool_call_index: 1,
+                id: "call-1".to_string(),
+                name: "lookup".to_string(),
+            })
+            .unwrap()
+            .is_empty());
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::ToolCallArgumentsDelta {
+                choice_index: 0,
+                tool_call_index: 1,
+                arguments_delta: "{\"id\":".to_string(),
+            })
+            .unwrap()
+            .is_empty());
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::ToolCallArgumentsDelta {
+                choice_index: 0,
+                tool_call_index: 1,
+                arguments_delta: "1}".to_string(),
+            })
+            .unwrap()
+            .is_empty());
+
+        let frames = encoder
+            .encode_event(&NeutralStreamEvent::ToolCallEnd {
+                choice_index: 0,
+                tool_call_index: 1,
+            })
+            .unwrap();
+        let payload: serde_json::Value =
+            serde_json::from_str(frames[0].strip_prefix("data: ").unwrap().trim()).unwrap();
         assert_eq!(
-            AntigravityResponseEncoder::encode_stream_event(&event),
-            None
+            payload["candidates"][0]["content"]["parts"][0]["functionCall"]["id"],
+            "call-1"
         );
+        assert_eq!(
+            payload["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["id"],
+            1
+        );
+        assert_eq!(
+            encoder
+                .encode_event(&NeutralStreamEvent::ResponseEnd)
+                .unwrap(),
+            vec!["data: [DONE]\n\n".to_string()]
+        );
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::ResponseEnd)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn antigravity_stream_encoder_rejects_invalid_tool_arguments() {
+        let mut encoder = AntigravityStreamEncoder::new();
+        encoder
+            .encode_event(&NeutralStreamEvent::ToolCallStart {
+                choice_index: 0,
+                tool_call_index: 0,
+                id: "call-1".to_string(),
+                name: "lookup".to_string(),
+            })
+            .unwrap();
+        encoder
+            .encode_event(&NeutralStreamEvent::ToolCallArgumentsDelta {
+                choice_index: 0,
+                tool_call_index: 0,
+                arguments_delta: "{\"id\":".to_string(),
+            })
+            .unwrap();
+
+        let error = encoder
+            .encode_event(&NeutralStreamEvent::ToolCallEnd {
+                choice_index: 0,
+                tool_call_index: 0,
+            })
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::StreamInterrupted);
     }
 }
