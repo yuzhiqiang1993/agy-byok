@@ -15,6 +15,10 @@ impl AntigravityRequestParser {
                 400,
             )
         })?;
+        let request_payload = val
+            .get("request")
+            .filter(|request| request.is_object())
+            .unwrap_or(&val);
 
         // 从多种可能位置查找 virtual_model_id
         let virtual_model_id = val["model"]
@@ -31,15 +35,22 @@ impl AntigravityRequestParser {
             })?
             .to_string();
 
-        let stream = val["stream"].as_bool().unwrap_or(true);
-        let system_instruction = val["systemInstruction"]["parts"][0]["text"]
+        let stream = val["stream"]
+            .as_bool()
+            .or_else(|| request_payload["stream"].as_bool())
+            .unwrap_or(true);
+        let system_instruction = request_payload["systemInstruction"]["parts"][0]["text"]
             .as_str()
+            .or_else(|| request_payload["system_instruction"].as_str())
+            .or_else(|| val["systemInstruction"]["parts"][0]["text"].as_str())
             .or_else(|| val["system_instruction"].as_str())
             .map(|s| s.to_string());
 
         let mut messages = Vec::new();
-        if let Some(contents) = val["contents"]
+        if let Some(contents) = request_payload["contents"]
             .as_array()
+            .or_else(|| request_payload["messages"].as_array())
+            .or_else(|| val["contents"].as_array())
             .or_else(|| val["messages"].as_array())
         {
             for (message_index, item) in contents.iter().enumerate() {
@@ -95,7 +106,10 @@ impl AntigravityRequestParser {
         }
 
         let mut tools = Vec::new();
-        if let Some(tool_arr) = val["tools"].as_array() {
+        if let Some(tool_arr) = request_payload["tools"]
+            .as_array()
+            .or_else(|| val["tools"].as_array())
+        {
             for t in tool_arr {
                 if let Some(decls) = t["functionDeclarations"].as_array() {
                     for decl in decls {
@@ -114,7 +128,10 @@ impl AntigravityRequestParser {
             }
         }
 
-        let gen_config = &val["generationConfig"];
+        let gen_config = request_payload
+            .get("generationConfig")
+            .filter(|config| config.is_object())
+            .unwrap_or(&val["generationConfig"]);
         let generation_parameters = ParameterOverrides {
             temperature: gen_config["temperature"].as_f64().map(|v| v as f32),
             max_tokens: gen_config["maxOutputTokens"].as_u64().map(|v| v as u32),

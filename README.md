@@ -40,8 +40,9 @@ AGY BYOK 只解决四个核心问题：
 | Cargo Workspace 与架构契约 | 已建立 |
 | Provider、UpstreamModel、VirtualModel | 已建立 |
 | Canonical Protocol 与 Reasoning Capability | 已建立 |
+| Cloud Code 生成请求与响应 Envelope | 已实现，模型发现 Fixture 待补 |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
-| Mock 上游、协议与流式数据面 | 已有 45 个测试覆盖 |
+| Mock 上游、协议与流式数据面 | 已有 47 个测试覆盖 |
 | `127.0.0.1:50999` HTTP 监听与 Health Probe | 已实现 |
 | SSE 端到端流式转发 | 自定义 VirtualModel HTTP 路径已实现 |
 | 配置持久化与启动校验 | 已实现，管理 UI 尚未接入 |

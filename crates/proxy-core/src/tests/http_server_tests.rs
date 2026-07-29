@@ -171,9 +171,13 @@ mod tests {
             ))
             .header("x-agy-byok-token", token)
             .json(&json!({
+                "project": "antigravity-internal-project",
+                "requestId": "request-1",
                 "model": "virtual-1",
-                "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }],
-                "stream": true
+                "request": {
+                    "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }],
+                    "generationConfig": { "temperature": 0.2 }
+                }
             }))
             .send()
             .await
@@ -182,7 +186,7 @@ mod tests {
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = response.json().await.unwrap();
         assert_eq!(
-            body["candidates"][0]["content"]["parts"][0]["text"],
+            body["response"]["candidates"][0]["content"]["parts"][0]["text"],
             "HTTP response"
         );
 
@@ -231,9 +235,12 @@ mod tests {
             ))
             .header("x-agy-byok-token", token)
             .json(&json!({
+                "project": "antigravity-internal-project",
+                "requestId": "request-stream-1",
                 "model": "virtual-1",
-                "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }],
-                "stream": false
+                "request": {
+                    "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }]
+                }
             }))
             .send()
             .await
@@ -245,8 +252,9 @@ mod tests {
         );
         let body = response.text().await.unwrap();
         assert!(body.contains("streamed"));
+        assert!(body.contains("\"response\""));
         assert!(body.contains("\"finishReason\":\"STOP\""));
-        assert_eq!(body.matches("data: [DONE]").count(), 1);
+        assert!(!body.contains("data: [DONE]"));
 
         drop(client);
         handle.shutdown().await.unwrap();

@@ -1,5 +1,5 @@
 use super::server::ProxyServer;
-use crate::antigravity::AntigravityRequestParser;
+use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
 use crate::domain::{ErrorCategory, ProxyError};
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -340,7 +340,10 @@ async fn handle_generate_request(
     if !stream {
         let _permit = permit;
         return match proxy.handle_chat_request(&neutral_request).await {
-            Ok(body) => full_response(StatusCode::OK, "application/json", body),
+            Ok(body) => match CloudCodeEnvelopeEncoder::wrap_response(&body) {
+                Ok(envelope) => full_response(StatusCode::OK, "application/json", envelope),
+                Err(error) => proxy_error_response(&error),
+            },
             Err(error) => proxy_error_response(&error),
         };
     }
@@ -350,8 +353,11 @@ async fn handle_generate_request(
         let _permit = permit;
         let stream_result = proxy
             .handle_chat_stream(&neutral_request, |frame| {
+                let Some(envelope) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&frame)? else {
+                    return Ok(());
+                };
                 sender
-                    .try_send(Ok(Frame::data(Bytes::from(frame))))
+                    .try_send(Ok(Frame::data(Bytes::from(envelope))))
                     .map_err(|error| {
                         ProxyError::new(
                             ErrorCategory::StreamInterrupted,
@@ -370,10 +376,10 @@ async fn handle_generate_request(
                     "message": error.message
                 }
             });
-            let _ = sender.try_send(Ok(Frame::data(Bytes::from(format!(
-                "data: {}\n\n",
-                payload
-            )))));
+            let error_frame = format!("data: {}\n\n", payload);
+            if let Ok(Some(envelope)) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&error_frame) {
+                let _ = sender.try_send(Ok(Frame::data(Bytes::from(envelope))));
+            }
         }
     });
 
