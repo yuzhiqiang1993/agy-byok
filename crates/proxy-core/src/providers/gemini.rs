@@ -392,15 +392,11 @@ impl ProviderAdapter for GeminiAdapter {
         Ok(payload)
     }
 
-    fn build_headers(
-        &self,
-        provider: &Provider,
-        api_key: &str,
-    ) -> Result<HashMap<String, String>, ProxyError> {
+    fn build_headers(&self, provider: &Provider) -> Result<HashMap<String, String>, ProxyError> {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
-        if !api_key.is_empty() {
-            headers.insert("x-goog-api-key".to_string(), api_key.to_string());
+        if !provider.api_key.is_empty() {
+            headers.insert("x-goog-api-key".to_string(), provider.api_key.clone());
         }
 
         for (k, v) in &provider.headers {

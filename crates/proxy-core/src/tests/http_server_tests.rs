@@ -2,7 +2,7 @@
 mod tests {
     use crate::domain::*;
     use crate::proxy::{HttpServerOptions, LoopbackHttpServer, ProxyServer};
-    use crate::storage::{AppConfig, ConfigStore, KeyStore, MemoryKeyStore};
+    use crate::storage::{AppConfig, ConfigStore};
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::HashMap;
@@ -24,7 +24,7 @@ mod tests {
                 protocol: ProviderProtocol::Openai,
                 models_endpoint: "http://127.0.0.1/models".to_string(),
                 generate_endpoint,
-                api_key_ref: "key-1".to_string(),
+                api_key: "sk-test".to_string(),
                 headers: HashMap::new(),
                 default_parameters: ParameterOverrides::default(),
                 connect_timeout_ms: 3000,
@@ -47,6 +47,7 @@ mod tests {
             }],
             virtual_models: vec![VirtualModel {
                 id: "virtual-1".to_string(),
+                host_model_id: None,
                 upstream_model_id: "upstream-1".to_string(),
                 display_name: "Virtual Test".to_string(),
                 default_reasoning_level: None,
@@ -58,13 +59,7 @@ mod tests {
     }
 
     async fn create_proxy(config: AppConfig, port: u16) -> (Arc<ProxyServer>, String) {
-        let key_store = Arc::new(MemoryKeyStore::new());
-        key_store.set_secret("key-1", "sk-test").await.unwrap();
-        let proxy = Arc::new(ProxyServer::new(
-            ConfigStore::in_memory(config),
-            key_store,
-            port,
-        ));
+        let proxy = Arc::new(ProxyServer::new(ConfigStore::in_memory(config), port));
         let token = proxy.auth_manager().get_token().to_string();
         (proxy, token)
     }
@@ -96,6 +91,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+        let host_catalog = client
+            .post(format!("{base_url}/v1internal:fetchAvailableModels"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(host_catalog.status(), reqwest::StatusCode::OK);
 
         let models = client
             .get(format!("{base_url}/v1/models"))
@@ -255,6 +258,138 @@ mod tests {
         assert!(body.contains("\"response\""));
         assert!(body.contains("\"finishReason\":\"STOP\""));
         assert!(!body.contains("data: [DONE]"));
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_available_models_merges_official_and_custom_catalogs() {
+        let official_catalog = json!({
+            "models": {
+                "native-model": {
+                    "displayName": "Native Model",
+                    "model": "MODEL_NATIVE"
+                }
+            }
+        })
+        .to_string();
+        let (official_url, _official_handle) =
+            MockProviderServer::start(200, &official_catalog).await;
+        let (proxy, token) =
+            create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
+        let mut options = test_options();
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:fetchAvailableModels",
+                handle.local_addr()
+            ))
+            .header("x-agy-byok-token", token)
+            .json(&json!({ "project": "test-project" }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let catalog: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(catalog["models"].as_object().unwrap().len(), 2);
+        assert_eq!(catalog["models"]["native-model"]["model"], "MODEL_NATIVE");
+        let host_model_id = catalog["models"]["custom-virtual-1"]["requestedModel"]
+            .as_str()
+            .unwrap();
+        assert!(host_model_id.starts_with("MODEL_PLACEHOLDER_M"));
+        let custom_model = &catalog["models"]["custom-virtual-1"];
+        assert_eq!(custom_model["model"], custom_model["requestedModel"]);
+        assert!(custom_model["supportedMimeTypes"].is_object());
+        assert!(custom_model.get("id").is_none());
+        assert!(custom_model.get("name").is_none());
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_generation_is_forwarded_without_byok_envelope() {
+        let official_response = json!({
+            "response": { "candidates": [{ "native": true }] },
+            "traceId": "official"
+        })
+        .to_string();
+        let (official_url, _official_handle) =
+            MockProviderServer::start(200, &official_response).await;
+        let (proxy, token) =
+            create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
+        let mut options = test_options();
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:generateContent",
+                handle.local_addr()
+            ))
+            .header("x-agy-byok-token", token)
+            .json(&json!({
+                "model": "MODEL_NATIVE",
+                "request": { "contents": [] }
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), official_response);
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn host_model_id_routes_to_the_custom_provider() {
+        let upstream_body = json!({
+            "choices": [{
+                "index": 0,
+                "message": { "content": "host id routed" },
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string();
+        let (mock_url, _mock_handle) = MockProviderServer::start(200, &upstream_body).await;
+        let mut config = model_config(format!("{mock_url}/v1/chat/completions"));
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        let (proxy, token) = create_proxy(config, 0).await;
+        let handle = LoopbackHttpServer::start(proxy, test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:generateContent",
+                handle.local_addr()
+            ))
+            .header("x-agy-byok-token", token)
+            .json(&json!({
+                "model": "MODEL_PLACEHOLDER_M400",
+                "request": {
+                    "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }]
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(
+            body["response"]["candidates"][0]["content"]["parts"][0]["text"],
+            "host id routed"
+        );
 
         drop(client);
         handle.shutdown().await.unwrap();

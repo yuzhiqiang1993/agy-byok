@@ -53,10 +53,22 @@ impl AppConfig {
         }
 
         let mut virtual_ids = HashSet::new();
+        let mut host_model_ids = HashSet::new();
         for model in &self.virtual_models {
             validate_id("VirtualModel", &model.id)?;
             if !virtual_ids.insert(model.id.as_str()) {
                 return Err(format!("Duplicate VirtualModel ID: {}", model.id));
+            }
+            let host_model_id = model.effective_host_model_id().into_owned();
+            validate_id("VirtualModel host model", &host_model_id)?;
+            if !model.has_valid_host_model_id() {
+                return Err(format!(
+                    "VirtualModel {} host model ID must match MODEL_PLACEHOLDER_M400..M599",
+                    model.id
+                ));
+            }
+            if !host_model_ids.insert(host_model_id.clone()) {
+                return Err(format!("Duplicate host model ID: {host_model_id}"));
             }
             let upstream = self
                 .upstream_models
@@ -79,6 +91,18 @@ impl AppConfig {
         }
 
         for model in &self.virtual_models {
+            let host_model_id = model.effective_host_model_id();
+            if host_model_id.as_ref() != model.id
+                && self
+                    .virtual_models
+                    .iter()
+                    .any(|other| other.id == host_model_id.as_ref())
+            {
+                return Err(format!(
+                    "VirtualModel {} host model ID conflicts with another VirtualModel ID: {}",
+                    model.id, host_model_id
+                ));
+            }
             if let Some(fallback_id) = &model.fallback_virtual_model_id {
                 if fallback_id == &model.id {
                     return Err(format!(
@@ -212,7 +236,7 @@ mod tests {
                 protocol: ProviderProtocol::Openai,
                 models_endpoint: "https://api.example.com/v1/models".to_string(),
                 generate_endpoint: "https://api.example.com/v1/chat/completions".to_string(),
-                api_key_ref: "key-1".to_string(),
+                api_key: "sk-test".to_string(),
                 headers: HashMap::new(),
                 default_parameters: ParameterOverrides::default(),
                 connect_timeout_ms: 3000,
@@ -231,6 +255,7 @@ mod tests {
             }],
             virtual_models: vec![VirtualModel {
                 id: "virtual-1".to_string(),
+                host_model_id: None,
                 upstream_model_id: "upstream-1".to_string(),
                 display_name: "Virtual Test".to_string(),
                 default_reasoning_level: None,
@@ -253,8 +278,22 @@ mod tests {
         let reloaded = ConfigStore::load_from_file(&path).unwrap();
 
         assert_eq!(reloaded.get_config().providers[0].id, "provider-1");
+        assert_eq!(reloaded.get_config().providers[0].api_key, "sk-test");
         assert!(!path.with_extension("tmp").exists());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn provider_api_key_defaults_to_empty() {
+        let mut value = serde_json::to_value(sample_config()).unwrap();
+        value["providers"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("api_key");
+
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+
+        assert!(config.providers[0].api_key.is_empty());
     }
 
     #[test]
@@ -276,6 +315,34 @@ mod tests {
 
         config.providers[0].generate_endpoint =
             "http://api.example.com/v1/chat/completions".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn virtual_model_derives_a_stable_ide_placeholder() {
+        let config = sample_config();
+        let model = &config.virtual_models[0];
+        let before = model.effective_host_model_id().into_owned();
+        let mut renamed = model.clone();
+        renamed.display_name = "Renamed".to_string();
+
+        assert_eq!(renamed.effective_host_model_id(), before);
+        assert!(before.starts_with("MODEL_PLACEHOLDER_M"));
+        assert!(model.has_valid_host_model_id());
+    }
+
+    #[test]
+    fn config_validation_rejects_invalid_or_duplicate_host_model_ids() {
+        let mut config = sample_config();
+        config.virtual_models[0].host_model_id = Some("not-an-ide-placeholder".to_string());
+        assert!(config.validate().is_err());
+
+        let mut config = sample_config();
+        let mut duplicate = config.virtual_models[0].clone();
+        duplicate.id = "virtual-2".to_string();
+        duplicate.host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models.push(duplicate);
         assert!(config.validate().is_err());
     }
 }

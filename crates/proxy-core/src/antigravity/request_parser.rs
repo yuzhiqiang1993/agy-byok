@@ -7,6 +7,29 @@ use serde_json::Value;
 pub struct AntigravityRequestParser;
 
 impl AntigravityRequestParser {
+    pub fn extract_model_id(body: &str) -> Result<String, ProxyError> {
+        let val: Value = serde_json::from_str(body).map_err(|error| {
+            ProxyError::new(
+                ErrorCategory::InvalidRequest,
+                format!("Failed to parse Antigravity JSON request: {error}"),
+                400,
+            )
+        })?;
+        val["model"]
+            .as_str()
+            .or_else(|| val["requestedModel"].as_str())
+            .or_else(|| val["planModel"].as_str())
+            .or_else(|| val["request"]["model"].as_str())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| {
+                ProxyError::new(
+                    ErrorCategory::InvalidRequest,
+                    "Missing model ID in Antigravity request",
+                    400,
+                )
+            })
+    }
+
     pub fn parse(body: &str) -> Result<NeutralChatRequest, ProxyError> {
         let val: Value = serde_json::from_str(body).map_err(|e| {
             ProxyError::new(
@@ -20,20 +43,7 @@ impl AntigravityRequestParser {
             .filter(|request| request.is_object())
             .unwrap_or(&val);
 
-        // 从多种可能位置查找 virtual_model_id
-        let virtual_model_id = val["model"]
-            .as_str()
-            .or_else(|| val["requestedModel"].as_str())
-            .or_else(|| val["planModel"].as_str())
-            .or_else(|| val["request"]["model"].as_str())
-            .ok_or_else(|| {
-                ProxyError::new(
-                    ErrorCategory::InvalidRequest,
-                    "Missing model ID in Antigravity request",
-                    400,
-                )
-            })?
-            .to_string();
+        let virtual_model_id = Self::extract_model_id(body)?;
 
         let stream = val["stream"]
             .as_bool()

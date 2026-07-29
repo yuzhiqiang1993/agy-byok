@@ -48,7 +48,8 @@ pub struct Provider {
     pub protocol: ProviderProtocol,
     pub models_endpoint: String,
     pub generate_endpoint: String,
-    pub api_key_ref: String,
+    #[serde(default)]
+    pub api_key: String,
     pub headers: HashMap<String, String>,
     pub default_parameters: ParameterOverrides,
     pub connect_timeout_ms: u64,

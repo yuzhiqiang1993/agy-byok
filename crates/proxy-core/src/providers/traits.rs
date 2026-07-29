@@ -21,12 +21,8 @@ pub trait ProviderAdapter: Send + Sync {
         request: &NeutralChatRequest,
     ) -> Result<serde_json::Value, ProxyError>;
 
-    /// 构造包含 API Key 和自定义 Header 的 HTTP Headers
-    fn build_headers(
-        &self,
-        provider: &Provider,
-        api_key: &str,
-    ) -> Result<HashMap<String, String>, ProxyError>;
+    /// 根据 Provider 配置构造 API Key 和自定义 Header
+    fn build_headers(&self, provider: &Provider) -> Result<HashMap<String, String>, ProxyError>;
 
     /// 解析上游非流式响应 Payload 为 NeutralChatResponse
     fn parse_response(

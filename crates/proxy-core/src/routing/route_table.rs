@@ -43,7 +43,11 @@ impl RouteTable {
         let virtual_model = config
             .virtual_models
             .iter()
-            .find(|vm| vm.id == request.virtual_model_id && vm.enabled)
+            .find(|vm| {
+                vm.enabled
+                    && (vm.id == request.virtual_model_id
+                        || vm.effective_host_model_id() == request.virtual_model_id)
+            })
             .ok_or_else(|| {
                 ProxyError::new(
                     ErrorCategory::ModelNotFound,

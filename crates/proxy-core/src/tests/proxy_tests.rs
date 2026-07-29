@@ -5,11 +5,10 @@ mod tests {
     };
     use crate::domain::*;
     use crate::proxy::ProxyServer;
-    use crate::storage::{AppConfig, ConfigStore, KeyStore, MemoryKeyStore};
+    use crate::storage::{AppConfig, ConfigStore};
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn proxy_server_handles_end_to_end_chat() {
@@ -34,7 +33,7 @@ mod tests {
             protocol: ProviderProtocol::Openai,
             models_endpoint: format!("{}/v1/models", mock_url),
             generate_endpoint: format!("{}/v1/chat/completions", mock_url),
-            api_key_ref: "key-ref-test".to_string(),
+            api_key: "sk-mock-api-key".to_string(),
             headers: HashMap::new(),
             default_parameters: ParameterOverrides::default(),
             connect_timeout_ms: 3000,
@@ -55,6 +54,7 @@ mod tests {
 
         let virtual_model = VirtualModel {
             id: "vm-test-1".to_string(),
+            host_model_id: None,
             upstream_model_id: "um-test".to_string(),
             display_name: "Test Virtual Model".to_string(),
             default_reasoning_level: None,
@@ -70,13 +70,7 @@ mod tests {
         };
 
         let config_store = ConfigStore::in_memory(config);
-        let key_store = Arc::new(MemoryKeyStore::new());
-        key_store
-            .set_secret("key-ref-test", "sk-mock-api-key")
-            .await
-            .unwrap();
-
-        let server = ProxyServer::new(config_store, key_store, 0);
+        let server = ProxyServer::new(config_store, 0);
 
         let request = NeutralChatRequest {
             virtual_model_id: "vm-test-1".to_string(),
@@ -161,7 +155,7 @@ mod tests {
                 protocol: ProviderProtocol::Openai,
                 models_endpoint: format!("{mock_url}/v1/models"),
                 generate_endpoint: format!("{mock_url}/v1/chat/completions"),
-                api_key_ref: "key-ref-stream".to_string(),
+                api_key: "sk-stream".to_string(),
                 headers: HashMap::new(),
                 default_parameters: ParameterOverrides::default(),
                 connect_timeout_ms: 3000,
@@ -184,6 +178,7 @@ mod tests {
             }],
             virtual_models: vec![VirtualModel {
                 id: "vm-stream".to_string(),
+                host_model_id: None,
                 upstream_model_id: "um-stream".to_string(),
                 display_name: "Stream Model".to_string(),
                 default_reasoning_level: None,
@@ -192,12 +187,7 @@ mod tests {
                 enabled: true,
             }],
         };
-        let key_store = Arc::new(MemoryKeyStore::new());
-        key_store
-            .set_secret("key-ref-stream", "sk-stream")
-            .await
-            .unwrap();
-        let server = ProxyServer::new(ConfigStore::in_memory(config), key_store, 0);
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
         let request = NeutralChatRequest {
             virtual_model_id: "vm-stream".to_string(),
             messages: vec![NeutralMessage {
@@ -251,6 +241,7 @@ mod tests {
             }],
             virtual_models: vec![VirtualModel {
                 id: "vm-claude".to_string(),
+                host_model_id: Some("MODEL_PLACEHOLDER_M400".to_string()),
                 upstream_model_id: "um-1".to_string(),
                 display_name: "Claude 3.5 Sonnet BYOK".to_string(),
                 default_reasoning_level: None,
@@ -261,8 +252,7 @@ mod tests {
         };
 
         let config_store = ConfigStore::in_memory(config);
-        let key_store = Arc::new(MemoryKeyStore::new());
-        let server = ProxyServer::new(config_store, key_store, 0);
+        let server = ProxyServer::new(config_store, 0);
 
         let base_models_json = json!({
             "models": [

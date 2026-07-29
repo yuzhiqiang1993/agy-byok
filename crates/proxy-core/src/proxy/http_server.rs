@@ -2,6 +2,7 @@ use super::server::ProxyServer;
 use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
 use crate::domain::{ErrorCategory, ProxyError};
 use bytes::Bytes;
+use futures::StreamExt;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, Limited, StreamBody};
 use hyper::body::{Frame, Incoming};
@@ -10,7 +11,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
 use std::convert::Infallible;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -27,20 +28,24 @@ type HttpResponse = Response<HttpBody>;
 #[derive(Debug, Clone)]
 pub struct HttpServerOptions {
     pub require_auth: bool,
+    pub require_host_auth: bool,
     pub max_body_bytes: usize,
     pub max_concurrent_requests: usize,
     pub stream_buffer_capacity: usize,
     pub graceful_shutdown_timeout: Duration,
+    pub official_cloud_code_endpoint: Option<String>,
 }
 
 impl Default for HttpServerOptions {
     fn default() -> Self {
         Self {
             require_auth: true,
+            require_host_auth: false,
             max_body_bytes: 4 * 1024 * 1024,
             max_concurrent_requests: 64,
             stream_buffer_capacity: 32,
             graceful_shutdown_timeout: Duration::from_secs(15),
+            official_cloud_code_endpoint: None,
         }
     }
 }
@@ -97,6 +102,10 @@ impl LoopbackHttpServer {
                 "HTTP server limits must be greater than zero",
                 400,
             ));
+        }
+
+        if let Some(endpoint) = &options.official_cloud_code_endpoint {
+            validate_official_endpoint(endpoint)?;
         }
 
         let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, proxy.port()));
@@ -241,7 +250,14 @@ async fn handle_request(
     if matches!(route, RouteKind::Health) {
         return Ok(health_response());
     }
-    if options.require_auth && !is_authorized(&request, &proxy) {
+    let route_requires_auth = match route {
+        RouteKind::Models => options.require_auth,
+        RouteKind::FetchModels | RouteKind::Generate | RouteKind::StreamGenerate => {
+            options.require_host_auth
+        }
+        RouteKind::Health => false,
+    };
+    if route_requires_auth && !is_authorized(&request, &proxy) {
         return Ok(error_response(
             StatusCode::UNAUTHORIZED,
             "Missing or invalid local proxy token",
@@ -262,9 +278,12 @@ async fn handle_request(
 
     let response = match route {
         RouteKind::Health => unreachable!("health returned before authentication"),
-        RouteKind::Models | RouteKind::FetchModels => {
+        RouteKind::Models => {
             let _permit = permit;
             model_list_response(&proxy)
+        }
+        RouteKind::FetchModels => {
+            handle_fetch_models_request(request, proxy, options, permit).await
         }
         RouteKind::Generate => {
             handle_generate_request(request, proxy, options, permit, false).await
@@ -320,6 +339,234 @@ async fn probe_health(local_addr: SocketAddr) -> Result<(), ProxyError> {
     Ok(())
 }
 
+fn validate_official_endpoint(endpoint: &str) -> Result<(), ProxyError> {
+    let url = reqwest::Url::parse(endpoint).map_err(|error| {
+        ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            format!("Invalid official Cloud Code endpoint: {error}"),
+            400,
+        )
+    })?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            "Official Cloud Code endpoint must be an absolute HTTP(S) URL",
+            400,
+        ));
+    }
+    if url.scheme() == "http" {
+        let host = url.host_str().expect("host checked above");
+        let is_loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<IpAddr>()
+                .map(|address| address.is_loopback())
+                .unwrap_or(false);
+        if !is_loopback {
+            return Err(ProxyError::new(
+                ErrorCategory::InvalidRequest,
+                "Official Cloud Code endpoint must use HTTPS unless it targets Loopback",
+                400,
+            ));
+        }
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            "Official Cloud Code endpoint cannot contain a query or fragment",
+            400,
+        ));
+    }
+    Ok(())
+}
+
+async fn handle_fetch_models_request(
+    request: Request<Incoming>,
+    proxy: Arc<ProxyServer>,
+    options: HttpServerOptions,
+    permit: OwnedSemaphorePermit,
+) -> HttpResponse {
+    let _permit = permit;
+    let Some(endpoint) = options.official_cloud_code_endpoint.as_deref() else {
+        return model_list_response(&proxy);
+    };
+    let (parts, body) = match read_request(request, options.max_body_bytes).await {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let response = match send_forward_request(parts, body, &proxy, endpoint).await {
+        Ok(response) => response,
+        Err(response) => return response,
+    };
+    let status = response.status();
+    let headers = response.headers().clone();
+    if response
+        .content_length()
+        .is_some_and(|length| length > options.max_body_bytes as u64)
+    {
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            "Official model catalog exceeds the configured limit",
+            "upstream_response_too_large",
+        );
+    }
+    let body = match response.bytes().await {
+        Ok(body) => body,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to read official model catalog: {error}"),
+                "native_forwarding_failed",
+            )
+        }
+    };
+    if body.len() > options.max_body_bytes {
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            "Official model catalog exceeds the configured limit",
+            "upstream_response_too_large",
+        );
+    }
+    if !status.is_success() {
+        return bytes_response(status, &headers, body);
+    }
+    let upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(models) => models,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Official model catalog is not valid JSON: {error}"),
+                "invalid_upstream_response",
+            )
+        }
+    };
+    let models = proxy.handle_model_list(upstream_models);
+    full_response(StatusCode::OK, "application/json", models.to_string())
+}
+
+async fn forward_native_request(
+    parts: hyper::http::request::Parts,
+    body: Bytes,
+    proxy: Arc<ProxyServer>,
+    endpoint: &str,
+    permit: OwnedSemaphorePermit,
+    stream: bool,
+    stream_buffer_capacity: usize,
+) -> HttpResponse {
+    let response = match send_forward_request(parts, body, &proxy, endpoint).await {
+        Ok(response) => response,
+        Err(response) => return response,
+    };
+    let status = response.status();
+    let headers = response.headers().clone();
+    if !stream {
+        let _permit = permit;
+        return match response.bytes().await {
+            Ok(body) => bytes_response(status, &headers, body),
+            Err(error) => error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to read official response: {error}"),
+                "native_forwarding_failed",
+            ),
+        };
+    }
+
+    let (sender, receiver) = mpsc::channel(stream_buffer_capacity);
+    tokio::spawn(async move {
+        let _permit = permit;
+        let mut upstream = response.bytes_stream();
+        while let Some(chunk) = upstream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if sender
+                        .send(Ok::<_, Infallible>(Frame::data(bytes)))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!("Official Cloud Code stream ended with error: {error}");
+                    break;
+                }
+            }
+        }
+    });
+
+    let mut builder = Response::builder().status(status);
+    for (name, value) in &headers {
+        if !is_hop_by_hop_header(name.as_str()) {
+            builder = builder.header(name, value);
+        }
+    }
+    builder
+        .body(BodyExt::boxed(StreamBody::new(ReceiverStream::new(
+            receiver,
+        ))))
+        .expect("valid forwarded streaming response")
+}
+
+async fn send_forward_request(
+    parts: hyper::http::request::Parts,
+    body: Bytes,
+    proxy: &ProxyServer,
+    endpoint: &str,
+) -> Result<reqwest::Response, HttpResponse> {
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or(parts.uri.path());
+    let target = format!("{}{}", endpoint.trim_end_matches('/'), path_and_query);
+    let mut request = proxy.http_client().request(parts.method, target).body(body);
+    for (name, value) in &parts.headers {
+        if !is_hop_by_hop_header(name.as_str())
+            && !name.as_str().eq_ignore_ascii_case(LOCAL_TOKEN_HEADER)
+        {
+            request = request.header(name, value);
+        }
+    }
+    request.send().await.map_err(|error| {
+        error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("Failed to forward request to official Cloud Code: {error}"),
+            "native_forwarding_failed",
+        )
+    })
+}
+
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "host"
+            | "content-length"
+    )
+}
+
+fn bytes_response(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: Bytes,
+) -> HttpResponse {
+    let mut builder = Response::builder().status(status);
+    for (name, value) in headers {
+        if !is_hop_by_hop_header(name.as_str()) {
+            builder = builder.header(name, value);
+        }
+    }
+    builder
+        .body(Full::new(body).boxed())
+        .expect("valid forwarded HTTP response")
+}
+
 async fn handle_generate_request(
     request: Request<Incoming>,
     proxy: Arc<ProxyServer>,
@@ -327,11 +574,46 @@ async fn handle_generate_request(
     permit: OwnedSemaphorePermit,
     stream: bool,
 ) -> HttpResponse {
-    let body = match read_request_body(request, options.max_body_bytes).await {
-        Ok(body) => body,
+    let (parts, body) = match read_request(request, options.max_body_bytes).await {
+        Ok(request) => request,
         Err(response) => return response,
     };
-    let mut neutral_request = match AntigravityRequestParser::parse(&body) {
+    let body_text = match std::str::from_utf8(&body) {
+        Ok(body) => body,
+        Err(_) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "Request body must be valid UTF-8 JSON",
+                "invalid_request",
+            )
+        }
+    };
+    let model_id = match AntigravityRequestParser::extract_model_id(body_text) {
+        Ok(model_id) => model_id,
+        Err(error) => return proxy_error_response(&error),
+    };
+
+    if !proxy.is_custom_model_id(&model_id) {
+        let Some(endpoint) = options.official_cloud_code_endpoint.as_deref() else {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "Native model forwarding is not configured",
+                "native_forwarding_unavailable",
+            );
+        };
+        return forward_native_request(
+            parts,
+            body,
+            proxy,
+            endpoint,
+            permit,
+            stream,
+            options.stream_buffer_capacity,
+        )
+        .await;
+    }
+
+    let mut neutral_request = match AntigravityRequestParser::parse(body_text) {
         Ok(request) => request,
         Err(error) => return proxy_error_response(&error),
     };
@@ -383,7 +665,7 @@ async fn handle_generate_request(
         }
     });
 
-    let body = StreamBody::new(ReceiverStream::new(receiver)).boxed();
+    let body = BodyExt::boxed(StreamBody::new(ReceiverStream::new(receiver)));
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/event-stream; charset=utf-8")
@@ -393,10 +675,10 @@ async fn handle_generate_request(
         .expect("valid streaming HTTP response")
 }
 
-async fn read_request_body(
+async fn read_request(
     request: Request<Incoming>,
     max_body_bytes: usize,
-) -> Result<String, HttpResponse> {
+) -> Result<(hyper::http::request::Parts, Bytes), HttpResponse> {
     if let Some(content_length) = request.headers().get(CONTENT_LENGTH) {
         let content_length = content_length
             .to_str()
@@ -418,7 +700,8 @@ async fn read_request_body(
         }
     }
 
-    let collected = Limited::new(request.into_body(), max_body_bytes)
+    let (parts, body) = request.into_parts();
+    let collected = Limited::new(body, max_body_bytes)
         .collect()
         .await
         .map_err(|_| {
@@ -428,13 +711,7 @@ async fn read_request_body(
                 "payload_too_large",
             )
         })?;
-    String::from_utf8(collected.to_bytes().to_vec()).map_err(|_| {
-        error_response(
-            StatusCode::BAD_REQUEST,
-            "Request body must be valid UTF-8 JSON",
-            "invalid_request",
-        )
-    })
+    Ok((parts, collected.to_bytes()))
 }
 
 fn is_authorized(request: &Request<Incoming>, proxy: &ProxyServer) -> bool {

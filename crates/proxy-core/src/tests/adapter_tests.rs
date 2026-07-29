@@ -22,7 +22,7 @@ mod tests {
             protocol,
             models_endpoint: "http://localhost/models".to_string(),
             generate_endpoint: "http://localhost/chat/completions".to_string(),
-            api_key_ref: "key-1".to_string(),
+            api_key: "sk-test".to_string(),
             headers: HashMap::new(),
             default_parameters: ParameterOverrides::default(),
             connect_timeout_ms: 5000,
@@ -51,6 +51,7 @@ mod tests {
     fn create_virtual_model(default_reasoning_level: Option<ReasoningLevel>) -> VirtualModel {
         VirtualModel {
             id: "vm-1".to_string(),
+            host_model_id: None,
             upstream_model_id: "um-1".to_string(),
             display_name: "Virtual Model 1".to_string(),
             default_reasoning_level,

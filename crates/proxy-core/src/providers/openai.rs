@@ -513,15 +513,14 @@ impl ProviderAdapter for OpenAIAdapter {
         Ok(payload)
     }
 
-    fn build_headers(
-        &self,
-        provider: &Provider,
-        api_key: &str,
-    ) -> Result<HashMap<String, String>, ProxyError> {
+    fn build_headers(&self, provider: &Provider) -> Result<HashMap<String, String>, ProxyError> {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
-        if !api_key.is_empty() {
-            headers.insert("Authorization".to_string(), format!("Bearer {}", api_key));
+        if !provider.api_key.is_empty() {
+            headers.insert(
+                "Authorization".to_string(),
+                format!("Bearer {}", provider.api_key),
+            );
         }
 
         for (k, v) in &provider.headers {

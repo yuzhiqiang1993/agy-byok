@@ -1,5 +1,5 @@
 use crate::domain::{UpstreamModel, VirtualModel};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 pub struct AntigravityModelDescriptor;
 
@@ -9,16 +9,12 @@ impl AntigravityModelDescriptor {
         upstream_model: &UpstreamModel,
     ) -> Value {
         let caps = &upstream_model.capabilities;
-        let mut supported_mime_types = vec!["text/plain", "text/markdown"];
-        if caps.vision {
-            supported_mime_types.push("image/png");
-            supported_mime_types.push("image/jpeg");
-            supported_mime_types.push("image/webp");
-        }
+        let host_model_id = virtual_model.effective_host_model_id().into_owned();
+        let supported_mime_types = supported_mime_types(caps.vision);
 
         json!({
             "id": virtual_model.id,
-            "name": format!("models/{}", virtual_model.id),
+            "name": format!("models/{host_model_id}"),
             "displayName": virtual_model.display_name,
             "description": format!("Custom BYOK Model (Provider: {})", upstream_model.provider_id),
             "inputTokenLimit": 128000,
@@ -26,7 +22,46 @@ impl AntigravityModelDescriptor {
             "supportsImages": caps.vision,
             "supportsTools": caps.tools,
             "supportsThinking": caps.reasoning.supports_reasoning(),
-            "supportedMimeTypes": supported_mime_types
+            "supportedMimeTypes": supported_mime_types.keys().collect::<Vec<_>>()
+        })
+    }
+
+    pub fn build_cloud_code_catalog_entry(
+        virtual_model: &VirtualModel,
+        upstream_model: &UpstreamModel,
+    ) -> Value {
+        let caps = &upstream_model.capabilities;
+        let host_model_id = virtual_model.effective_host_model_id().into_owned();
+        let input_modalities = if caps.vision {
+            vec!["IMAGE", "TEXT"]
+        } else {
+            vec!["TEXT"]
+        };
+        let input_modalities_lowercase = if caps.vision {
+            vec!["image", "text"]
+        } else {
+            vec!["text"]
+        };
+
+        json!({
+            "displayName": virtual_model.display_name,
+            "maxTokens": 128000,
+            "maxOutputTokens": 8192,
+            "model": host_model_id,
+            "planModel": host_model_id,
+            "requestedModel": host_model_id,
+            "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+            "modelProvider": "MODEL_PROVIDER_GOOGLE",
+            "recommended": true,
+            "supportsImages": caps.vision,
+            "supportsVision": caps.vision,
+            "supportsImage": caps.vision,
+            "supportsThinking": caps.reasoning.supports_reasoning(),
+            "supportsVideo": false,
+            "inputModalities": input_modalities,
+            "input_modalities": input_modalities_lowercase,
+            "supportedMimeTypes": supported_mime_types(caps.vision),
+            "tokenizerType": "LLAMA_WITH_SPECIAL"
         })
     }
 
@@ -35,31 +70,83 @@ impl AntigravityModelDescriptor {
         virtual_models: &[VirtualModel],
         upstream_models: &[UpstreamModel],
     ) {
-        let descriptors: Vec<Value> = virtual_models
+        let models = virtual_models
             .iter()
-            .filter(|vm| vm.enabled)
-            .filter_map(|vm| {
+            .filter(|virtual_model| virtual_model.enabled)
+            .filter_map(|virtual_model| {
                 upstream_models
                     .iter()
-                    .find(|um| um.id == vm.upstream_model_id && um.enabled)
-                    .map(|um| Self::build_model_object(vm, um))
+                    .find(|upstream_model| {
+                        upstream_model.id == virtual_model.upstream_model_id
+                            && upstream_model.enabled
+                    })
+                    .map(|upstream_model| (virtual_model, upstream_model))
             })
-            .collect();
+            .collect::<Vec<_>>();
 
-        if let Some(arr) = models_json["models"].as_array_mut() {
-            for desc in descriptors {
-                arr.push(desc);
-            }
-        } else if let Some(arr) = models_json.as_array_mut() {
-            for desc in descriptors {
-                arr.push(desc);
-            }
-        } else if let Some(obj) = models_json.as_object_mut() {
-            for desc in descriptors {
-                if let Some(id) = desc["id"].as_str() {
-                    obj.insert(id.to_string(), desc);
-                }
-            }
+        if models_json.get("models").is_some() {
+            let target = models_json
+                .get_mut("models")
+                .expect("models presence checked above");
+            inject_models(target, models);
+        } else {
+            inject_models(models_json, models);
         }
     }
+}
+
+fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)>) {
+    match target {
+        Value::Array(entries) => {
+            entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
+                AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model)
+            }));
+        }
+        Value::Object(entries) => {
+            for (virtual_model, upstream_model) in models {
+                entries.insert(
+                    catalog_key(&virtual_model.id),
+                    AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+                        virtual_model,
+                        upstream_model,
+                    ),
+                );
+            }
+        }
+        _ => {
+            let mut entries = Map::new();
+            for (virtual_model, upstream_model) in models {
+                entries.insert(
+                    catalog_key(&virtual_model.id),
+                    AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+                        virtual_model,
+                        upstream_model,
+                    ),
+                );
+            }
+            *target = Value::Object(entries);
+        }
+    }
+}
+
+fn catalog_key(virtual_model_id: &str) -> String {
+    if virtual_model_id.starts_with("custom-") {
+        virtual_model_id.to_string()
+    } else {
+        format!("custom-{virtual_model_id}")
+    }
+}
+
+fn supported_mime_types(vision: bool) -> Map<String, Value> {
+    let mut mime_types = Map::from_iter([
+        ("text/plain".to_string(), Value::Bool(true)),
+        ("text/markdown".to_string(), Value::Bool(true)),
+        ("application/json".to_string(), Value::Bool(true)),
+    ]);
+    if vision {
+        for mime_type in ["image/png", "image/jpeg", "image/webp"] {
+            mime_types.insert(mime_type.to_string(), Value::Bool(true));
+        }
+    }
+    mime_types
 }

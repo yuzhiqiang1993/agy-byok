@@ -7,14 +7,13 @@ use crate::antigravity::{
 use crate::domain::{ErrorCategory, NeutralChatRequest, ProxyError};
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
-use crate::storage::{ConfigStore, KeyStore};
+use crate::storage::ConfigStore;
 use reqwest::{Client, Response};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub struct ProxyServer {
     config_store: ConfigStore,
-    key_store: Arc<dyn KeyStore>,
     activity_log: Arc<ActivityLog>,
     auth_manager: AuthManager,
     http_client: Client,
@@ -22,7 +21,7 @@ pub struct ProxyServer {
 }
 
 impl ProxyServer {
-    pub fn new(config_store: ConfigStore, key_store: Arc<dyn KeyStore>, port: u16) -> Self {
+    pub fn new(config_store: ConfigStore, port: u16) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -30,7 +29,6 @@ impl ProxyServer {
 
         Self {
             config_store,
-            key_store,
             activity_log: Arc::new(ActivityLog::new()),
             auth_manager: AuthManager::new(),
             http_client,
@@ -50,7 +48,22 @@ impl ProxyServer {
         self.activity_log.clone()
     }
 
-    /// 处理单个中立聊天请求，包含 Key 读取、Adapter 转译、网络发送与备用路由降级
+    pub fn is_custom_model_id(&self, model_id: &str) -> bool {
+        self.config_store
+            .get_config()
+            .virtual_models
+            .iter()
+            .any(|model| {
+                model.enabled
+                    && (model.id == model_id || model.effective_host_model_id() == model_id)
+            })
+    }
+
+    pub(crate) fn http_client(&self) -> &Client {
+        &self.http_client
+    }
+
+    /// 处理单个中立聊天请求，包含 Adapter 转译、网络发送与备用路由降级
     pub async fn handle_chat_request(
         &self,
         request: &NeutralChatRequest,
@@ -297,12 +310,7 @@ impl ProxyServer {
     ) -> Result<(Arc<dyn ProviderAdapter>, Response), ProxyError> {
         let adapter = get_adapter(&route.provider.protocol);
         let payload = adapter.build_request_payload(route, request)?;
-        let api_key = self
-            .key_store
-            .get_secret(&route.provider.api_key_ref)
-            .await
-            .unwrap_or_default();
-        let headers = adapter.build_headers(&route.provider, &api_key)?;
+        let headers = adapter.build_headers(&route.provider)?;
 
         let mut request_builder = self
             .http_client
