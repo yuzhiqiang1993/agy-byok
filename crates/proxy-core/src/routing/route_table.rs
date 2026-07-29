@@ -1,6 +1,6 @@
 use crate::domain::{
-    ErrorCategory, NeutralChatRequest, ParameterOverrides, Provider, ProxyError, UpstreamModel,
-    VirtualModel,
+    ErrorCategory, NeutralChatRequest, ParameterOverrides, Provider, ProxyError, ReasoningLevel,
+    UpstreamModel, VirtualModel,
 };
 use crate::storage::AppConfig;
 use std::collections::HashMap;
@@ -11,6 +11,7 @@ pub struct ResolvedRoute {
     pub upstream_model: UpstreamModel,
     pub provider: Provider,
     pub final_parameters: ParameterOverrides,
+    pub final_reasoning_level: Option<ReasoningLevel>,
 }
 
 pub struct RouteTable;
@@ -91,14 +92,24 @@ impl RouteTable {
             .merge_with(&virtual_model.parameter_overrides)
             .merge_with(&request.generation_parameters);
 
-        // 如果包含思考变体，将思考变体设置包含到 extra_body 或合并逻辑中
-        if let Some(ref variant) = virtual_model.reasoning_variant {
-            let mut extra = final_parameters.extra_body.unwrap_or_default();
-            extra.insert(
-                variant.request_field.clone(),
-                serde_json::Value::String(variant.request_value.clone()),
-            );
-            final_parameters.extra_body = Some(extra);
+        let final_reasoning_level = request
+            .reasoning_level
+            .or(virtual_model.default_reasoning_level);
+        if let Some(level) = final_reasoning_level {
+            upstream_model
+                .capabilities
+                .reasoning
+                .mapping_for(level)
+                .ok_or_else(|| {
+                    ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!(
+                            "Reasoning level {:?} is not supported by upstream model {}",
+                            level, upstream_model.id
+                        ),
+                        400,
+                    )
+                })?;
         }
 
         // 合并 Request 中的 extra_body
@@ -116,6 +127,7 @@ impl RouteTable {
             upstream_model: upstream_model.clone(),
             provider: provider.clone(),
             final_parameters,
+            final_reasoning_level,
         })
     }
 
@@ -134,6 +146,7 @@ impl RouteTable {
             messages: vec![],
             system_instruction: None,
             tools: vec![],
+            reasoning_level: failed_route.final_reasoning_level,
             stream: false,
             generation_parameters: ParameterOverrides::default(),
             extra_body: HashMap::new(),
@@ -145,10 +158,7 @@ impl RouteTable {
         let main_cap = &failed_route.upstream_model.capabilities;
         let fb_cap = &fallback_route.upstream_model.capabilities;
 
-        if (main_cap.vision && !fb_cap.vision)
-            || (main_cap.tools && !fb_cap.tools)
-            || (main_cap.thinking && !fb_cap.thinking)
-        {
+        if (main_cap.vision && !fb_cap.vision) || (main_cap.tools && !fb_cap.tools) {
             return Err(ProxyError::new(
                 ErrorCategory::UnsupportedFeature,
                 format!(

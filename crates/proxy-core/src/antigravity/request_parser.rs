@@ -42,7 +42,7 @@ impl AntigravityRequestParser {
             .as_array()
             .or_else(|| val["messages"].as_array())
         {
-            for item in contents {
+            for (message_index, item) in contents.iter().enumerate() {
                 let role_str = item["role"].as_str().unwrap_or("user");
                 let role = match role_str {
                     "user" => MessageRole::User,
@@ -54,8 +54,15 @@ impl AntigravityRequestParser {
 
                 let mut blocks = Vec::new();
                 if let Some(parts) = item["parts"].as_array() {
-                    for part in parts {
-                        if let Some(text) = part["text"].as_str() {
+                    for (part_index, part) in parts.iter().enumerate() {
+                        if part["thought"].as_bool().unwrap_or(false) {
+                            if let Some(text) = part["text"].as_str() {
+                                blocks.push(NeutralContentBlock::Thinking {
+                                    text: text.to_string(),
+                                    signature: None,
+                                });
+                            }
+                        } else if let Some(text) = part["text"].as_str() {
                             blocks.push(NeutralContentBlock::Text(text.to_string()));
                         } else if let Some(inline) = part.get("inlineData") {
                             let mime = inline["mimeType"].as_str().unwrap_or("image/png");
@@ -68,7 +75,7 @@ impl AntigravityRequestParser {
                             let name = fc["name"].as_str().unwrap_or_default().to_string();
                             let args = fc["args"].to_string();
                             blocks.push(NeutralContentBlock::ToolCall {
-                                id: format!("call_{}", name),
+                                id: format!("call_{message_index}_{part_index}"),
                                 name,
                                 arguments_json: args,
                             });
@@ -121,6 +128,7 @@ impl AntigravityRequestParser {
             messages,
             system_instruction,
             tools,
+            reasoning_level: None,
             stream,
             generation_parameters,
             extra_body: std::collections::HashMap::new(),

@@ -1,4 +1,6 @@
 use super::traits::ProviderAdapter;
+use crate::domain::model::ReasoningMapping;
+use crate::domain::response::{FinishReason, NeutralChoice};
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralChatResponse, NeutralContentBlock,
     NeutralStreamEvent, Provider, ProxyError, UpstreamModel, UsageInfo,
@@ -14,6 +16,15 @@ pub struct AnthropicAdapter;
 impl AnthropicAdapter {
     pub fn new() -> Self {
         Self
+    }
+
+    fn normalize_finish_reason(reason: &str) -> FinishReason {
+        match reason {
+            "end_turn" | "stop_sequence" => FinishReason::Stop,
+            "max_tokens" => FinishReason::MaxTokens,
+            "tool_use" => FinishReason::ToolCall,
+            _ => FinishReason::Other,
+        }
     }
 
     fn convert_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
@@ -146,6 +157,48 @@ impl ProviderAdapter for AnthropicAdapter {
             }
         }
 
+        if let Some(level) = route.final_reasoning_level {
+            match route
+                .upstream_model
+                .capabilities
+                .reasoning
+                .mapping_for(level)
+            {
+                Some(ReasoningMapping::BudgetTokens(budget_tokens)) => {
+                    payload["thinking"] = json!({
+                        "type": "enabled",
+                        "budget_tokens": budget_tokens
+                    });
+                }
+                Some(ReasoningMapping::Adaptive) => {
+                    payload["thinking"] = json!({ "type": "adaptive" });
+                }
+                Some(ReasoningMapping::Disabled) => {
+                    payload["thinking"] = json!({ "type": "disabled" });
+                }
+                Some(mapping) => {
+                    return Err(ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!(
+                            "Anthropic does not support reasoning mapping {:?} for level {:?}",
+                            mapping, level
+                        ),
+                        400,
+                    ));
+                }
+                None => {
+                    return Err(ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!(
+                            "No reasoning mapping configured for Anthropic reasoning level {:?}",
+                            level
+                        ),
+                        400,
+                    ));
+                }
+            }
+        }
+
         Ok(payload)
     }
 
@@ -203,7 +256,10 @@ impl ProviderAdapter for AnthropicAdapter {
             .as_str()
             .unwrap_or(&upstream_model.upstream_model_id)
             .to_string();
-        let finish_reason = val["stop_reason"].as_str().map(|s| s.to_string());
+        let raw_finish_reason = val["stop_reason"].as_str().map(|s| s.to_string());
+        let finish_reason = raw_finish_reason
+            .as_deref()
+            .map(Self::normalize_finish_reason);
 
         let mut blocks = Vec::new();
         if let Some(contents) = val["content"].as_array() {
@@ -249,9 +305,13 @@ impl ProviderAdapter for AnthropicAdapter {
         Ok(NeutralChatResponse {
             id,
             model,
-            choices_blocks: blocks,
+            choices: vec![NeutralChoice {
+                index: 0,
+                blocks,
+                finish_reason,
+                raw_finish_reason,
+            }],
             usage,
-            finish_reason,
         })
     }
 
@@ -275,15 +335,24 @@ impl ProviderAdapter for AnthropicAdapter {
                     let delta_type = delta["type"].as_str().unwrap_or_default();
                     if delta_type == "text_delta" {
                         if let Some(t) = delta["text"].as_str() {
-                            events.push(NeutralStreamEvent::TextDelta(t.to_string()));
+                            events.push(NeutralStreamEvent::TextDelta {
+                                choice_index: 0,
+                                text: t.to_string(),
+                            });
                         }
                     } else if delta_type == "thinking_delta" {
                         if let Some(t) = delta["thinking"].as_str() {
-                            events.push(NeutralStreamEvent::ThinkingDelta(t.to_string()));
+                            events.push(NeutralStreamEvent::ThinkingDelta {
+                                choice_index: 0,
+                                text: t.to_string(),
+                            });
                         }
                     } else if delta_type == "input_json_delta" {
                         if let Some(partial) = delta["partial_json"].as_str() {
+                            let tool_call_index = val["index"].as_u64().unwrap_or(0) as u32;
                             events.push(NeutralStreamEvent::ToolCallDelta {
+                                choice_index: 0,
+                                tool_call_index,
                                 id: None,
                                 name: None,
                                 arguments_delta: partial.to_string(),
@@ -292,11 +361,6 @@ impl ProviderAdapter for AnthropicAdapter {
                     }
                 }
                 "message_delta" => {
-                    if let Some(reason) = val["delta"]["stop_reason"].as_str() {
-                        events.push(NeutralStreamEvent::Finish {
-                            reason: reason.to_string(),
-                        });
-                    }
                     if let Some(usage_obj) = val["usage"].as_object() {
                         let comp_tokens = usage_obj
                             .get("output_tokens")
@@ -307,6 +371,13 @@ impl ProviderAdapter for AnthropicAdapter {
                             completion_tokens: comp_tokens,
                             total_tokens: comp_tokens,
                         }));
+                    }
+                    if let Some(reason) = val["delta"]["stop_reason"].as_str() {
+                        events.push(NeutralStreamEvent::Finish {
+                            choice_index: 0,
+                            reason: Self::normalize_finish_reason(reason),
+                            raw_finish_reason: Some(reason.to_string()),
+                        });
                     }
                 }
                 _ => {}

@@ -1,12 +1,22 @@
-use crate::domain::{NeutralChatResponse, NeutralContentBlock, NeutralStreamEvent};
-use serde_json::json;
+use crate::domain::{FinishReason, NeutralChatResponse, NeutralContentBlock, NeutralStreamEvent};
+use serde_json::{json, Value};
 
 pub struct AntigravityResponseEncoder;
 
 impl AntigravityResponseEncoder {
-    pub fn encode_response(resp: &NeutralChatResponse) -> String {
+    fn finish_reason_value(reason: FinishReason) -> &'static str {
+        match reason {
+            FinishReason::Stop => "STOP",
+            FinishReason::MaxTokens => "MAX_TOKENS",
+            FinishReason::ToolCall => "TOOL_CALL",
+            FinishReason::ContentFilter => "SAFETY",
+            FinishReason::Other => "OTHER",
+        }
+    }
+
+    fn encode_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
         let mut parts = Vec::new();
-        for block in &resp.choices_blocks {
+        for block in blocks {
             match block {
                 NeutralContentBlock::Text(text) => {
                     parts.push(json!({ "text": text }));
@@ -19,8 +29,7 @@ impl AntigravityResponseEncoder {
                     arguments_json,
                     ..
                 } => {
-                    let args: serde_json::Value =
-                        serde_json::from_str(arguments_json).unwrap_or(json!({}));
+                    let args = serde_json::from_str(arguments_json).unwrap_or(json!({}));
                     parts.push(json!({
                         "functionCall": {
                             "name": name,
@@ -31,22 +40,30 @@ impl AntigravityResponseEncoder {
                 _ => {}
             }
         }
+        parts
+    }
 
-        let mut candidate = json!({
-            "content": {
-                "role": "model",
-                "parts": parts
-            }
-        });
+    pub fn encode_response(resp: &NeutralChatResponse) -> String {
+        let candidates: Vec<Value> = resp
+            .choices
+            .iter()
+            .map(|choice| {
+                let mut candidate = json!({
+                    "index": choice.index,
+                    "content": {
+                        "role": "model",
+                        "parts": Self::encode_blocks(&choice.blocks)
+                    }
+                });
 
-        if let Some(ref reason) = resp.finish_reason {
-            candidate["finishReason"] = json!(reason);
-        }
+                if let Some(reason) = choice.finish_reason {
+                    candidate["finishReason"] = json!(Self::finish_reason_value(reason));
+                }
+                candidate
+            })
+            .collect();
 
-        let mut payload = json!({
-            "candidates": [candidate]
-        });
-
+        let mut payload = json!({ "candidates": candidates });
         if let Some(ref usage) = resp.usage {
             payload["usageMetadata"] = json!({
                 "promptTokenCount": usage.prompt_tokens,
@@ -60,9 +77,10 @@ impl AntigravityResponseEncoder {
 
     pub fn encode_stream_event(event: &NeutralStreamEvent) -> Option<String> {
         match event {
-            NeutralStreamEvent::TextDelta(text) => {
+            NeutralStreamEvent::TextDelta { choice_index, text } => {
                 let payload = json!({
                     "candidates": [{
+                        "index": choice_index,
                         "content": {
                             "role": "model",
                             "parts": [{ "text": text }]
@@ -71,9 +89,10 @@ impl AntigravityResponseEncoder {
                 });
                 Some(format!("data: {}\n\n", payload))
             }
-            NeutralStreamEvent::ThinkingDelta(text) => {
+            NeutralStreamEvent::ThinkingDelta { choice_index, text } => {
                 let payload = json!({
                     "candidates": [{
+                        "index": choice_index,
                         "content": {
                             "role": "model",
                             "parts": [{ "thought": true, "text": text }]
@@ -82,28 +101,7 @@ impl AntigravityResponseEncoder {
                 });
                 Some(format!("data: {}\n\n", payload))
             }
-            NeutralStreamEvent::ToolCallDelta {
-                name,
-                arguments_delta,
-                ..
-            } => {
-                let args_val: serde_json::Value = serde_json::from_str(arguments_delta)
-                    .unwrap_or_else(|_| json!({ "delta": arguments_delta }));
-                let payload = json!({
-                    "candidates": [{
-                        "content": {
-                            "role": "model",
-                            "parts": [{
-                                "functionCall": {
-                                    "name": name.as_deref().unwrap_or("tool"),
-                                    "args": args_val
-                                }
-                            }]
-                        }
-                    }]
-                });
-                Some(format!("data: {}\n\n", payload))
-            }
+            NeutralStreamEvent::ToolCallDelta { .. } => None,
             NeutralStreamEvent::UsageUpdate(usage) => {
                 let payload = json!({
                     "usageMetadata": {
@@ -114,13 +112,18 @@ impl AntigravityResponseEncoder {
                 });
                 Some(format!("data: {}\n\n", payload))
             }
-            NeutralStreamEvent::Finish { reason } => {
+            NeutralStreamEvent::Finish {
+                choice_index,
+                reason,
+                ..
+            } => {
                 let payload = json!({
                     "candidates": [{
-                        "finishReason": reason
+                        "index": choice_index,
+                        "finishReason": Self::finish_reason_value(*reason)
                     }]
                 });
-                Some(format!("data: {}\n\ndata: [DONE]\n\n", payload))
+                Some(format!("data: {}\n\n", payload))
             }
             NeutralStreamEvent::Error { message, code } => {
                 let payload = json!({

@@ -1,4 +1,4 @@
-use super::provider::ParameterOverrides;
+use super::{model::ReasoningLevel, provider::ParameterOverrides};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -57,6 +57,7 @@ pub struct NeutralChatRequest {
     pub messages: Vec<NeutralMessage>,
     pub system_instruction: Option<String>,
     pub tools: Vec<NeutralTool>,
+    pub reasoning_level: Option<ReasoningLevel>,
     pub stream: bool,
     pub generation_parameters: ParameterOverrides,
     pub extra_body: HashMap<String, serde_json::Value>,

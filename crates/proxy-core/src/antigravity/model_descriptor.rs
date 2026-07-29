@@ -25,7 +25,7 @@ impl AntigravityModelDescriptor {
             "outputTokenLimit": 8192,
             "supportsImages": caps.vision,
             "supportsTools": caps.tools,
-            "supportsThinking": caps.thinking,
+            "supportsThinking": caps.reasoning.supports_reasoning(),
             "supportedMimeTypes": supported_mime_types
         })
     }

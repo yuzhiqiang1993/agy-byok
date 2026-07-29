@@ -1,4 +1,6 @@
 use super::traits::ProviderAdapter;
+use crate::domain::model::ReasoningMapping;
+use crate::domain::response::{FinishReason, NeutralChoice};
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralChatResponse, NeutralContentBlock,
     NeutralMessage, NeutralStreamEvent, Provider, ProxyError, UpstreamModel, UsageInfo,
@@ -80,6 +82,85 @@ impl GeminiAdapter {
             "parts": parts
         })
     }
+
+    fn write_reasoning(payload: &mut Value, route: &ResolvedRoute) -> Result<(), ProxyError> {
+        let Some(level) = route.final_reasoning_level else {
+            return Ok(());
+        };
+
+        let mapping = route
+            .upstream_model
+            .capabilities
+            .reasoning
+            .mapping_for(level)
+            .ok_or_else(|| {
+                ProxyError::new(
+                    ErrorCategory::UnsupportedFeature,
+                    format!(
+                        "No reasoning mapping configured for Gemini level {:?}",
+                        level
+                    ),
+                    400,
+                )
+            })?;
+
+        let (field, value) = match mapping {
+            ReasoningMapping::Disabled => ("thinkingBudget", json!(0)),
+            ReasoningMapping::BudgetTokens(tokens) => ("thinkingBudget", json!(tokens)),
+            ReasoningMapping::NativeLevel(level) => ("thinkingLevel", json!(level)),
+            ReasoningMapping::Effort(_) | ReasoningMapping::Adaptive => {
+                return Err(ProxyError::new(
+                    ErrorCategory::UnsupportedFeature,
+                    format!("Gemini does not support reasoning mapping {:?}", mapping),
+                    400,
+                ));
+            }
+        };
+
+        let generation_config = payload
+            .as_object_mut()
+            .expect("Gemini payload must be an object")
+            .entry("generationConfig")
+            .or_insert_with(|| json!({}));
+        if !generation_config.is_object() {
+            *generation_config = json!({});
+        }
+
+        let thinking_config = generation_config
+            .as_object_mut()
+            .expect("generationConfig must be an object")
+            .entry("thinkingConfig")
+            .or_insert_with(|| json!({}));
+        if !thinking_config.is_object() {
+            *thinking_config = json!({});
+        }
+        let thinking_config = thinking_config
+            .as_object_mut()
+            .expect("thinkingConfig must be an object");
+        if field == "thinkingBudget" {
+            thinking_config.remove("thinkingLevel");
+        } else {
+            thinking_config.remove("thinkingBudget");
+        }
+        thinking_config.insert(field.to_string(), value);
+
+        Ok(())
+    }
+
+    fn normalize_finish_reason(reason: &str) -> FinishReason {
+        match reason {
+            "STOP" => FinishReason::Stop,
+            "MAX_TOKENS" => FinishReason::MaxTokens,
+            "TOOL_CALL" => FinishReason::ToolCall,
+            "SAFETY"
+            | "BLOCKLIST"
+            | "PROHIBITED_CONTENT"
+            | "SPII"
+            | "IMAGE_SAFETY"
+            | "IMAGE_PROHIBITED_CONTENT" => FinishReason::ContentFilter,
+            _ => FinishReason::Other,
+        }
+    }
 }
 
 #[async_trait]
@@ -146,6 +227,8 @@ impl ProviderAdapter for GeminiAdapter {
             }
         }
 
+        Self::write_reasoning(&mut payload, route)?;
+
         Ok(payload)
     }
 
@@ -197,36 +280,53 @@ impl ProviderAdapter for GeminiAdapter {
 
         let id = "gemini-resp".to_string();
         let model = upstream_model.upstream_model_id.clone();
-        let mut blocks = Vec::new();
-        let mut finish_reason = None;
+        let mut choices = Vec::new();
 
-        if let Some(candidate) = val["candidates"].get(0) {
-            finish_reason = candidate["finishReason"].as_str().map(|s| s.to_string());
-            if let Some(parts) = candidate["content"]["parts"].as_array() {
-                for part in parts {
-                    if part
-                        .get("thought")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                    {
-                        if let Some(t) = part["text"].as_str() {
-                            blocks.push(NeutralContentBlock::Thinking {
-                                text: t.to_string(),
-                                signature: None,
+        if let Some(candidates) = val["candidates"].as_array() {
+            for (candidate_position, candidate) in candidates.iter().enumerate() {
+                let choice_index = candidate["index"]
+                    .as_u64()
+                    .and_then(|index| u32::try_from(index).ok())
+                    .unwrap_or(candidate_position as u32);
+                let raw_finish_reason = candidate["finishReason"].as_str().map(ToString::to_string);
+                let finish_reason = raw_finish_reason
+                    .as_deref()
+                    .map(Self::normalize_finish_reason);
+                let mut blocks = Vec::new();
+
+                if let Some(parts) = candidate["content"]["parts"].as_array() {
+                    for (part_position, part) in parts.iter().enumerate() {
+                        if part
+                            .get("thought")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            if let Some(t) = part["text"].as_str() {
+                                blocks.push(NeutralContentBlock::Thinking {
+                                    text: t.to_string(),
+                                    signature: None,
+                                });
+                            }
+                        } else if let Some(t) = part["text"].as_str() {
+                            blocks.push(NeutralContentBlock::Text(t.to_string()));
+                        } else if let Some(fc) = part.get("functionCall") {
+                            let name = fc["name"].as_str().unwrap_or_default().to_string();
+                            let args = fc["args"].to_string();
+                            blocks.push(NeutralContentBlock::ToolCall {
+                                id: format!("call_{}_{}", candidate_position, part_position),
+                                name,
+                                arguments_json: args,
                             });
                         }
-                    } else if let Some(t) = part["text"].as_str() {
-                        blocks.push(NeutralContentBlock::Text(t.to_string()));
-                    } else if let Some(fc) = part.get("functionCall") {
-                        let name = fc["name"].as_str().unwrap_or_default().to_string();
-                        let args = fc["args"].to_string();
-                        blocks.push(NeutralContentBlock::ToolCall {
-                            id: format!("call_{}", name),
-                            name,
-                            arguments_json: args,
-                        });
                     }
                 }
+
+                choices.push(NeutralChoice {
+                    index: choice_index,
+                    blocks,
+                    finish_reason,
+                    raw_finish_reason,
+                });
             }
         }
 
@@ -248,14 +348,15 @@ impl ProviderAdapter for GeminiAdapter {
         Ok(NeutralChatResponse {
             id,
             model,
-            choices_blocks: blocks,
+            choices,
             usage,
-            finish_reason,
         })
     }
 
     fn parse_stream_chunk(&self, chunk: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
-        let mut events = Vec::new();
+        let mut content_events = Vec::new();
+        let mut usage_events = Vec::new();
+        let mut finish_events = Vec::new();
         for line in chunk.lines() {
             let line = line.trim();
             if !line.starts_with("data:") {
@@ -267,34 +368,51 @@ impl ProviderAdapter for GeminiAdapter {
                 Err(_) => continue,
             };
 
-            if let Some(candidate) = val["candidates"].get(0) {
-                if let Some(reason) = candidate["finishReason"].as_str() {
-                    events.push(NeutralStreamEvent::Finish {
-                        reason: reason.to_string(),
-                    });
-                }
+            if let Some(candidates) = val["candidates"].as_array() {
+                for (candidate_position, candidate) in candidates.iter().enumerate() {
+                    let choice_index = candidate["index"]
+                        .as_u64()
+                        .and_then(|index| u32::try_from(index).ok())
+                        .unwrap_or(candidate_position as u32);
 
-                if let Some(parts) = candidate["content"]["parts"].as_array() {
-                    for part in parts {
-                        if part
-                            .get("thought")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                        {
-                            if let Some(t) = part["text"].as_str() {
-                                events.push(NeutralStreamEvent::ThinkingDelta(t.to_string()));
+                    if let Some(parts) = candidate["content"]["parts"].as_array() {
+                        for (part_position, part) in parts.iter().enumerate() {
+                            if part
+                                .get("thought")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                            {
+                                if let Some(t) = part["text"].as_str() {
+                                    content_events.push(NeutralStreamEvent::ThinkingDelta {
+                                        choice_index,
+                                        text: t.to_string(),
+                                    });
+                                }
+                            } else if let Some(t) = part["text"].as_str() {
+                                content_events.push(NeutralStreamEvent::TextDelta {
+                                    choice_index,
+                                    text: t.to_string(),
+                                });
+                            } else if let Some(fc) = part.get("functionCall") {
+                                let name = fc["name"].as_str().map(|s| s.to_string());
+                                let args = fc["args"].to_string();
+                                content_events.push(NeutralStreamEvent::ToolCallDelta {
+                                    choice_index,
+                                    tool_call_index: part_position as u32,
+                                    id: None,
+                                    name,
+                                    arguments_delta: args,
+                                });
                             }
-                        } else if let Some(t) = part["text"].as_str() {
-                            events.push(NeutralStreamEvent::TextDelta(t.to_string()));
-                        } else if let Some(fc) = part.get("functionCall") {
-                            let name = fc["name"].as_str().map(|s| s.to_string());
-                            let args = fc["args"].to_string();
-                            events.push(NeutralStreamEvent::ToolCallDelta {
-                                id: None,
-                                name,
-                                arguments_delta: args,
-                            });
                         }
+                    }
+
+                    if let Some(reason) = candidate["finishReason"].as_str() {
+                        finish_events.push(NeutralStreamEvent::Finish {
+                            choice_index,
+                            reason: Self::normalize_finish_reason(reason),
+                            raw_finish_reason: Some(reason.to_string()),
+                        });
                     }
                 }
             }
@@ -314,10 +432,12 @@ impl ProviderAdapter for GeminiAdapter {
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as u32,
                 };
-                events.push(NeutralStreamEvent::UsageUpdate(usage));
+                usage_events.push(NeutralStreamEvent::UsageUpdate(usage));
             }
         }
 
-        Ok(events)
+        content_events.extend(usage_events);
+        content_events.extend(finish_events);
+        Ok(content_events)
     }
 }
