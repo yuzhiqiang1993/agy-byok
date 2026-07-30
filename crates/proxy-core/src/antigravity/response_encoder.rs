@@ -209,13 +209,7 @@ impl AntigravityStreamEncoder {
                     }]
                 }))])
             }
-            NeutralStreamEvent::UsageUpdate(usage) => Ok(vec![Self::sse(json!({
-                "usageMetadata": {
-                    "promptTokenCount": usage.prompt_tokens,
-                    "candidatesTokenCount": usage.completion_tokens,
-                    "totalTokenCount": usage.total_tokens
-                }
-            }))]),
+            NeutralStreamEvent::UsageUpdate(_) => Ok(vec![]),
             NeutralStreamEvent::Finish {
                 choice_index,
                 reason,
@@ -223,6 +217,10 @@ impl AntigravityStreamEncoder {
             } => Ok(vec![Self::sse(json!({
                 "candidates": [{
                     "index": choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{ "text": "" }]
+                    },
                     "finishReason": AntigravityResponseEncoder::finish_reason_value(*reason)
                 }]
             }))]),
