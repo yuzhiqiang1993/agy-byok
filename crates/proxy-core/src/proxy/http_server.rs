@@ -29,6 +29,7 @@ type HttpResponse = Response<HttpBody>;
 pub struct HttpServerOptions {
     pub require_auth: bool,
     pub require_host_auth: bool,
+    pub fallback_to_random_port_on_bind_error: bool,
     pub max_body_bytes: usize,
     pub max_concurrent_requests: usize,
     pub stream_buffer_capacity: usize,
@@ -41,6 +42,7 @@ impl Default for HttpServerOptions {
         Self {
             require_auth: true,
             require_host_auth: false,
+            fallback_to_random_port_on_bind_error: false,
             max_body_bytes: 4 * 1024 * 1024,
             max_concurrent_requests: 64,
             stream_buffer_capacity: 32,
@@ -109,13 +111,34 @@ impl LoopbackHttpServer {
         }
 
         let bind_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, proxy.port()));
-        let listener = TcpListener::bind(bind_addr).await.map_err(|error| {
-            ProxyError::new(
-                ErrorCategory::ConnectionFailed,
-                format!("Failed to bind loopback HTTP server on {bind_addr}: {error}"),
-                500,
-            )
-        })?;
+        let listener = match TcpListener::bind(bind_addr).await {
+            Ok(listener) => listener,
+            Err(primary_error)
+                if options.fallback_to_random_port_on_bind_error && proxy.port() != 0 =>
+            {
+                let fallback_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+                tracing::warn!(
+                    "Preferred proxy port {bind_addr} is unavailable; selecting a random loopback port"
+                );
+                TcpListener::bind(fallback_addr).await.map_err(|fallback_error| {
+                    ProxyError::new(
+                        ErrorCategory::ConnectionFailed,
+                        format!(
+                            "Failed to bind preferred loopback address {bind_addr}: {primary_error}; \
+                             random loopback fallback also failed: {fallback_error}"
+                        ),
+                        500,
+                    )
+                })?
+            }
+            Err(error) => {
+                return Err(ProxyError::new(
+                    ErrorCategory::ConnectionFailed,
+                    format!("Failed to bind loopback HTTP server on {bind_addr}: {error}"),
+                    500,
+                ));
+            }
+        };
         let local_addr = listener.local_addr().map_err(|error| {
             ProxyError::new(
                 ErrorCategory::Internal,
@@ -236,6 +259,17 @@ async fn handle_request(
         ));
     };
 
+    if request.method() == Method::OPTIONS {
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Access-Control-Max-Age", "86400")
+            .body(Full::new(Bytes::new()).boxed())
+            .unwrap());
+    }
+
     let expected_method = match route {
         RouteKind::Health | RouteKind::Models => Some(Method::GET),
         RouteKind::FetchModels | RouteKind::Generate | RouteKind::StreamGenerate => {
@@ -247,15 +281,15 @@ async fn handle_request(
         .as_ref()
         .is_some_and(|expected| request.method() != expected)
     {
-        return Ok(error_response(
+        return Ok(with_cors(error_response(
             StatusCode::METHOD_NOT_ALLOWED,
             "Method not allowed for this route",
             "method_not_allowed",
-        ));
+        )));
     }
 
     if matches!(route, RouteKind::Health) {
-        return Ok(health_response());
+        return Ok(with_cors(health_response()));
     }
     let route_requires_auth = match route {
         RouteKind::Models => options.require_auth,
@@ -266,21 +300,21 @@ async fn handle_request(
         RouteKind::Health => false,
     };
     if route_requires_auth && !is_authorized(&request, &proxy) {
-        return Ok(error_response(
+        return Ok(with_cors(error_response(
             StatusCode::UNAUTHORIZED,
             "Missing or invalid local proxy token",
             "authentication",
-        ));
+        )));
     }
 
     let permit = match semaphore.try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
-            return Ok(error_response(
+            return Ok(with_cors(error_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 "Local proxy concurrency limit reached",
                 "rate_limit",
-            ));
+            )));
         }
     };
 
@@ -301,7 +335,15 @@ async fn handle_request(
         }
         RouteKind::Passthrough => handle_passthrough_request(request, proxy, options, permit).await,
     };
-    Ok(response)
+    Ok(with_cors(response))
+}
+
+fn with_cors(mut response: HttpResponse) -> HttpResponse {
+    response.headers_mut().insert(
+        "Access-Control-Allow-Origin",
+        hyper::header::HeaderValue::from_static("*"),
+    );
+    response
 }
 
 fn route_kind(path: &str) -> Option<RouteKind> {
