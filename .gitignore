@@ -3,6 +3,8 @@
 .AppleDouble
 .LSOverride
 Icon?
+!src-tauri/icons/
+!src-tauri/icons/**
 ._*
 .Spotlight-V100/
 .Trashes/

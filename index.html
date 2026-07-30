@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="为 Antigravity IDE 配置和运行自定义模型" />
+    <title>AGY BYOK</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">ANTIGRAVITY · BRING YOUR OWN MODEL</p>
+          <h1>AGY BYOK</h1>
+          <p class="hero-copy">启动本地代理，把你自己的模型接入 Antigravity IDE。</p>
+        </div>
+        <span class="version-badge">V0.1</span>
+      </header>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section class="status-grid" aria-label="运行状态">
+        <article class="panel status-card">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">LOCAL PROXY</p>
+              <h2>本地代理</h2>
+            </div>
+            <span id="proxy-state" class="status-pill neutral">检查中</span>
+          </div>
+          <p id="proxy-address" class="muted">127.0.0.1:50999</p>
+          <div class="button-row">
+            <button id="start-proxy" class="primary" type="button">启动代理</button>
+            <button id="stop-proxy" class="secondary" type="button">停止代理</button>
+          </div>
+        </article>
+
+        <article class="panel status-card">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">HOST INTEGRATION</p>
+              <h2>Antigravity IDE</h2>
+            </div>
+            <span id="ide-state" class="status-pill neutral">检查中</span>
+          </div>
+          <p id="ide-detail" class="muted">正在检测厂商原版…</p>
+          <div class="managed-copy-summary">
+            <div class="managed-copy-heading">
+              <strong>AGY BYOK 托管副本</strong>
+              <span id="managed-ide-state" class="status-pill neutral">检查中</span>
+            </div>
+            <p id="managed-ide-detail" class="muted compact">正在检测托管副本…</p>
+          </div>
+          <div class="button-row host-actions">
+            <button id="refresh-ide" class="secondary" type="button">重新检测</button>
+            <button id="dry-run-ide" class="secondary" type="button" disabled>只读候选校验</button>
+            <button id="create-managed-ide" class="primary" type="button" disabled>创建托管副本</button>
+            <button id="launch-managed-ide" class="primary" type="button" disabled>启动托管 IDE</button>
+            <button id="remove-managed-ide" class="secondary" type="button" disabled>删除托管副本</button>
+            <button id="restore-ide" class="secondary" type="button" disabled>恢复历史事务</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel models-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">CUSTOM MODELS</p>
+            <h2>自定义模型</h2>
+          </div>
+          <span id="model-count" class="count-badge">0</span>
+        </div>
+        <div id="model-list" class="model-list"></div>
+      </section>
+
+      <section class="panel form-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">ADD MODEL</p>
+            <h2>添加自定义模型</h2>
+          </div>
+          <p class="muted compact">保存后代理会立即使用最新配置</p>
+        </div>
+
+        <form id="model-form">
+          <div class="form-grid">
+            <label>
+              <span>显示名称</span>
+              <input id="display-name" name="displayName" required placeholder="例如 GPT-5 BYOK" />
+            </label>
+
+            <label>
+              <span>协议</span>
+              <select id="protocol" name="protocol">
+                <option value="openai">OpenAI Compatible</option>
+                <option value="anthropic">Anthropic Messages</option>
+                <option value="gemini">Google Gemini</option>
+              </select>
+            </label>
+
+            <label class="wide">
+              <span>Generate Endpoint</span>
+              <input id="generate-endpoint" name="generateEndpoint" type="url" required placeholder="http://127.0.0.1:8317/v1/chat/completions" />
+            </label>
+
+            <label class="wide">
+              <span>Models Endpoint <small>可选</small></span>
+              <input id="models-endpoint" name="modelsEndpoint" type="url" placeholder="http://127.0.0.1:8317/v1/models" />
+            </label>
+
+            <label>
+              <span>上游模型 ID</span>
+              <input id="upstream-model-id" name="upstreamModelId" required placeholder="gpt-5" />
+            </label>
+
+            <label>
+              <span>API Key <small>可选</small></span>
+              <span class="password-field">
+                <input id="api-key" name="apiKey" type="password" autocomplete="off" />
+                <button id="toggle-api-key" class="text-button" type="button">显示</button>
+              </span>
+            </label>
+          </div>
+
+          <fieldset>
+            <legend>模型能力</legend>
+            <label class="check-label"><input id="vision" type="checkbox" /> 图片</label>
+            <label class="check-label"><input id="tools" type="checkbox" checked /> 工具调用</label>
+            <label class="check-label"><input id="reasoning" type="checkbox" /> 思考等级</label>
+          </fieldset>
+
+          <div class="form-actions">
+            <button id="save-model" class="primary" type="submit">保存模型</button>
+          </div>
+        </form>
+      </section>
+
+      <footer>
+        厂商 App Bundle 始终只读；Endpoint 补丁只存在于可删除的 AGY BYOK 托管副本。
+      </footer>
+    </main>
+  </body>
+</html>
