@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let server = Arc::new(ProxyServer::new(config_store, 50999));
     let options = HttpServerOptions {
-        official_cloud_code_endpoint: Some("https://daily-cloudcode-pa.googleapis.com".to_string()),
+        official_cloud_code_endpoint: Some("https://cloudcode-pa.googleapis.com".to_string()),
         ..HttpServerOptions::default()
     };
     let http_server = LoopbackHttpServer::start(server, options).await?;

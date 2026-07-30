@@ -350,6 +350,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_cloud_code_routes_are_forwarded_with_vendor_auth() {
+        let official_response = json!({ "project": "native-project" }).to_string();
+        let (official_url, _official_handle, recorded_request) =
+            MockProviderServer::start_recording(200, &official_response).await;
+        let (proxy, local_token) = create_proxy(AppConfig::default(), 0).await;
+        let mut options = test_options();
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .put(format!(
+                "http://{}/v1internal:loadCodeAssist?alt=json",
+                handle.local_addr()
+            ))
+            .header("authorization", "Bearer vendor-token")
+            .header("x-agy-byok-token", local_token)
+            .body("native-request")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), official_response);
+        let recorded = recorded_request.await.unwrap();
+        assert_eq!(recorded.method, reqwest::Method::PUT);
+        assert_eq!(
+            recorded.path_and_query,
+            "/v1internal:loadCodeAssist?alt=json"
+        );
+        assert_eq!(
+            recorded.authorization.as_deref(),
+            Some("Bearer vendor-token")
+        );
+        assert_eq!(recorded.local_token, None);
+        assert_eq!(recorded.body, "native-request");
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn host_model_id_routes_to_the_custom_provider() {
         let upstream_body = json!({
             "choices": [{

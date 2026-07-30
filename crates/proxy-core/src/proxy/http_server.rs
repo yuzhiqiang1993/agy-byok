@@ -6,7 +6,7 @@ use futures::StreamExt;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, Limited, StreamBody};
 use hyper::body::{Frame, Incoming};
-use hyper::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
+use hyper::header::{ACCEPT_ENCODING, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::json;
@@ -218,6 +218,7 @@ enum RouteKind {
     FetchModels,
     Generate,
     StreamGenerate,
+    Passthrough,
 }
 
 async fn handle_request(
@@ -236,10 +237,16 @@ async fn handle_request(
     };
 
     let expected_method = match route {
-        RouteKind::Health | RouteKind::Models => Method::GET,
-        RouteKind::FetchModels | RouteKind::Generate | RouteKind::StreamGenerate => Method::POST,
+        RouteKind::Health | RouteKind::Models => Some(Method::GET),
+        RouteKind::FetchModels | RouteKind::Generate | RouteKind::StreamGenerate => {
+            Some(Method::POST)
+        }
+        RouteKind::Passthrough => None,
     };
-    if request.method() != expected_method {
+    if expected_method
+        .as_ref()
+        .is_some_and(|expected| request.method() != expected)
+    {
         return Ok(error_response(
             StatusCode::METHOD_NOT_ALLOWED,
             "Method not allowed for this route",
@@ -252,9 +259,10 @@ async fn handle_request(
     }
     let route_requires_auth = match route {
         RouteKind::Models => options.require_auth,
-        RouteKind::FetchModels | RouteKind::Generate | RouteKind::StreamGenerate => {
-            options.require_host_auth
-        }
+        RouteKind::FetchModels
+        | RouteKind::Generate
+        | RouteKind::StreamGenerate
+        | RouteKind::Passthrough => options.require_host_auth,
         RouteKind::Health => false,
     };
     if route_requires_auth && !is_authorized(&request, &proxy) {
@@ -291,6 +299,7 @@ async fn handle_request(
         RouteKind::StreamGenerate => {
             handle_generate_request(request, proxy, options, permit, true).await
         }
+        RouteKind::Passthrough => handle_passthrough_request(request, proxy, options, permit).await,
     };
     Ok(response)
 }
@@ -302,6 +311,7 @@ fn route_kind(path: &str) -> Option<RouteKind> {
         "/v1internal:fetchAvailableModels" => Some(RouteKind::FetchModels),
         "/v1internal:generateContent" => Some(RouteKind::Generate),
         "/v1internal:streamGenerateContent" => Some(RouteKind::StreamGenerate),
+        _ if path.starts_with("/v1internal:") => Some(RouteKind::Passthrough),
         _ => None,
     }
 }
@@ -379,6 +389,35 @@ fn validate_official_endpoint(endpoint: &str) -> Result<(), ProxyError> {
     Ok(())
 }
 
+async fn handle_passthrough_request(
+    request: Request<Incoming>,
+    proxy: Arc<ProxyServer>,
+    options: HttpServerOptions,
+    permit: OwnedSemaphorePermit,
+) -> HttpResponse {
+    let Some(endpoint) = options.official_cloud_code_endpoint.as_deref() else {
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            "Official Cloud Code forwarding is not configured",
+            "native_forwarding_unavailable",
+        );
+    };
+    let (parts, body) = match read_request(request, options.max_body_bytes).await {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    forward_native_request(
+        parts,
+        body,
+        proxy,
+        endpoint,
+        permit,
+        false,
+        options.stream_buffer_capacity,
+    )
+    .await
+}
+
 async fn handle_fetch_models_request(
     request: Request<Incoming>,
     proxy: Arc<ProxyServer>,
@@ -434,7 +473,13 @@ async fn handle_fetch_models_request(
         Err(error) => {
             return error_response(
                 StatusCode::BAD_GATEWAY,
-                &format!("Official model catalog is not valid JSON: {error}"),
+                &format!(
+                    "Official model catalog is not valid JSON (status {status}, content-type {}): {error}",
+                    headers
+                        .get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("unknown")
+                ),
                 "invalid_upstream_response",
             )
         }
@@ -518,10 +563,15 @@ async fn send_forward_request(
         .map(|value| value.as_str())
         .unwrap_or(parts.uri.path());
     let target = format!("{}{}", endpoint.trim_end_matches('/'), path_and_query);
-    let mut request = proxy.http_client().request(parts.method, target).body(body);
+    let mut request = proxy
+        .http_client()
+        .request(parts.method, target)
+        .header(ACCEPT_ENCODING, "identity")
+        .body(body);
     for (name, value) in &parts.headers {
         if !is_hop_by_hop_header(name.as_str())
             && !name.as_str().eq_ignore_ascii_case(LOCAL_TOKEN_HEADER)
+            && *name != ACCEPT_ENCODING
         {
             request = request.header(name, value);
         }
