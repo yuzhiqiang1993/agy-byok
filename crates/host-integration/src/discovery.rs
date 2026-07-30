@@ -12,6 +12,8 @@ pub struct HostInstallation {
     pub app_version: String,
     pub extension_version: String,
     pub extension_sha256: String,
+    pub executable_relative_path: PathBuf,
+    pub executable_sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +44,11 @@ pub fn discover(
     })?;
     let bundle_id = plist_string(dictionary, "CFBundleIdentifier")?;
     let app_version = plist_string(dictionary, "CFBundleShortVersionString")?;
+    let executable_name = plist_string(dictionary, "CFBundleExecutable")?;
+    let executable_relative_path = PathBuf::from("Contents/MacOS").join(executable_name);
+    let executable_path = safe_join(app_path, &executable_relative_path)?;
+    let executable_bytes =
+        fs::read(&executable_path).map_err(|source| io_error(&executable_path, source))?;
 
     let package_path = safe_join(app_path, &layout.extension_package)?;
     let package_bytes =
@@ -62,6 +69,8 @@ pub fn discover(
         app_version,
         extension_version: package.version,
         extension_sha256: crate::sha256(&extension_bytes),
+        executable_relative_path,
+        executable_sha256: crate::sha256(&executable_bytes),
     })
 }
 

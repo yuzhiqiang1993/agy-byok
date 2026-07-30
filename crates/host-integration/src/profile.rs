@@ -8,16 +8,12 @@ pub const IDE_EXTENSION_RELATIVE_PATH: &str =
 pub const IDE_EXTENSION_PACKAGE_RELATIVE_PATH: &str =
     "Contents/Resources/app/extensions/antigravity/package.json";
 pub const IDE_INFO_PLIST_RELATIVE_PATH: &str = "Contents/Info.plist";
-pub const IDE_SIGNATURE_RELATIVE_PATH: &str = "Contents/_CodeSignature";
-pub const IDE_CODE_RESOURCES_RELATIVE_PATH: &str = "Contents/CodeResources";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HostLayout {
     pub info_plist: PathBuf,
     pub extension_package: PathBuf,
     pub extension_entry: PathBuf,
-    pub signature_directory: PathBuf,
-    pub code_resources: PathBuf,
 }
 
 impl HostLayout {
@@ -26,8 +22,6 @@ impl HostLayout {
             info_plist: IDE_INFO_PLIST_RELATIVE_PATH.into(),
             extension_package: IDE_EXTENSION_PACKAGE_RELATIVE_PATH.into(),
             extension_entry: IDE_EXTENSION_RELATIVE_PATH.into(),
-            signature_directory: IDE_SIGNATURE_RELATIVE_PATH.into(),
-            code_resources: IDE_CODE_RESOURCES_RELATIVE_PATH.into(),
         }
     }
 
@@ -36,8 +30,6 @@ impl HostLayout {
             &self.info_plist,
             &self.extension_package,
             &self.extension_entry,
-            &self.signature_directory,
-            &self.code_resources,
         ] {
             validate_relative_path(path)?;
         }
