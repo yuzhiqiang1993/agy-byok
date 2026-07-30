@@ -266,12 +266,26 @@ mod tests {
     #[tokio::test]
     async fn fetch_available_models_merges_official_and_custom_catalogs() {
         let official_catalog = json!({
+            "catalogVersion": "v10",
             "models": {
                 "native-model": {
                     "displayName": "Native Model",
                     "model": "MODEL_NATIVE"
                 }
-            }
+            },
+            "agentModelSorts": [{
+                "sortId": "recommended",
+                "groups": [
+                    {
+                        "groupId": "primary",
+                        "modelIds": ["native-model", "custom-virtual-1"]
+                    },
+                    {
+                        "groupId": "secondary",
+                        "modelIds": ["native-model"]
+                    }
+                ]
+            }]
         })
         .to_string();
         let (official_url, _official_handle) =
@@ -296,8 +310,18 @@ mod tests {
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let catalog: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(catalog["catalogVersion"], "v10");
         assert_eq!(catalog["models"].as_object().unwrap().len(), 2);
         assert_eq!(catalog["models"]["native-model"]["model"], "MODEL_NATIVE");
+        assert_eq!(catalog["agentModelSorts"][0]["sortId"], "recommended");
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!(["native-model", "custom-virtual-1"])
+        );
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][1]["modelIds"],
+            json!(["native-model", "custom-virtual-1"])
+        );
         let host_model_id = catalog["models"]["custom-virtual-1"]["requestedModel"]
             .as_str()
             .unwrap();

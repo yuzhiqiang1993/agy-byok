@@ -84,14 +84,26 @@ impl AntigravityModelDescriptor {
             })
             .collect::<Vec<_>>();
 
-        if models_json.get("models").is_some() {
-            let target = models_json
-                .get_mut("models")
-                .expect("models presence checked above");
-            inject_models(target, models);
-        } else {
-            inject_models(models_json, models);
+        if let Some(catalog) = models_json.as_object_mut() {
+            if let Some(target) = catalog.get_mut("models") {
+                let catalog_keys = (!target.is_array()).then(|| {
+                    models
+                        .iter()
+                        .map(|(virtual_model, _)| catalog_key(&virtual_model.id))
+                        .collect::<Vec<_>>()
+                });
+                inject_models(target, models);
+                if let Some(catalog_keys) = catalog_keys {
+                    append_catalog_keys_to_model_sorts(
+                        catalog.get_mut("agentModelSorts"),
+                        &catalog_keys,
+                    );
+                }
+                return;
+            }
         }
+
+        inject_models(models_json, models);
     }
 }
 
@@ -125,6 +137,33 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
                 );
             }
             *target = Value::Object(entries);
+        }
+    }
+}
+
+fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_keys: &[String]) {
+    let Some(model_sorts) = model_sorts.and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    for model_sort in model_sorts {
+        let Some(groups) = model_sort.get_mut("groups").and_then(Value::as_array_mut) else {
+            continue;
+        };
+
+        for group in groups {
+            let Some(model_ids) = group.get_mut("modelIds").and_then(Value::as_array_mut) else {
+                continue;
+            };
+
+            for catalog_key in catalog_keys {
+                if !model_ids
+                    .iter()
+                    .any(|model_id| model_id.as_str() == Some(catalog_key.as_str()))
+                {
+                    model_ids.push(Value::String(catalog_key.clone()));
+                }
+            }
         }
     }
 }

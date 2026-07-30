@@ -4,13 +4,18 @@ use super::streaming::StreamPipe;
 use crate::antigravity::{
     AntigravityModelDescriptor, AntigravityResponseEncoder, AntigravityStreamEncoder,
 };
-use crate::domain::{ErrorCategory, NeutralChatRequest, ProxyError};
+use crate::domain::{
+    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
+    ParameterOverrides, ProxyError,
+};
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
 use crate::storage::ConfigStore;
 use reqwest::{Client, Response};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const CONNECTION_TEST_TIMEOUT_MS: u64 = 15_000;
 
 pub struct ProxyServer {
     config_store: ConfigStore,
@@ -61,6 +66,36 @@ impl ProxyServer {
 
     pub(crate) fn http_client(&self) -> &Client {
         &self.http_client
+    }
+
+    /// 发送最小非流式请求，验证指定模型的路由、鉴权和响应解析。
+    pub async fn test_model_connection(&self, virtual_model_id: &str) -> Result<(), ProxyError> {
+        let config = self.config_store.get_config();
+        let request = NeutralChatRequest {
+            virtual_model_id: virtual_model_id.to_string(),
+            messages: vec![NeutralMessage {
+                role: MessageRole::User,
+                blocks: vec![NeutralContentBlock::Text("Reply with OK.".to_string())],
+            }],
+            system_instruction: None,
+            tools: vec![],
+            reasoning_level: None,
+            stream: false,
+            generation_parameters: ParameterOverrides {
+                max_tokens: Some(8),
+                ..ParameterOverrides::default()
+            },
+            extra_body: Default::default(),
+        };
+        let mut route = RouteTable::resolve(&config, &request)?;
+        route.final_reasoning_level = None;
+        route.provider.request_timeout_ms = match route.provider.request_timeout_ms {
+            0 => CONNECTION_TEST_TIMEOUT_MS,
+            configured => configured.min(CONNECTION_TEST_TIMEOUT_MS),
+        };
+
+        self.execute_route(&route, &request).await?;
+        Ok(())
     }
 
     /// 处理单个中立聊天请求，包含 Adapter 转译、网络发送与备用路由降级
@@ -311,11 +346,12 @@ impl ProxyServer {
         let adapter = get_adapter(&route.provider.protocol);
         let payload = adapter.build_request_payload(route, request)?;
         let headers = adapter.build_headers(&route.provider)?;
+        let generate_endpoint = route
+            .provider
+            .generate_endpoint
+            .replace("{model}", &route.upstream_model.upstream_model_id);
 
-        let mut request_builder = self
-            .http_client
-            .post(&route.provider.generate_endpoint)
-            .json(&payload);
+        let mut request_builder = self.http_client.post(generate_endpoint).json(&payload);
         for (name, value) in headers {
             request_builder = request_builder.header(name, value);
         }

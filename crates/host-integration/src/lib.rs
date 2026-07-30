@@ -1,16 +1,17 @@
 mod discovery;
 mod error;
-mod managed_copy;
+mod ide_settings;
 mod profile;
 mod signing;
 mod transaction;
 
 pub use discovery::{discover, HostInstallation};
 pub use error::HostIntegrationError;
-pub use managed_copy::{
-    create_managed_copy, inspect_managed_copy, remove_managed_copy, ManagedCopyReceipt,
-    ManagedCopyResult, ManagedCopyState, MANAGED_APP_NAME, MANAGED_RECEIPT_FILE,
+pub use ide_settings::{
+    disable_ide_settings, enable_ide_settings, inspect_ide_settings, IdeSettingsState,
+    IdeSettingsStatus, IDE_CLOUD_CODE_SETTING, IDE_SETTINGS_BACKUP_FILE, IDE_SETTINGS_RECEIPT_FILE,
 };
+
 pub use profile::{HostLayout, InstallationState, PatchProfile};
 pub use signing::{CodeSignatureVerifier, MacOsCodeSignatureVerifier};
 

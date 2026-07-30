@@ -1,9 +1,11 @@
 pub mod anthropic;
+pub mod catalog;
 pub mod gemini;
 pub mod openai;
 pub mod traits;
 
 pub use anthropic::AnthropicAdapter;
+pub use catalog::{fetch_provider_models, ProviderCatalogModel};
 pub use gemini::GeminiAdapter;
 pub use openai::OpenAIAdapter;
 pub use traits::{ProviderAdapter, ProviderStreamDecoder};

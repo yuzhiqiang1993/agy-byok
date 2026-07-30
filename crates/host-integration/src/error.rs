@@ -14,6 +14,8 @@ pub enum HostIntegrationError {
     HashMismatch { expected: String, actual: String },
     #[error("receipt does not belong to this application bundle")]
     ReceiptMismatch,
+    #[error("IDE settings integration conflict: {0}")]
+    SettingsConflict(String),
     #[error("host command failed: {0}")]
     CommandFailed(String),
     #[error("I/O failed for {path}: {source}")]

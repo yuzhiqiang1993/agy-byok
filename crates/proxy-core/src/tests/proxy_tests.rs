@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::antigravity::{
-        AntigravityRequestParser, AntigravityResponseEncoder, AntigravityStreamEncoder,
+        AntigravityModelDescriptor, AntigravityRequestParser, AntigravityResponseEncoder,
+        AntigravityStreamEncoder,
     };
     use crate::domain::*;
     use crate::proxy::ProxyServer;
@@ -9,6 +10,121 @@ mod tests {
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
+
+    fn connection_test_config(generate_endpoint: String) -> AppConfig {
+        AppConfig {
+            providers: vec![Provider {
+                id: "p-connection".to_string(),
+                name: "Connection Provider".to_string(),
+                protocol: ProviderProtocol::Openai,
+                models_endpoint: String::new(),
+                generate_endpoint,
+                api_key: "sk-connection".to_string(),
+                headers: HashMap::new(),
+                default_parameters: ParameterOverrides::default(),
+                connect_timeout_ms: 3000,
+                request_timeout_ms: 5000,
+                stream_idle_timeout_ms: 5000,
+                enabled: true,
+            }],
+            upstream_models: vec![UpstreamModel {
+                id: "um-connection".to_string(),
+                provider_id: "p-connection".to_string(),
+                upstream_model_id: "gpt-test".to_string(),
+                display_name: "Connection Model".to_string(),
+                capabilities: ModelCapabilities::default(),
+                parameter_overrides: ParameterOverrides::default(),
+                enabled: true,
+            }],
+            virtual_models: vec![VirtualModel {
+                id: "vm-connection".to_string(),
+                host_model_id: None,
+                upstream_model_id: "um-connection".to_string(),
+                display_name: "Connection Model".to_string(),
+                default_reasoning_level: None,
+                parameter_overrides: ParameterOverrides::default(),
+                fallback_virtual_model_id: None,
+                enabled: true,
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn model_connection_test_sends_minimal_authenticated_request() {
+        let response = json!({
+            "id": "chatcmpl-connection",
+            "model": "gpt-test",
+            "choices": [{
+                "message": { "role": "assistant", "content": "OK" },
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string();
+        let (mock_url, _handle, recorded) =
+            MockProviderServer::start_recording(200, &response).await;
+        let server = ProxyServer::new(
+            ConfigStore::in_memory(connection_test_config(format!("{mock_url}/v1/chat"))),
+            0,
+        );
+
+        server.test_model_connection("vm-connection").await.unwrap();
+
+        let recorded = recorded.await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&recorded.body).unwrap();
+        assert_eq!(
+            recorded.authorization.as_deref(),
+            Some("Bearer sk-connection")
+        );
+        assert_eq!(body["model"], "gpt-test");
+        assert_eq!(body["max_tokens"], 8);
+        assert_eq!(body["stream"], false);
+    }
+
+    #[tokio::test]
+    async fn model_connection_test_expands_model_endpoint_placeholder() {
+        let response = json!({
+            "id": "chatcmpl-placeholder",
+            "model": "gpt-test",
+            "choices": [{
+                "message": { "role": "assistant", "content": "OK" },
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string();
+        let (mock_url, _handle, recorded) =
+            MockProviderServer::start_recording(200, &response).await;
+        let server = ProxyServer::new(
+            ConfigStore::in_memory(connection_test_config(format!(
+                "{mock_url}/v1/models/{{model}}:generate"
+            ))),
+            0,
+        );
+
+        server.test_model_connection("vm-connection").await.unwrap();
+
+        assert_eq!(
+            recorded.await.unwrap().path_and_query,
+            "/v1/models/gpt-test:generate"
+        );
+    }
+
+    #[tokio::test]
+    async fn model_connection_test_reports_authentication_failure() {
+        let (mock_url, _handle) =
+            MockProviderServer::start(401, r#"{"error":{"message":"unauthorized"}}"#).await;
+        let server = ProxyServer::new(
+            ConfigStore::in_memory(connection_test_config(format!("{mock_url}/v1/chat"))),
+            0,
+        );
+
+        let error = server
+            .test_model_connection("vm-connection")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::Authentication);
+        assert_eq!(error.status_code, 401);
+    }
 
     #[tokio::test]
     async fn proxy_server_handles_end_to_end_chat() {
@@ -257,7 +373,12 @@ mod tests {
         let base_models_json = json!({
             "models": [
                 {"id": "gemini-pro", "displayName": "Gemini Pro"}
-            ]
+            ],
+            "agentModelSorts": [{
+                "groups": [{
+                    "modelIds": ["gemini-pro"]
+                }]
+            }]
         });
 
         let injected = server.handle_model_list(base_models_json);
@@ -265,6 +386,173 @@ mod tests {
         assert_eq!(models_arr.len(), 2);
         assert_eq!(models_arr[1]["id"], "vm-claude");
         assert_eq!(models_arr[1]["supportsThinking"], true);
+        assert_eq!(
+            injected["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!(["gemini-pro"])
+        );
+    }
+
+    #[test]
+    fn object_model_catalog_updates_valid_sorts_without_breaking_invalid_sorts() {
+        let upstream_models = vec![UpstreamModel {
+            id: "upstream-1".to_string(),
+            provider_id: "provider-1".to_string(),
+            upstream_model_id: "gpt-test".to_string(),
+            display_name: "GPT Test".to_string(),
+            capabilities: ModelCapabilities::default(),
+            parameter_overrides: ParameterOverrides::default(),
+            enabled: true,
+        }];
+        let virtual_models = vec![
+            VirtualModel {
+                id: "virtual-1".to_string(),
+                host_model_id: None,
+                upstream_model_id: "upstream-1".to_string(),
+                display_name: "Virtual One".to_string(),
+                default_reasoning_level: None,
+                parameter_overrides: ParameterOverrides::default(),
+                fallback_virtual_model_id: None,
+                enabled: true,
+            },
+            VirtualModel {
+                id: "custom-virtual-2".to_string(),
+                host_model_id: None,
+                upstream_model_id: "upstream-1".to_string(),
+                display_name: "Virtual Two".to_string(),
+                default_reasoning_level: None,
+                parameter_overrides: ParameterOverrides::default(),
+                fallback_virtual_model_id: None,
+                enabled: true,
+            },
+        ];
+        let mut catalog = json!({
+            "catalogVersion": "v10",
+            "models": {
+                "native-model": {
+                    "displayName": "Native Model",
+                    "model": "MODEL_NATIVE"
+                }
+            },
+            "agentModelSorts": [{
+                "sortId": "native-sort",
+                "nativeField": true,
+                "groups": [
+                    {
+                        "groupId": "already-listed",
+                        "modelIds": ["native-model", "custom-virtual-1"]
+                    },
+                    {
+                        "groupId": "append-custom",
+                        "modelIds": ["native-secondary"]
+                    }
+                ]
+            }]
+        });
+
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut catalog,
+            &virtual_models,
+            &upstream_models,
+        );
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut catalog,
+            &virtual_models,
+            &upstream_models,
+        );
+
+        assert_eq!(catalog["catalogVersion"], "v10");
+        assert_eq!(catalog["models"].as_object().unwrap().len(), 3);
+        assert_eq!(catalog["models"]["native-model"]["model"], "MODEL_NATIVE");
+        assert!(catalog["models"]["custom-virtual-1"].is_object());
+        assert!(catalog["models"]["custom-virtual-2"].is_object());
+        assert_eq!(catalog["agentModelSorts"][0]["sortId"], "native-sort");
+        assert_eq!(catalog["agentModelSorts"][0]["nativeField"], true);
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
+        );
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][1]["modelIds"],
+            json!(["native-secondary", "custom-virtual-1", "custom-virtual-2"])
+        );
+
+        for mut malformed_catalog in [
+            json!({
+                "models": {
+                    "native-model": { "model": "MODEL_NATIVE" }
+                }
+            }),
+            json!({
+                "models": {
+                    "native-model": { "model": "MODEL_NATIVE" }
+                },
+                "agentModelSorts": { "groups": [] }
+            }),
+            json!({
+                "models": {
+                    "native-model": { "model": "MODEL_NATIVE" }
+                },
+                "agentModelSorts": [
+                    { "groups": "invalid" },
+                    { "groups": [{ "modelIds": "invalid" }, null] }
+                ]
+            }),
+        ] {
+            let original_sorts = malformed_catalog.get("agentModelSorts").cloned();
+            AntigravityModelDescriptor::inject_into_model_list(
+                &mut malformed_catalog,
+                &virtual_models,
+                &upstream_models,
+            );
+
+            assert_eq!(
+                malformed_catalog["models"]["native-model"]["model"],
+                "MODEL_NATIVE"
+            );
+            assert!(malformed_catalog["models"]["custom-virtual-1"].is_object());
+            assert!(malformed_catalog["models"]["custom-virtual-2"].is_object());
+            assert_eq!(
+                malformed_catalog.get("agentModelSorts"),
+                original_sorts.as_ref()
+            );
+        }
+
+        let mut mixed_catalog = json!({
+            "models": {
+                "native-model": { "model": "MODEL_NATIVE" }
+            },
+            "agentModelSorts": [
+                {
+                    "sortId": "malformed-sort",
+                    "groups": "invalid"
+                },
+                {
+                    "sortId": "valid-sort",
+                    "groups": [{
+                        "groupId": "preserved-group",
+                        "modelIds": ["native-model"]
+                    }]
+                }
+            ]
+        });
+        let malformed_sort = mixed_catalog["agentModelSorts"][0].clone();
+
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut mixed_catalog,
+            &virtual_models,
+            &upstream_models,
+        );
+
+        assert_eq!(mixed_catalog["agentModelSorts"][0], malformed_sort);
+        assert_eq!(mixed_catalog["agentModelSorts"][1]["sortId"], "valid-sort");
+        assert_eq!(
+            mixed_catalog["agentModelSorts"][1]["groups"][0]["groupId"],
+            "preserved-group"
+        );
+        assert_eq!(
+            mixed_catalog["agentModelSorts"][1]["groups"][0]["modelIds"],
+            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
+        );
     }
 
     #[test]

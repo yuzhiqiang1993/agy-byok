@@ -10,16 +10,46 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">ANTIGRAVITY · BRING YOUR OWN MODEL</p>
-          <h1>AGY BYOK</h1>
-          <p class="hero-copy">启动本地代理，把你自己的模型接入 Antigravity IDE。</p>
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">AGY</span>
+          <div>
+            <p class="eyebrow">ANTIGRAVITY · BRING YOUR OWN MODEL</p>
+            <h1>AGY BYOK</h1>
+          </div>
         </div>
         <span class="version-badge">V0.1</span>
       </header>
 
-      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden>
+        <span id="notice-text"></span>
+        <button id="dismiss-notice" class="notice-dismiss" type="button" aria-label="关闭通知">关闭</button>
+      </div>
+
+      <section class="panel readiness-panel" aria-labelledby="readiness-title">
+        <div class="readiness-copy">
+          <p class="section-label">GET READY</p>
+          <h2 id="readiness-title">正在确认运行状态…</h2>
+          <p id="readiness-detail" class="muted">检查模型、代理和 IDE 接入状态。</p>
+        </div>
+        <ol class="readiness-steps" aria-label="使用准备进度">
+          <li id="readiness-models" data-state="pending">
+            <span class="step-index">01</span>
+            <span>自定义模型</span>
+            <strong id="readiness-models-value">检查中</strong>
+          </li>
+          <li id="readiness-proxy" data-state="pending">
+            <span class="step-index">02</span>
+            <span>本地代理</span>
+            <strong id="readiness-proxy-value">检查中</strong>
+          </li>
+          <li id="readiness-ide" data-state="pending">
+            <span class="step-index">03</span>
+            <span>IDE 接入</span>
+            <strong id="readiness-ide-value">检查中</strong>
+          </li>
+        </ol>
+      </section>
 
       <section class="status-grid" aria-label="运行状态">
         <article class="panel status-card">
@@ -30,8 +60,12 @@
             </div>
             <span id="proxy-state" class="status-pill neutral">检查中</span>
           </div>
-          <p id="proxy-address" class="muted">127.0.0.1:50999</p>
-          <div class="button-row">
+          <div class="status-body">
+            <span class="detail-label">监听地址</span>
+            <code id="proxy-address">127.0.0.1:50999</code>
+            <p class="muted compact">模型配置保存后立即生效，无需重启代理。</p>
+          </div>
+          <div class="card-actions">
             <button id="start-proxy" class="primary" type="button">启动代理</button>
             <button id="stop-proxy" class="secondary" type="button">停止代理</button>
           </div>
@@ -45,50 +79,57 @@
             </div>
             <span id="ide-state" class="status-pill neutral">检查中</span>
           </div>
-          <p id="ide-detail" class="muted">正在检测厂商原版…</p>
-          <div class="managed-copy-summary">
-            <div class="managed-copy-heading">
-              <strong>AGY BYOK 托管副本</strong>
-              <span id="managed-ide-state" class="status-pill neutral">检查中</span>
+          <p id="ide-detail" class="muted status-description">正在检测厂商原版…</p>
+          <div class="ide-integration-summary">
+            <div class="ide-integration-heading">
+              <strong>原生配置接入</strong>
+              <span id="ide-integration-state" class="status-pill neutral">检查中</span>
             </div>
-            <p id="managed-ide-detail" class="muted compact">正在检测托管副本…</p>
+            <p id="ide-integration-detail" class="muted compact">正在检测 jetski.cloudCodeUrl…</p>
           </div>
-          <div class="button-row host-actions">
-            <button id="refresh-ide" class="secondary" type="button">重新检测</button>
-            <button id="dry-run-ide" class="secondary" type="button" disabled>只读候选校验</button>
-            <button id="create-managed-ide" class="primary" type="button" disabled>创建托管副本</button>
-            <button id="launch-managed-ide" class="primary" type="button" disabled>启动托管 IDE</button>
-            <button id="remove-managed-ide" class="secondary" type="button" disabled>删除托管副本</button>
-            <button id="restore-ide" class="secondary" type="button" disabled>恢复历史事务</button>
+          <details class="technical-details">
+            <summary>配置详情</summary>
+            <code id="ide-settings-path">正在读取 settings 路径…</code>
+          </details>
+          <div class="card-actions host-actions">
+            <button id="enable-ide-integration" class="primary" type="button" disabled>启用 IDE 接入</button>
+            <button id="launch-ide" class="primary" type="button" disabled>启动原版 IDE</button>
+            <button id="disable-ide-integration" class="secondary" type="button" disabled>停用 IDE 接入</button>
+            <button id="refresh-ide" class="quiet" type="button">刷新状态</button>
           </div>
         </article>
       </section>
 
-      <section class="panel models-panel">
+      <section class="panel providers-panel">
         <div class="panel-heading">
           <div>
-            <p class="section-label">CUSTOM MODELS</p>
-            <h2>自定义模型</h2>
+            <p class="section-label">PROVIDERS & MODELS</p>
+            <h2>供应商</h2>
           </div>
-          <span id="model-count" class="count-badge">0</span>
+          <div class="heading-actions">
+            <span id="provider-count" class="count-badge">0</span>
+            <button id="open-provider-form" class="primary compact-button" type="button">添加供应商</button>
+          </div>
         </div>
-        <div id="model-list" class="model-list"></div>
+        <p class="panel-intro">每个代理只配置一次，再从它的模型目录中选择要接入 Antigravity IDE 的模型。</p>
+        <div id="provider-list" class="provider-list"></div>
       </section>
 
-      <section class="panel form-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="section-label">ADD MODEL</p>
-            <h2>添加自定义模型</h2>
+      <details id="provider-form-panel" class="panel form-panel">
+        <summary>
+          <div class="form-summary-copy">
+            <p class="section-label">ADD PROVIDER</p>
+            <strong id="provider-form-title">添加供应商</strong>
           </div>
-          <p class="muted compact">保存后代理会立即使用最新配置</p>
-        </div>
+          <span class="summary-hint">展开配置</span>
+        </summary>
 
-        <form id="model-form">
+        <form id="provider-form">
+          <p class="form-intro">填写代理连接并先测试，连接成功后再选择要接入的模型。</p>
           <div class="form-grid">
             <label>
-              <span>显示名称</span>
-              <input id="display-name" name="displayName" required placeholder="例如 GPT-5 BYOK" />
+              <span>供应商名称</span>
+              <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" />
             </label>
 
             <label>
@@ -101,21 +142,12 @@
             </label>
 
             <label class="wide">
-              <span>Generate Endpoint</span>
-              <input id="generate-endpoint" name="generateEndpoint" type="url" required placeholder="http://127.0.0.1:8317/v1/chat/completions" />
+              <span>API 地址 <small>填写服务根地址</small></span>
+              <input id="provider-base-url" name="providerBaseUrl" type="url" required placeholder="http://127.0.0.1:8317" />
+              <small>会按协议自动补全模型列表与生成接口，也可以在高级设置中修改。</small>
             </label>
 
             <label class="wide">
-              <span>Models Endpoint <small>可选</small></span>
-              <input id="models-endpoint" name="modelsEndpoint" type="url" placeholder="http://127.0.0.1:8317/v1/models" />
-            </label>
-
-            <label>
-              <span>上游模型 ID</span>
-              <input id="upstream-model-id" name="upstreamModelId" required placeholder="gpt-5" />
-            </label>
-
-            <label>
               <span>API Key <small>可选</small></span>
               <span class="password-field">
                 <input id="api-key" name="apiKey" type="password" autocomplete="off" />
@@ -124,21 +156,57 @@
             </label>
           </div>
 
-          <fieldset>
-            <legend>模型能力</legend>
-            <label class="check-label"><input id="vision" type="checkbox" /> 图片</label>
-            <label class="check-label"><input id="tools" type="checkbox" checked /> 工具调用</label>
-            <label class="check-label"><input id="reasoning" type="checkbox" /> 思考等级</label>
-          </fieldset>
+          <details class="endpoint-settings">
+            <summary>接口高级设置</summary>
+            <div class="form-grid">
+              <label class="wide">
+                <span>模型列表地址 <small>Models Endpoint</small></span>
+                <input id="models-endpoint" name="modelsEndpoint" type="url" required />
+              </label>
+              <label class="wide">
+                <span>生成请求地址 <small>Generate Endpoint</small></span>
+                <input id="generate-endpoint" name="generateEndpoint" type="url" required />
+              </label>
+            </div>
+          </details>
 
           <div class="form-actions">
-            <button id="save-model" class="primary" type="submit">保存模型</button>
+            <button id="cancel-provider" class="secondary" type="button">取消</button>
+            <button id="fetch-provider-models" class="primary" type="button">测试并获取模型</button>
           </div>
+
+          <section id="catalog-results" class="catalog-results" aria-labelledby="catalog-title" hidden>
+            <div class="catalog-heading">
+              <div>
+                <p class="section-label">SELECT MODELS</p>
+                <h3 id="catalog-title">选择要接入的模型</h3>
+              </div>
+              <span id="catalog-status" class="catalog-status" role="status" aria-live="polite"></span>
+            </div>
+
+            <div class="catalog-toolbar">
+              <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" aria-label="搜索模型" />
+              <label class="check-label"><input id="select-all-models" type="checkbox" /> 选择当前结果</label>
+            </div>
+            <div id="catalog-model-list" class="catalog-model-list"></div>
+
+            <fieldset>
+              <legend>新模型默认能力</legend>
+              <label class="check-label"><input id="vision" type="checkbox" /> 图片</label>
+              <label class="check-label"><input id="tools" type="checkbox" checked /> 工具调用</label>
+              <label class="check-label"><input id="reasoning" type="checkbox" /> 思考等级</label>
+            </fieldset>
+
+            <div class="catalog-save-row">
+              <span id="selected-model-count">尚未选择模型</span>
+              <button id="save-provider" class="primary" type="submit" disabled>保存供应商</button>
+            </div>
+          </section>
         </form>
-      </section>
+      </details>
 
       <footer>
-        厂商 App Bundle 始终只读；Endpoint 补丁只存在于可删除的 AGY BYOK 托管副本。
+        厂商 App Bundle 始终只读。IDE 接入仅管理可精确恢复的 jetski.cloudCodeUrl 用户设置。
       </footer>
     </main>
   </body>
