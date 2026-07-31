@@ -147,6 +147,63 @@ mod tests {
     }
 
     #[test]
+    fn resolve_sanitizes_controlled_fields_from_all_config_layers() {
+        let mut provider = create_provider(ProviderProtocol::Openai);
+        provider.default_parameters.extra_body = Some(HashMap::from([
+            ("model".to_string(), json!("provider-model")),
+            ("messages".to_string(), json!("provider-messages")),
+            ("contents".to_string(), json!("provider-contents")),
+            ("provider_safe".to_string(), json!("provider-value")),
+        ]));
+        let mut upstream_model = create_upstream_model(ReasoningCapability::default());
+        upstream_model.parameter_overrides.extra_body = Some(HashMap::from([
+            ("stream".to_string(), json!("upstream-stream")),
+            ("tools".to_string(), json!("upstream-tools")),
+            ("functions".to_string(), json!("upstream-functions")),
+            ("upstream_safe".to_string(), json!("upstream-value")),
+        ]));
+        let mut virtual_model = create_virtual_model(None);
+        virtual_model.parameter_overrides.extra_body = Some(HashMap::from([
+            ("authorization".to_string(), json!("virtual-authorization")),
+            ("api-key".to_string(), json!("virtual-api-key")),
+            ("x-api-key".to_string(), json!("virtual-x-api-key")),
+            ("virtual_safe".to_string(), json!("virtual-value")),
+        ]));
+        let config = AppConfig {
+            proxy_port: 51234,
+            providers: vec![provider],
+            upstream_models: vec![upstream_model],
+            virtual_models: vec![virtual_model],
+        };
+        let request = basic_request();
+
+        let route = RouteTable::resolve(&config, &request).unwrap();
+        let payload = OpenAIAdapter::new()
+            .build_request_payload(&route, &request)
+            .unwrap();
+
+        assert_eq!(payload["model"], "test-model");
+        assert!(payload["messages"].is_array());
+        assert_eq!(payload["stream"], false);
+        for controlled in [
+            "contents",
+            "tools",
+            "functions",
+            "authorization",
+            "api-key",
+            "x-api-key",
+        ] {
+            assert!(
+                payload.get(controlled).is_none(),
+                "leaked field: {controlled}"
+            );
+        }
+        assert_eq!(payload["provider_safe"], "provider-value");
+        assert_eq!(payload["upstream_safe"], "upstream-value");
+        assert_eq!(payload["virtual_safe"], "virtual-value");
+    }
+
+    #[test]
     fn request_reasoning_level_overrides_virtual_model_default() {
         let config = AppConfig {
             proxy_port: 51234,

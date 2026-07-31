@@ -82,6 +82,28 @@ impl VirtualModel {
         }
     }
 
+    pub fn catalog_key(&self) -> Cow<'_, str> {
+        if self.id.starts_with("custom-") {
+            Cow::Borrowed(self.id.as_str())
+        } else {
+            Cow::Owned(format!("custom-{}", self.id))
+        }
+    }
+
+    pub fn accepted_ids(&self) -> [Cow<'_, str>; 3] {
+        [
+            Cow::Borrowed(self.id.as_str()),
+            self.effective_host_model_id(),
+            self.catalog_key(),
+        ]
+    }
+
+    pub fn matches_id(&self, model_id: &str) -> bool {
+        self.accepted_ids()
+            .iter()
+            .any(|accepted_id| accepted_id.as_ref() == model_id)
+    }
+
     pub fn has_valid_host_model_id(&self) -> bool {
         let host_model_id = self.effective_host_model_id();
         host_model_id

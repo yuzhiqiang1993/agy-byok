@@ -1,5 +1,6 @@
 use crate::domain::{ErrorCategory, NeutralStreamEvent, ProxyError};
 use crate::providers::ProviderStreamDecoder;
+use async_trait::async_trait;
 use reqwest::Response;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -184,18 +185,47 @@ impl SseFrameDecoder {
     }
 }
 
+#[async_trait]
+pub(crate) trait NeutralEventSink: Send {
+    async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError>;
+}
+
+struct CallbackNeutralEventSink<F> {
+    callback: F,
+}
+
+#[async_trait]
+impl<F> NeutralEventSink for CallbackNeutralEventSink<F>
+where
+    F: FnMut(NeutralStreamEvent) -> Result<(), ProxyError> + Send,
+{
+    async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError> {
+        (self.callback)(event)
+    }
+}
+
 pub struct StreamPipe;
 
 impl StreamPipe {
     pub async fn process_stream<F>(
-        mut response: Response,
+        response: Response,
         idle_timeout_ms: u64,
         provider_decoder: &mut dyn ProviderStreamDecoder,
-        mut on_event: F,
+        on_event: F,
     ) -> Result<(), ProxyError>
     where
         F: FnMut(NeutralStreamEvent) -> Result<(), ProxyError> + Send,
     {
+        let mut event_sink = CallbackNeutralEventSink { callback: on_event };
+        Self::process_stream_to(response, idle_timeout_ms, provider_decoder, &mut event_sink).await
+    }
+
+    pub(crate) async fn process_stream_to(
+        mut response: Response,
+        idle_timeout_ms: u64,
+        provider_decoder: &mut dyn ProviderStreamDecoder,
+        event_sink: &mut dyn NeutralEventSink,
+    ) -> Result<(), ProxyError> {
         let idle_duration = Duration::from_millis(if idle_timeout_ms == 0 {
             30000
         } else {
@@ -209,7 +239,7 @@ impl StreamPipe {
                     for frame in sse_decoder.push(&bytes)? {
                         for event in provider_decoder.decode_data(&frame.data)? {
                             let response_ended = matches!(event, NeutralStreamEvent::ResponseEnd);
-                            on_event(event)?;
+                            event_sink.send(event).await?;
                             if response_ended {
                                 return Ok(());
                             }
@@ -220,14 +250,14 @@ impl StreamPipe {
                     for frame in sse_decoder.finish()? {
                         for event in provider_decoder.decode_data(&frame.data)? {
                             let response_ended = matches!(event, NeutralStreamEvent::ResponseEnd);
-                            on_event(event)?;
+                            event_sink.send(event).await?;
                             if response_ended {
                                 return Ok(());
                             }
                         }
                     }
                     for event in provider_decoder.finish()? {
-                        on_event(event)?;
+                        event_sink.send(event).await?;
                     }
                     return Ok(());
                 }

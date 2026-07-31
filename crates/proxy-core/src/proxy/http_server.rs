@@ -1,6 +1,7 @@
-use super::server::ProxyServer;
+use super::server::{EncodedFrameSink, ProxyServer};
 use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
 use crate::domain::{ErrorCategory, ProxyError};
+use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
 use http_body_util::combinators::BoxBody;
@@ -24,6 +25,30 @@ const LOCAL_TOKEN_HEADER: &str = "x-agy-byok-token";
 
 type HttpBody = BoxBody<Bytes, Infallible>;
 type HttpResponse = Response<HttpBody>;
+type HttpFrame = Result<Frame<Bytes>, Infallible>;
+
+struct HttpFrameSink {
+    sender: mpsc::Sender<HttpFrame>,
+}
+
+#[async_trait]
+impl EncodedFrameSink for HttpFrameSink {
+    async fn send(&mut self, frame: String) -> Result<(), ProxyError> {
+        let Some(envelope) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&frame)? else {
+            return Ok(());
+        };
+        self.sender
+            .send(Ok(Frame::data(Bytes::from(envelope))))
+            .await
+            .map_err(|_| {
+                ProxyError::new(
+                    ErrorCategory::StreamInterrupted,
+                    "Downstream SSE receiver is closed",
+                    499,
+                )
+            })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct HttpServerOptions {
@@ -723,21 +748,10 @@ async fn handle_generate_request(
     let (sender, receiver) = mpsc::channel(options.stream_buffer_capacity);
     tokio::spawn(async move {
         let _permit = permit;
+        let error_sender = sender.clone();
+        let mut frame_sink = HttpFrameSink { sender };
         let stream_result = proxy
-            .handle_chat_stream(&neutral_request, |frame| {
-                let Some(envelope) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&frame)? else {
-                    return Ok(());
-                };
-                sender
-                    .try_send(Ok(Frame::data(Bytes::from(envelope))))
-                    .map_err(|error| {
-                        ProxyError::new(
-                            ErrorCategory::StreamInterrupted,
-                            format!("Downstream SSE receiver is unavailable: {error}"),
-                            499,
-                        )
-                    })
-            })
+            .handle_chat_stream_to(&neutral_request, &mut frame_sink)
             .await;
 
         if let Err(error) = stream_result {
@@ -750,7 +764,9 @@ async fn handle_generate_request(
             });
             let error_frame = format!("data: {}\n\n", payload);
             if let Ok(Some(envelope)) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&error_frame) {
-                let _ = sender.try_send(Ok(Frame::data(Bytes::from(envelope))));
+                let _ = error_sender
+                    .send(Ok(Frame::data(Bytes::from(envelope))))
+                    .await;
             }
         }
     });
@@ -874,4 +890,34 @@ fn full_response(
         .header(CONTENT_TYPE, content_type)
         .body(Full::new(body.into()).boxed())
         .expect("valid HTTP response")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn http_frame_sink_waits_for_bounded_channel_capacity() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let mut sink = HttpFrameSink { sender };
+        let frame = "data: {\"candidates\":[]}\n\n".to_string();
+
+        sink.send(frame.clone()).await.unwrap();
+
+        let mut second_send = tokio::spawn(async move { sink.send(frame).await });
+        assert!(
+            timeout(Duration::from_millis(25), &mut second_send)
+                .await
+                .is_err(),
+            "the second frame must wait while the bounded channel is full"
+        );
+
+        receiver.recv().await.unwrap().unwrap();
+        timeout(Duration::from_secs(1), second_send)
+            .await
+            .expect("the second send should resume after capacity is available")
+            .expect("the second send task should complete")
+            .expect("the second frame should be sent successfully");
+        receiver.recv().await.unwrap().unwrap();
+    }
 }

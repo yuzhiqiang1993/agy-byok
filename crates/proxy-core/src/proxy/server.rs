@@ -1,21 +1,70 @@
 use super::activity::{ActivityItem, ActivityLog};
 use super::auth::AuthManager;
-use super::streaming::StreamPipe;
+use super::streaming::{NeutralEventSink, StreamPipe};
 use crate::antigravity::{
     AntigravityModelDescriptor, AntigravityResponseEncoder, AntigravityStreamEncoder,
 };
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
-    ParameterOverrides, ProviderProtocol, ProxyError,
+    NeutralStreamEvent, ParameterOverrides, ProviderProtocol, ProxyError,
 };
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
 use crate::storage::ConfigStore;
+use async_trait::async_trait;
 use reqwest::{Client, Response};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CONNECTION_TEST_TIMEOUT_MS: u64 = 15_000;
+
+#[async_trait]
+pub(crate) trait EncodedFrameSink: Send {
+    async fn send(&mut self, frame: String) -> Result<(), ProxyError>;
+}
+
+struct CallbackFrameSink<F> {
+    callback: F,
+}
+
+#[async_trait]
+impl<F> EncodedFrameSink for CallbackFrameSink<F>
+where
+    F: FnMut(String) -> Result<(), ProxyError> + Send,
+{
+    async fn send(&mut self, frame: String) -> Result<(), ProxyError> {
+        (self.callback)(frame)
+    }
+}
+
+struct StringFrameSink<'a> {
+    buffer: &'a mut String,
+}
+
+#[async_trait]
+impl EncodedFrameSink for StringFrameSink<'_> {
+    async fn send(&mut self, frame: String) -> Result<(), ProxyError> {
+        self.buffer.push_str(&frame);
+        Ok(())
+    }
+}
+
+struct AntigravityEventSink<'a> {
+    encoder: AntigravityStreamEncoder,
+    frame_sink: &'a mut dyn EncodedFrameSink,
+    emitted_frame: &'a mut bool,
+}
+
+#[async_trait]
+impl NeutralEventSink for AntigravityEventSink<'_> {
+    async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError> {
+        for frame in self.encoder.encode_event(&event)? {
+            *self.emitted_frame = true;
+            self.frame_sink.send(frame).await?;
+        }
+        Ok(())
+    }
+}
 
 pub struct ProxyServer {
     config_store: ConfigStore,
@@ -96,19 +145,7 @@ impl ProxyServer {
             .get_config()
             .virtual_models
             .iter()
-            .any(|model| {
-                if !model.enabled {
-                    return false;
-                }
-                let catalog_key = if model.id.starts_with("custom-") {
-                    model.id.clone()
-                } else {
-                    format!("custom-{}", model.id)
-                };
-                model.id == model_id
-                    || model.effective_host_model_id() == model_id
-                    || catalog_key == model_id
-            })
+            .any(|model| model.enabled && model.matches_id(model_id))
     }
 
     pub(crate) fn http_client(&self) -> &Client {
@@ -152,11 +189,10 @@ impl ProxyServer {
     ) -> Result<String, ProxyError> {
         if request.stream {
             let mut encoded_stream = String::new();
-            self.handle_chat_stream(request, |frame| {
-                encoded_stream.push_str(&frame);
-                Ok(())
-            })
-            .await?;
+            let mut frame_sink = StringFrameSink {
+                buffer: &mut encoded_stream,
+            };
+            self.handle_chat_stream_to(request, &mut frame_sink).await?;
             return Ok(encoded_stream);
         }
 
@@ -233,11 +269,20 @@ impl ProxyServer {
     pub async fn handle_chat_stream<F>(
         &self,
         request: &NeutralChatRequest,
-        mut on_frame: F,
+        on_frame: F,
     ) -> Result<(), ProxyError>
     where
         F: FnMut(String) -> Result<(), ProxyError> + Send,
     {
+        let mut frame_sink = CallbackFrameSink { callback: on_frame };
+        self.handle_chat_stream_to(request, &mut frame_sink).await
+    }
+
+    pub(crate) async fn handle_chat_stream_to(
+        &self,
+        request: &NeutralChatRequest,
+        frame_sink: &mut dyn EncodedFrameSink,
+    ) -> Result<(), ProxyError> {
         if !request.stream {
             return Err(ProxyError::new(
                 ErrorCategory::InvalidRequest,
@@ -265,7 +310,7 @@ impl ProxyServer {
 
         let mut emitted_frame = false;
         match self
-            .execute_stream_route(&route, request, &mut on_frame, &mut emitted_frame)
+            .execute_stream_route(&route, request, frame_sink, &mut emitted_frame)
             .await
         {
             Ok(()) => {
@@ -294,7 +339,7 @@ impl ProxyServer {
                             .execute_stream_route(
                                 &fallback_route,
                                 request,
-                                &mut on_frame,
+                                frame_sink,
                                 &mut emitted_frame,
                             )
                             .await
@@ -346,16 +391,13 @@ impl ProxyServer {
         ))
     }
 
-    async fn execute_stream_route<F>(
+    async fn execute_stream_route(
         &self,
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
-        on_frame: &mut F,
+        frame_sink: &mut dyn EncodedFrameSink,
         emitted_frame: &mut bool,
-    ) -> Result<(), ProxyError>
-    where
-        F: FnMut(String) -> Result<(), ProxyError> + Send,
-    {
+    ) -> Result<(), ProxyError> {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         if status >= 400 {
@@ -377,18 +419,16 @@ impl ProxyServer {
         }
 
         let mut provider_decoder = adapter.create_stream_decoder(&route.upstream_model);
-        let mut response_encoder = AntigravityStreamEncoder::new();
-        StreamPipe::process_stream(
+        let mut event_sink = AntigravityEventSink {
+            encoder: AntigravityStreamEncoder::new(),
+            frame_sink,
+            emitted_frame,
+        };
+        StreamPipe::process_stream_to(
             response,
             route.provider.stream_idle_timeout_ms,
             provider_decoder.as_mut(),
-            |event| {
-                for frame in response_encoder.encode_event(&event)? {
-                    *emitted_frame = true;
-                    on_frame(frame)?;
-                }
-                Ok(())
-            },
+            &mut event_sink,
         )
         .await
     }

@@ -6,6 +6,7 @@ mod tests {
     };
     use crate::domain::*;
     use crate::proxy::ProxyServer;
+    use crate::routing::RouteTable;
     use crate::storage::{AppConfig, ConfigStore};
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
@@ -48,6 +49,39 @@ mod tests {
                 enabled: true,
             }],
         }
+    }
+
+    #[test]
+    fn injected_catalog_key_resolves_to_the_same_virtual_model() {
+        let config = connection_test_config("http://localhost/chat".to_string());
+        let mut catalog = json!({ "models": {} });
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut catalog,
+            &config.virtual_models,
+            &config.upstream_models,
+        );
+        let catalog_key = catalog["models"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let request = NeutralChatRequest {
+            virtual_model_id: catalog_key.clone(),
+            messages: vec![],
+            system_instruction: None,
+            tools: vec![],
+            reasoning_level: None,
+            stream: false,
+            generation_parameters: ParameterOverrides::default(),
+            extra_body: HashMap::new(),
+        };
+
+        let route = RouteTable::resolve(&config, &request).unwrap();
+
+        assert_eq!(catalog_key, config.virtual_models[0].catalog_key());
+        assert_eq!(route.virtual_model.id, config.virtual_models[0].id);
     }
 
     #[tokio::test]

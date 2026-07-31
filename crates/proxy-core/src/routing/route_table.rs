@@ -43,19 +43,7 @@ impl RouteTable {
         let virtual_model = config
             .virtual_models
             .iter()
-            .find(|vm| {
-                if !vm.enabled {
-                    return false;
-                }
-                let catalog_key = if vm.id.starts_with("custom-") {
-                    vm.id.clone()
-                } else {
-                    format!("custom-{}", vm.id)
-                };
-                vm.id == request.virtual_model_id
-                    || vm.effective_host_model_id() == request.virtual_model_id
-                    || catalog_key == request.virtual_model_id
-            })
+            .find(|vm| vm.enabled && vm.matches_id(&request.virtual_model_id))
             .ok_or_else(|| {
                 ProxyError::new(
                     ErrorCategory::ModelNotFound,
@@ -126,12 +114,13 @@ impl RouteTable {
 
         // 合并 Request 中的 extra_body
         if !request.extra_body.is_empty() {
-            let mut extra = final_parameters.extra_body.unwrap_or_default();
+            let extra = final_parameters.extra_body.get_or_insert_default();
             for (k, v) in &request.extra_body {
                 extra.insert(k.clone(), v.clone());
             }
-            Self::sanitize_extra_body(&mut extra);
-            final_parameters.extra_body = Some(extra);
+        }
+        if let Some(extra) = final_parameters.extra_body.as_mut() {
+            Self::sanitize_extra_body(extra);
         }
 
         Ok(ResolvedRoute {

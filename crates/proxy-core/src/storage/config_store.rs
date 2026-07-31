@@ -1,6 +1,6 @@
 use crate::domain::{Provider, UpstreamModel, VirtualModel};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -71,7 +71,7 @@ impl AppConfig {
         }
 
         let mut virtual_ids = HashSet::new();
-        let mut host_model_ids = HashSet::new();
+        let mut accepted_virtual_ids = HashMap::new();
         for model in &self.virtual_models {
             validate_id("VirtualModel", &model.id)?;
             if !virtual_ids.insert(model.id.as_str()) {
@@ -85,8 +85,17 @@ impl AppConfig {
                     model.id
                 ));
             }
-            if !host_model_ids.insert(host_model_id.clone()) {
-                return Err(format!("Duplicate host model ID: {host_model_id}"));
+            for accepted_id in model.accepted_ids() {
+                if let Some(existing_model_id) = accepted_virtual_ids.get(accepted_id.as_ref()) {
+                    if *existing_model_id != model.id.as_str() {
+                        return Err(format!(
+                            "VirtualModel {} identifier conflicts with VirtualModel {}: {}",
+                            model.id, existing_model_id, accepted_id
+                        ));
+                    }
+                } else {
+                    accepted_virtual_ids.insert(accepted_id.into_owned(), model.id.as_str());
+                }
             }
             let upstream = self
                 .upstream_models
@@ -109,18 +118,6 @@ impl AppConfig {
         }
 
         for model in &self.virtual_models {
-            let host_model_id = model.effective_host_model_id();
-            if host_model_id.as_ref() != model.id
-                && self
-                    .virtual_models
-                    .iter()
-                    .any(|other| other.id == host_model_id.as_ref())
-            {
-                return Err(format!(
-                    "VirtualModel {} host model ID conflicts with another VirtualModel ID: {}",
-                    model.id, host_model_id
-                ));
-            }
             if let Some(fallback_id) = &model.fallback_virtual_model_id {
                 if fallback_id == &model.id {
                     return Err(format!(
@@ -380,5 +377,22 @@ mod tests {
         config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
         config.virtual_models.push(duplicate);
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn config_validation_rejects_catalog_key_collision_with_disabled_model() {
+        let mut config = sample_config();
+        config.virtual_models[0].id = "foo".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+
+        let mut conflicting = config.virtual_models[0].clone();
+        conflicting.id = "custom-foo".to_string();
+        conflicting.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        conflicting.enabled = false;
+        config.virtual_models.push(conflicting);
+
+        let error = config.validate().unwrap_err();
+
+        assert!(error.contains("custom-foo"));
     }
 }

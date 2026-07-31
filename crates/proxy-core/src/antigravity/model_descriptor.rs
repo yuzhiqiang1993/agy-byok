@@ -89,7 +89,7 @@ impl AntigravityModelDescriptor {
                 let catalog_keys = (!target.is_array()).then(|| {
                     models
                         .iter()
-                        .map(|(virtual_model, _)| catalog_key(&virtual_model.id))
+                        .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
                         .collect::<Vec<_>>()
                 });
                 inject_models(target, models);
@@ -117,7 +117,7 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
         Value::Object(entries) => {
             for (virtual_model, upstream_model) in models {
                 entries.insert(
-                    catalog_key(&virtual_model.id),
+                    virtual_model.catalog_key().into_owned(),
                     AntigravityModelDescriptor::build_cloud_code_catalog_entry(
                         virtual_model,
                         upstream_model,
@@ -129,7 +129,7 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
             let mut entries = Map::new();
             for (virtual_model, upstream_model) in models {
                 entries.insert(
-                    catalog_key(&virtual_model.id),
+                    virtual_model.catalog_key().into_owned(),
                     AntigravityModelDescriptor::build_cloud_code_catalog_entry(
                         virtual_model,
                         upstream_model,
@@ -165,14 +165,6 @@ fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_k
                 }
             }
         }
-    }
-}
-
-fn catalog_key(virtual_model_id: &str) -> String {
-    if virtual_model_id.starts_with("custom-") {
-        virtual_model_id.to_string()
-    } else {
-        format!("custom-{virtual_model_id}")
     }
 }
 
