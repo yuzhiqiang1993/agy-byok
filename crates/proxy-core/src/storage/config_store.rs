@@ -181,25 +181,42 @@ impl ConfigStore {
     pub fn update_config(&self, new_config: AppConfig) -> Result<(), String> {
         new_config.validate()?;
         let mut guard = self.config.write().unwrap();
+        self.persist_config(&new_config)?;
+        *guard = new_config;
+        Ok(())
+    }
 
-        if let Some(ref path) = self.file_path {
-            let json_content = serde_json::to_string_pretty(&new_config)
-                .map_err(|error| format!("Failed to serialize config: {error}"))?;
-            let temporary_path = path.with_extension("tmp");
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|error| format!("Failed to create config directory: {error}"))?;
-            }
+    pub fn update_config_with<F>(&self, update: F) -> Result<AppConfig, String>
+    where
+        F: FnOnce(&mut AppConfig),
+    {
+        let mut guard = self.config.write().unwrap();
+        let mut new_config = guard.clone();
+        update(&mut new_config);
+        new_config.validate()?;
+        self.persist_config(&new_config)?;
+        *guard = new_config.clone();
+        Ok(new_config)
+    }
 
-            fs::write(&temporary_path, json_content)
-                .map_err(|error| format!("Failed to write temporary config: {error}"))?;
-            if let Err(error) = fs::rename(&temporary_path, path) {
-                let _ = fs::remove_file(&temporary_path);
-                return Err(format!("Failed to replace config file: {error}"));
-            }
+    fn persist_config(&self, config: &AppConfig) -> Result<(), String> {
+        let Some(path) = &self.file_path else {
+            return Ok(());
+        };
+        let json_content = serde_json::to_string_pretty(config)
+            .map_err(|error| format!("Failed to serialize config: {error}"))?;
+        let temporary_path = path.with_extension("tmp");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Failed to create config directory: {error}"))?;
         }
 
-        *guard = new_config;
+        fs::write(&temporary_path, json_content)
+            .map_err(|error| format!("Failed to write temporary config: {error}"))?;
+        if let Err(error) = fs::rename(&temporary_path, path) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(format!("Failed to replace config file: {error}"));
+        }
         Ok(())
     }
 }
@@ -301,6 +318,30 @@ mod tests {
         assert_eq!(reloaded.get_config().providers[0].api_key, "sk-test");
         assert!(!path.with_extension("tmp").exists());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn atomic_updates_preserve_independent_changes() {
+        let store = ConfigStore::in_memory(sample_config());
+        let port_store = store.clone();
+        let provider_store = store.clone();
+
+        let port_update = std::thread::spawn(move || {
+            port_store
+                .update_config_with(|config| config.proxy_port = 52345)
+                .unwrap();
+        });
+        let provider_update = std::thread::spawn(move || {
+            provider_store
+                .update_config_with(|config| config.providers[0].name = "Updated".to_string())
+                .unwrap();
+        });
+        port_update.join().unwrap();
+        provider_update.join().unwrap();
+
+        let config = store.get_config();
+        assert_eq!(config.proxy_port, 52345);
+        assert_eq!(config.providers[0].name, "Updated");
     }
 
     #[test]

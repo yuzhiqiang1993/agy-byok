@@ -77,10 +77,11 @@ fn get_config(state: State<'_, DesktopState>) -> AppConfig {
 
 #[tauri::command]
 fn save_config(mut config: AppConfig, state: State<'_, DesktopState>) -> Result<AppConfig, String> {
-    // 代理端口由桌面运行时管理，避免前端旧快照覆盖刚选出的空闲端口。
-    config.proxy_port = state.config_store.get_config().proxy_port;
-    state.config_store.update_config(config)?;
-    Ok(state.config_store.get_config())
+    // 代理端口由桌面运行时管理，必须与前端配置替换在同一写锁内合并。
+    state.config_store.update_config_with(move |current| {
+        config.proxy_port = current.proxy_port;
+        *current = config;
+    })
 }
 
 #[tauri::command]
@@ -239,9 +240,10 @@ async fn start_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, Stri
         .await
         .map_err(|error| error.to_string())?;
     let actual_port = started.local_addr().port();
-    let mut config = state.config_store.get_config();
-    config.proxy_port = actual_port;
-    if let Err(error) = state.config_store.update_config(config) {
+    if let Err(error) = state
+        .config_store
+        .update_config_with(|config| config.proxy_port = actual_port)
+    {
         let _ = started.shutdown().await;
         return Err(format!("无法保存本地代理端口：{error}"));
     }
