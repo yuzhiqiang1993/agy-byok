@@ -284,11 +284,11 @@ async fn enable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeSta
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
+        if current.integration_state != "disabled" {
+            return Ok(current);
+        }
         if !current.compatible {
             return Err(current.message);
-        }
-        if current.integration_state == "enabled" {
-            return Ok(current);
         }
         if !current.can_enable_integration {
             return Err(current.integration_message);
@@ -341,17 +341,18 @@ async fn disable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeSt
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
-        if !current.compatible {
-            return Err(current.message);
-        }
-        if current.integration_state == "disabled" {
+        if current.integration_state == "disabled" && !current.can_disable_integration {
             return Ok(current);
         }
         if !current.can_disable_integration {
             return Err(current.integration_message);
         }
 
-        let restart_ide = stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?;
+        let restart_ide = if current.ide_running {
+            stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?
+        } else {
+            false
+        };
         if let Err(error) = disable_ide_settings(&settings_path, &integration_root, &endpoint) {
             if restart_ide {
                 let _ = launch_ide_app();
@@ -400,10 +401,26 @@ fn discover_ide_sync(
                     false,
                     true,
                 ),
-                IdeSettingsState::Enabled => (
+                IdeSettingsState::Managed if status.endpoint_matches => (
                     "enabled",
-                    format!("jetski.cloudCodeUrl 已指向当前本地代理 {endpoint}"),
+                    format!("jetski.cloudCodeUrl 已由 AGY BYOK 管理并指向当前本地代理 {endpoint}"),
                     true,
+                    true,
+                ),
+                IdeSettingsState::Managed => (
+                    "disabled",
+                    format!(
+                        "jetski.cloudCodeUrl 仍由 AGY BYOK 管理，但尚未指向当前本地代理 {endpoint}；可更新或停用接入"
+                    ),
+                    true,
+                    true,
+                ),
+                IdeSettingsState::External => (
+                    "external",
+                    format!(
+                        "当前相同 Endpoint {endpoint} 来自外部配置，不由 AGY BYOK 管理，无法在此停用"
+                    ),
+                    false,
                     true,
                 ),
             },
@@ -432,8 +449,40 @@ fn discover_ide_sync(
         });
     }
 
-    let installation = discover(app_path, &profile.layout).map_err(|error| error.to_string())?;
     let ide_running = is_app_running(app_path, "Antigravity IDE")?;
+    let integration_message =
+        if ide_running && integration_state == "disabled" && can_disable_integration {
+            format!("{integration_message}；更新或停用后将自动重启 Antigravity IDE")
+        } else if ide_running && integration_state == "disabled" {
+            format!("{integration_message}；启用后将自动重启 Antigravity IDE")
+        } else if ide_running && integration_state == "enabled" {
+            format!("{integration_message}；停用后将自动重启 Antigravity IDE")
+        } else {
+            integration_message
+        };
+    let installation = match discover(app_path, &profile.layout) {
+        Ok(installation) => installation,
+        Err(error) => {
+            return Ok(IdeStatus {
+                installed: true,
+                compatible: false,
+                ide_running,
+
+                state: "incompatible",
+                app_path: ANTIGRAVITY_IDE_PATH.to_string(),
+                app_version: None,
+                extension_version: None,
+                extension_sha256: None,
+                message: format!("无法识别当前 Antigravity IDE 安装：{error}"),
+                integration_state,
+                settings_path: settings_path.display().to_string(),
+                integration_message,
+                can_enable_integration: false,
+                can_launch_ide: false,
+                can_disable_integration,
+            });
+        }
+    };
     let app_version = Some(installation.app_version.clone());
     let extension_version = Some(installation.extension_version.clone());
     let extension_sha256 = Some(installation.extension_sha256.clone());
@@ -466,17 +515,9 @@ fn discover_ide_sync(
         ),
         Err(error) => (false, "incompatible", error.to_string()),
     };
-    let integration_ready = integration_state == "enabled";
+    let integration_ready = integration_state != "disabled";
     let can_enable_integration = compatible && settings_valid && integration_state == "disabled";
     let can_launch_ide = compatible && integration_ready && !ide_running;
-    let can_disable_integration = can_disable_integration && compatible;
-    let integration_message = if ide_running && integration_state == "disabled" {
-        format!("{integration_message}；启用后将自动重启 Antigravity IDE")
-    } else if ide_running {
-        format!("{integration_message}；停用后将自动重启 Antigravity IDE")
-    } else {
-        integration_message
-    };
 
     Ok(IdeStatus {
         installed: true,

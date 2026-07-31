@@ -109,7 +109,7 @@ interface IdeStatus {
   extensionVersion: string | null;
   extensionSha256: string | null;
   message: string;
-  integrationState: "disabled" | "enabled";
+  integrationState: "disabled" | "enabled" | "external";
   settingsPath: string;
   integrationMessage: string;
   canEnableIntegration: boolean;
@@ -210,7 +210,7 @@ function renderReadiness(): void {
   const proxyRunning = latestProxyStatus?.state === "running";
   const ideReady = latestIdeStatus
     ? latestIdeStatus.compatible
-      && latestIdeStatus.integrationState === "enabled"
+      && latestIdeStatus.integrationState !== "disabled"
     : false;
 
   setReadinessStep(
@@ -229,7 +229,11 @@ function renderReadiness(): void {
     "#readiness-ide",
     "#readiness-ide-value",
     latestIdeStatus === null ? "pending" : ideReady ? "ready" : "attention",
-    latestIdeStatus === null ? "检查中" : ideReady ? "已接入" : "待启用",
+    latestIdeStatus === null
+      ? "检查中"
+      : ideReady
+        ? latestIdeStatus.integrationState === "external" ? "外部接入" : "已接入"
+        : "待启用",
   );
 
   const title = element<HTMLHeadingElement>("#readiness-title");
@@ -321,16 +325,17 @@ function renderIde(status: IdeStatus): void {
   const integrationLabels: Record<IdeStatus["integrationState"], string> = {
     disabled: "未启用",
     enabled: "已启用",
+    external: "外部配置",
   };
   integrationState.textContent = integrationLabels[status.integrationState];
   integrationState.className = `status-pill ${status.integrationState === "enabled" ? "accent" : "neutral"}`;
   integrationDetail.textContent = status.integrationMessage;
   element<HTMLElement>("#ide-settings-path").textContent = status.settingsPath;
 
-  const integrationReady = status.integrationState === "enabled";
+  const integrationReady = status.integrationState !== "disabled";
   enableIdeIntegrationButton.hidden = status.integrationState !== "disabled";
   launchIdeButton.hidden = !integrationReady || status.ideRunning;
-  disableIdeIntegrationButton.hidden = status.integrationState !== "enabled";
+  disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
   enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启 IDE" : "启用 IDE 接入";
   disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启 IDE" : "停用 IDE 接入";
   setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);

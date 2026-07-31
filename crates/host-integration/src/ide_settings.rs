@@ -25,28 +25,39 @@ struct IdeSettingOwnership {
 #[serde(rename_all = "snake_case")]
 pub enum IdeSettingsState {
     Disabled,
-    Enabled,
+    Managed,
+    External,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct IdeSettingsStatus {
     pub state: IdeSettingsState,
     pub settings_path: PathBuf,
+    pub endpoint_matches: bool,
 }
 
 pub fn inspect_ide_settings(
     settings_path: impl AsRef<Path>,
-    _integration_root: impl AsRef<Path>,
+    integration_root: impl AsRef<Path>,
     endpoint: &str,
 ) -> Result<IdeSettingsStatus, HostIntegrationError> {
     let settings_path = validate_settings_path(settings_path.as_ref())?;
-    let state = match read_optional_regular_file(&settings_path)? {
-        Some(bytes) if configured_endpoint(&bytes, endpoint)? => IdeSettingsState::Enabled,
-        _ => IdeSettingsState::Disabled,
+    let configured_endpoint = match read_optional_regular_file(&settings_path)? {
+        Some(bytes) => {
+            cloud_code_value(&bytes)?.and_then(|value| value.as_str().map(str::to_string))
+        }
+        None => None,
     };
+    let state = configured_setting_state(
+        &settings_path,
+        integration_root.as_ref(),
+        configured_endpoint.as_deref(),
+        endpoint,
+    )?;
     Ok(IdeSettingsStatus {
         state,
         settings_path,
+        endpoint_matches: configured_endpoint.as_deref() == Some(endpoint),
     })
 }
 
@@ -57,15 +68,21 @@ pub fn enable_ide_settings(
 ) -> Result<IdeSettingsStatus, HostIntegrationError> {
     let settings_path = validate_settings_path(settings_path.as_ref())?;
     let integration_root = integration_root.as_ref();
-    prepare_private_directory(integration_root)?;
     let current = read_optional_regular_file(&settings_path)?;
     let current_bytes = current.unwrap_or_else(|| b"{}\n".to_vec());
     let current_value = cloud_code_value(&current_bytes)?;
-    let current_trailing_comma = settings_root_object(&current_bytes)?.trailing_comma;
     if current_value.as_ref().and_then(Value::as_str) == Some(endpoint) {
-        return Ok(enabled_status(settings_path));
+        let state =
+            configured_setting_state(&settings_path, integration_root, Some(endpoint), endpoint)?;
+        return Ok(IdeSettingsStatus {
+            state,
+            settings_path,
+            endpoint_matches: true,
+        });
     }
 
+    prepare_private_directory(integration_root)?;
+    let current_trailing_comma = settings_root_object(&current_bytes)?.trailing_comma;
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
     let previous_ownership = read_ownership_if_present(&ownership_path, &settings_path)?;
     let (previous_value, previous_trailing_comma) = match previous_ownership {
@@ -87,7 +104,7 @@ pub fn enable_ide_settings(
     write_json_private(&ownership_path, &ownership)?;
     let configured = configure_settings(&current_bytes, endpoint)?;
     write_settings_file(&settings_path, &configured)?;
-    Ok(enabled_status(settings_path))
+    Ok(managed_status(settings_path))
 }
 
 pub fn disable_ide_settings(
@@ -102,37 +119,41 @@ pub fn disable_ide_settings(
         return Ok(disabled_status(settings_path));
     };
     let current_value = cloud_code_value(&current)?;
-    if current_value.as_ref().and_then(Value::as_str) != Some(endpoint) {
+    let Some(configured_endpoint) = current_value.as_ref().and_then(Value::as_str) else {
         return Ok(disabled_status(settings_path));
-    }
-
+    };
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
-    let ownership = read_ownership_if_present(&ownership_path, &settings_path)?;
-    let previous_value = ownership
-        .as_ref()
-        .filter(|ownership| ownership.managed_endpoint == endpoint)
-        .and_then(|ownership| ownership.previous_value.as_ref());
-    let updated = match previous_value {
+    let Some(ownership) =
+        read_matching_ownership_if_present(&ownership_path, &settings_path, configured_endpoint)?
+    else {
+        return Ok(if configured_endpoint == endpoint {
+            external_status(settings_path)
+        } else {
+            disabled_status(settings_path)
+        });
+    };
+    let updated = match ownership.previous_value.as_ref() {
         Some(previous_value) => configure_setting_value(&current, previous_value)?,
-        None => remove_setting(
-            &current,
-            ownership
-                .as_ref()
-                .filter(|ownership| ownership.managed_endpoint == endpoint)
-                .is_some_and(|ownership| ownership.previous_trailing_comma),
-        )?,
+        None => remove_setting(&current, ownership.previous_trailing_comma)?,
     };
     write_settings_file(&settings_path, &updated)?;
-    if ownership_path.exists() || ownership_path.is_symlink() {
-        remove_regular_file(&ownership_path)?;
-    }
+    remove_regular_file(&ownership_path)?;
     Ok(disabled_status(settings_path))
 }
 
-fn enabled_status(settings_path: PathBuf) -> IdeSettingsStatus {
+fn managed_status(settings_path: PathBuf) -> IdeSettingsStatus {
     IdeSettingsStatus {
-        state: IdeSettingsState::Enabled,
+        state: IdeSettingsState::Managed,
         settings_path,
+        endpoint_matches: true,
+    }
+}
+
+fn external_status(settings_path: PathBuf) -> IdeSettingsStatus {
+    IdeSettingsStatus {
+        state: IdeSettingsState::External,
+        settings_path,
+        endpoint_matches: true,
     }
 }
 
@@ -140,22 +161,53 @@ fn disabled_status(settings_path: PathBuf) -> IdeSettingsStatus {
     IdeSettingsStatus {
         state: IdeSettingsState::Disabled,
         settings_path,
+        endpoint_matches: false,
     }
+}
+
+fn configured_setting_state(
+    settings_path: &Path,
+    integration_root: &Path,
+    configured_endpoint: Option<&str>,
+    current_endpoint: &str,
+) -> Result<IdeSettingsState, HostIntegrationError> {
+    let Some(configured_endpoint) = configured_endpoint else {
+        return Ok(IdeSettingsState::Disabled);
+    };
+    validate_integration_root_if_present(integration_root)?;
+    let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
+    if read_matching_ownership_if_present(&ownership_path, settings_path, configured_endpoint)?
+        .is_some()
+    {
+        Ok(IdeSettingsState::Managed)
+    } else if configured_endpoint == current_endpoint {
+        Ok(IdeSettingsState::External)
+    } else {
+        Ok(IdeSettingsState::Disabled)
+    }
+}
+
+fn read_matching_ownership_if_present(
+    ownership_path: &Path,
+    settings_path: &Path,
+    endpoint: &str,
+) -> Result<Option<IdeSettingOwnership>, HostIntegrationError> {
+    Ok(
+        read_ownership_record_if_present(ownership_path)?.filter(|ownership| {
+            ownership.schema_version == OWNERSHIP_SCHEMA_VERSION
+                && ownership.settings_path == settings_path
+                && ownership.managed_endpoint == endpoint
+        }),
+    )
 }
 
 fn read_ownership_if_present(
     ownership_path: &Path,
     settings_path: &Path,
 ) -> Result<Option<IdeSettingOwnership>, HostIntegrationError> {
-    if !ownership_path.exists() && !ownership_path.is_symlink() {
+    let Some(ownership) = read_ownership_record_if_present(ownership_path)? else {
         return Ok(None);
-    }
-    let bytes = read_regular_file(ownership_path)?;
-    let ownership: IdeSettingOwnership =
-        serde_json::from_slice(&bytes).map_err(|source| HostIntegrationError::Json {
-            path: ownership_path.to_path_buf(),
-            source,
-        })?;
+    };
     if ownership.schema_version != OWNERSHIP_SCHEMA_VERSION
         || ownership.settings_path != settings_path
     {
@@ -166,6 +218,22 @@ fn read_ownership_if_present(
     Ok(Some(ownership))
 }
 
+fn read_ownership_record_if_present(
+    ownership_path: &Path,
+) -> Result<Option<IdeSettingOwnership>, HostIntegrationError> {
+    if !ownership_path.exists() && !ownership_path.is_symlink() {
+        return Ok(None);
+    }
+    let bytes = read_regular_file(ownership_path)?;
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|source| HostIntegrationError::Json {
+            path: ownership_path.to_path_buf(),
+            source,
+        })
+}
+
+#[cfg(test)]
 fn configured_endpoint(bytes: &[u8], endpoint: &str) -> Result<bool, HostIntegrationError> {
     Ok(cloud_code_value(bytes)?.as_ref().and_then(Value::as_str) == Some(endpoint))
 }
@@ -736,7 +804,7 @@ mod tests {
         let enabled =
             enable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
                 .unwrap();
-        assert_eq!(enabled.state, IdeSettingsState::Enabled);
+        assert_eq!(enabled.state, IdeSettingsState::Managed);
         assert!(configured_endpoint(&fs::read(&fixture.settings_path).unwrap(), ENDPOINT).unwrap());
 
         let disabled =
@@ -782,6 +850,12 @@ mod tests {
         let configured = fs::read_to_string(&fixture.settings_path).unwrap();
         assert!(configured.contains(&format!("\"{ENDPOINT}\"")));
         assert!(configured.contains("\"workbench.colorTheme\": \"Default\""));
+        assert_eq!(
+            inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
+                .unwrap()
+                .state,
+            IdeSettingsState::Managed
+        );
 
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
         assert_eq!(
@@ -812,24 +886,33 @@ mod tests {
     }
 
     #[test]
-    fn matching_endpoint_is_enabled_without_ownership() {
+    fn matching_endpoint_without_ownership_is_external_and_unchanged() {
         let fixture = Fixture::new();
-        fixture.write_settings(&format!(
-            "{{\n  \"jetski.cloudCodeUrl\": \"{ENDPOINT}\"\n}}\n"
-        ));
+        let original = format!("{{\n  \"jetski.cloudCodeUrl\": \"{ENDPOINT}\"\n}}\n");
+        fixture.write_settings(&original);
 
-        let status =
+        let inspected =
             inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
                 .unwrap();
-        assert_eq!(status.state, IdeSettingsState::Enabled);
+        assert_eq!(inspected.state, IdeSettingsState::External);
 
-        let status =
+        let enabled =
+            enable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
+                .unwrap();
+        assert_eq!(enabled.state, IdeSettingsState::External);
+        assert!(!fixture
+            .integration_root
+            .join(IDE_SETTING_OWNERSHIP_FILE)
+            .exists());
+
+        let disabled =
             disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
                 .unwrap();
-        assert_eq!(status.state, IdeSettingsState::Disabled);
-        assert!(cloud_code_value(&fs::read(&fixture.settings_path).unwrap())
-            .unwrap()
-            .is_none());
+        assert_eq!(disabled.state, IdeSettingsState::External);
+        assert_eq!(
+            fs::read_to_string(&fixture.settings_path).unwrap(),
+            original
+        );
     }
 
     #[test]
@@ -843,7 +926,7 @@ mod tests {
             inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
                 .unwrap();
 
-        assert_eq!(status.state, IdeSettingsState::Enabled);
+        assert_eq!(status.state, IdeSettingsState::External);
     }
 
     #[test]
@@ -861,7 +944,7 @@ mod tests {
             inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
                 .unwrap()
                 .state,
-            IdeSettingsState::Enabled
+            IdeSettingsState::Managed
         );
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
         let restored = fs::read_to_string(&fixture.settings_path).unwrap();
@@ -899,6 +982,40 @@ mod tests {
                 .as_deref(),
             Some("https://example.invalid")
         );
+    }
+
+    #[test]
+    fn stale_managed_endpoint_remains_disableable_after_proxy_port_changes() {
+        let fixture = Fixture::new();
+        let original =
+            "{\n  \"jetski.cloudCodeUrl\": \"https://example.invalid\",\n  \"editor.fontSize\": 14\n}\n";
+        fixture.write_settings(original);
+        enable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+
+        let status = inspect_ide_settings(
+            &fixture.settings_path,
+            &fixture.integration_root,
+            NEXT_ENDPOINT,
+        )
+        .unwrap();
+        assert_eq!(status.state, IdeSettingsState::Managed);
+        assert!(!status.endpoint_matches);
+
+        let disabled = disable_ide_settings(
+            &fixture.settings_path,
+            &fixture.integration_root,
+            NEXT_ENDPOINT,
+        )
+        .unwrap();
+        assert_eq!(disabled.state, IdeSettingsState::Disabled);
+        assert_eq!(
+            fs::read_to_string(&fixture.settings_path).unwrap(),
+            original
+        );
+        assert!(!fixture
+            .integration_root
+            .join(IDE_SETTING_OWNERSHIP_FILE)
+            .exists());
     }
 
     #[test]

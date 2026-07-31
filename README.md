@@ -196,9 +196,9 @@ HTTP Server 只绑定 IPv4 Loopback，并拒绝非 Loopback peer，但这不等�
 
 当前 IDE settings 接入采用目标键 ownership，而不是整文件 Receipt/快照恢复：
 
-- 状态检查只判断 `jetski.cloudCodeUrl` 是否精确等于当前代理 Endpoint，不依赖 ownership 文件，也不受其他 settings 变化影响。
-- 启用时只最小修改目标键，并记录接管前的值和尾逗号信息；如果代理 Endpoint 变化且旧 Endpoint 仍由 AGY BYOK 管理，会继续保留第一次启用前的值。
-- 停用时只有目标键仍等于当前受管 Endpoint 才会处理：存在匹配 ownership 时恢复原值，否则删除目标键；如果用户或第三方已把目标键改成其他值，则视为 Disabled 且不覆盖该值。
+- 状态分为 `Disabled / Managed / External`：目标键与 matching ownership 记录的受管 Endpoint 一致时为 `Managed`；目标键等于当前代理 Endpoint 但无 matching ownership 时为 `External`；其他情况为 `Disabled`。
+- 当前 Endpoint 的 `Managed` 重复启用为无操作；代理端口变化后，旧 Endpoint 的 `Managed` 可更新到当前 Endpoint，并继续保留第一次启用前的值。`External` 不会被接管。
+- 停用只处理 `Managed`，包括仍指向旧代理端口的受管配置，并按 matching ownership 恢复原值或删除由 AGY BYOK 插入的目标键；`External` 不会被删除。如果用户或第三方已把目标键改成其他值，则视为 `Disabled` 且不覆盖该值。
 - 旧版 `ide-settings-receipt.json` 和 `ide-settings-original.jsonc` 不参与当前状态判断。
 
 V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不能可靠覆盖内置扩展，V9/V10 的托管副本路线也已被否决。当前实现不创建 App 副本，不执行 codesign 或 quarantine 写入。历史 V11 真实探针使用的是 `127.0.0.1:50999`，它只代表当时的验证环境：探针已确认 Electron Main 与插件 LS 都进入代理，且 6 个自定义模型在下拉框可见；当前 CLI 和桌面默认端口均已调整为 `51234`。详细原理见 [IDE 接入与代理安全复盘](docs/IDE_PATCH_SAFETY.md)。
@@ -227,7 +227,7 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 ### 厂商 Bundle 必须只读
 
 - 不修改厂商 App Bundle 内的资源、可执行文件、签名或 quarantine。
-- 版本、文件哈希和 Google 签名只用于只读兼容性判断；未匹配 Profile 时禁止启用 IDE 配置接入。
+- 版本、文件哈希和 Google 签名只用于只读兼容性判断；未匹配 Profile 时禁止启用 IDE 配置接入，但不阻止恢复已经由 AGY BYOK 管理的 settings。
 - 当前生产接入只修改用户 settings 中的 `jetski.cloudCodeUrl`，并拒绝 symlink、重复目标键和非法 JSONC。
 - ownership 只负责目标键原值，不拥有整个 settings 文件；其他键的变化必须保留。
 - 用户或第三方改写目标键后，停用操作不得覆盖其新值。
