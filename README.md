@@ -15,7 +15,7 @@ AGY BYOK 只解决四个核心问题：
 
 1. 让 Antigravity App 和 Antigravity IDE 能发现并选择自定义模型。
 2. 让自定义模型请求经过 AGY BYOK 自己的代理和协议转换代码。
-3. 支持文本、图片、工具调用和模型思考等级。
+3. 支持文本、图片、工具调用和模型思考档位。
 4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并只恢复接管前的 `jetski.cloudCodeUrl` 值。
 
 项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。Antigravity IDE `2.1.1` 的 Extension 与 Electron Main 都原生读取 `jetski.cloudCodeUrl`；AGY BYOK 只管理这一项用户设置，即可让两条 Cloud Code 路径统一进入本地代理。
@@ -24,7 +24,7 @@ AGY BYOK 只解决四个核心问题：
 
 - **多 Provider**：支持 OpenAI-compatible、Anthropic Messages 和 Google Gemini 三种线协议。
 - **虚拟模型**：将 Provider、真实上游模型和宿主虚拟模型分层管理，使用稳定模型 ID。
-- **思考等级**：同一上游模型可配置 `Low`、`Medium`、`High`、`XHigh`、`Max` 等虚拟变体，并由 Adapter 映射为 Provider 原生参数。
+- **思考档位**：上游服务编辑页统一配置英文档位模板；OpenAI-compatible 和 Anthropic 提供 `Default`、`Low`、`Medium`、`High`、`Extra High`、`Max`，Gemini 提供 `Default`、`Low`、`Medium`、`High`。只有在模型行显式勾选“思考档位”的上游模型才按模板展开虚拟变体，并由 Adapter 映射为 Provider 原生参数；新模型默认关闭该能力，确认上游 API 支持后再开启。
 - **中立协议**：先将 Antigravity/Gemini 请求转换为 Canonical Protocol，再适配目标 Provider。
 - **多模态与工具**：保留文本、图片顺序、Function Calling、流式 Tool Call 和公开的 Thinking Summary。
 - **本地直接配置**：Provider 地址、API Key 和自定义 Header 统一保存在本地配置中，空 API Key 可连接无鉴权上游。
@@ -38,10 +38,10 @@ AGY BYOK 只解决四个核心问题：
 | 范围 | 当前状态 |
 | :--- | :--- |
 | Cargo Workspace 与架构契约 | 已建立 |
-| Provider、UpstreamModel、VirtualModel | 已建立，支持启停、参数覆盖、Reasoning Capability 和单级 fallback 配置 |
+| Provider、UpstreamModel、VirtualModel | 已建立，支持启停、参数覆盖、按思考档位展开多个 VirtualModel 和单级 fallback 配置 |
 | 配置持久化与启动校验 | 已实现；配置写入 `config.v1.json`，Provider API Key 当前仍为本地明文存储 |
 | Antigravity 请求/响应转换 | 已实现文本、内联图片、工具调用、Thinking、非流响应和 SSE 事件转换 |
-| 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models` |
+| 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models`；思考模型显示为 `模型 等级(供应商)`，普通模型显示为 `模型(供应商)` |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
 | 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
 | Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
@@ -216,7 +216,7 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 
 - 图片、工具、并行工具和 Thinking 能力由 UpstreamModel 显式配置。
 - 不通过模型名称正则猜测能力。
-- 不支持的思考等级返回明确错误，不静默忽略。
+- 不支持的思考档位返回明确错误，不静默忽略。
 
 ### 流状态属于单次请求
 
