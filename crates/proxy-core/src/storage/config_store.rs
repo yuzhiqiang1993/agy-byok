@@ -6,16 +6,34 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub const DEFAULT_PROXY_PORT: u16 = 51234;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    #[serde(default = "default_proxy_port")]
+    pub proxy_port: u16,
     pub providers: Vec<Provider>,
     pub upstream_models: Vec<UpstreamModel>,
     pub virtual_models: Vec<VirtualModel>,
 }
 
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            proxy_port: DEFAULT_PROXY_PORT,
+            providers: Vec::new(),
+            upstream_models: Vec::new(),
+            virtual_models: Vec::new(),
+        }
+    }
+}
+
 impl AppConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if self.proxy_port == 0 {
+            return Err("Proxy port must be between 1 and 65535".to_string());
+        }
         let mut provider_ids = HashSet::new();
         for provider in &self.providers {
             validate_id("Provider", &provider.id)?;
@@ -121,6 +139,10 @@ impl AppConfig {
 
         Ok(())
     }
+}
+
+const fn default_proxy_port() -> u16 {
+    DEFAULT_PROXY_PORT
 }
 
 #[derive(Clone)]
@@ -230,6 +252,7 @@ mod tests {
 
     fn sample_config() -> AppConfig {
         AppConfig {
+            proxy_port: DEFAULT_PROXY_PORT,
             providers: vec![Provider {
                 id: "provider-1".to_string(),
                 name: "Provider".to_string(),
@@ -294,6 +317,19 @@ mod tests {
         let config: AppConfig = serde_json::from_value(value).unwrap();
 
         assert!(config.providers[0].api_key.is_empty());
+    }
+
+    #[test]
+    fn proxy_port_defaults_for_legacy_config_and_rejects_zero() {
+        let mut value = serde_json::to_value(sample_config()).unwrap();
+        value.as_object_mut().unwrap().remove("proxy_port");
+
+        let mut config: AppConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(config.proxy_port, DEFAULT_PROXY_PORT);
+        assert!(config.validate().is_ok());
+
+        config.proxy_port = 0;
+        assert!(config.validate().is_err());
     }
 
     #[test]

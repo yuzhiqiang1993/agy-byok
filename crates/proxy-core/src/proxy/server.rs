@@ -6,7 +6,7 @@ use crate::antigravity::{
 };
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
-    ParameterOverrides, ProxyError,
+    ParameterOverrides, ProviderProtocol, ProxyError,
 };
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
@@ -27,6 +27,14 @@ pub struct ProxyServer {
 
 impl ProxyServer {
     pub fn new(config_store: ConfigStore, port: u16) -> Self {
+        Self::with_activity_log(config_store, port, Arc::new(ActivityLog::new()))
+    }
+
+    pub fn with_activity_log(
+        config_store: ConfigStore,
+        port: u16,
+        activity_log: Arc<ActivityLog>,
+    ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -34,7 +42,7 @@ impl ProxyServer {
 
         Self {
             config_store,
-            activity_log: Arc::new(ActivityLog::new()),
+            activity_log,
             auth_manager: AuthManager::new(),
             http_client,
             port,
@@ -53,14 +61,53 @@ impl ProxyServer {
         self.activity_log.clone()
     }
 
+    pub fn record_official_generation(
+        &self,
+        model_id: &str,
+        stream: bool,
+        message_count: usize,
+        tool_count: usize,
+        status_code: u16,
+        duration_ms: u64,
+    ) {
+        self.activity_log.record(ActivityItem {
+            id: uuid::Uuid::new_v4().to_string(),
+            timestamp_ms: Self::current_time_ms(),
+            virtual_model_id: model_id.to_string(),
+            upstream_model_id: Some(model_id.to_string()),
+            provider_id: "antigravity-official".to_string(),
+            provider_protocol: Some("native".to_string()),
+            status_code,
+            duration_ms,
+            error_category: (!matches!(status_code, 200..=299))
+                .then(|| "OfficialUpstream".to_string()),
+            error_detail: None,
+            stream,
+            message_count,
+            tool_count,
+            used_fallback: false,
+            prompt_tokens: None,
+            completion_tokens: None,
+        });
+    }
+
     pub fn is_custom_model_id(&self, model_id: &str) -> bool {
         self.config_store
             .get_config()
             .virtual_models
             .iter()
             .any(|model| {
-                model.enabled
-                    && (model.id == model_id || model.effective_host_model_id() == model_id)
+                if !model.enabled {
+                    return false;
+                }
+                let catalog_key = if model.id.starts_with("custom-") {
+                    model.id.clone()
+                } else {
+                    format!("custom-{}", model.id)
+                };
+                model.id == model_id
+                    || model.effective_host_model_id() == model_id
+                    || catalog_key == model_id
             })
     }
 
@@ -120,11 +167,12 @@ impl ProxyServer {
             Ok(route) => route,
             Err(error) => {
                 self.record_activity(
-                    &request.virtual_model_id,
-                    "unknown",
+                    None,
+                    request,
                     error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", error.category)),
+                    false,
+                    Some(&error),
                 );
                 return Err(error);
             }
@@ -133,10 +181,11 @@ impl ProxyServer {
         match self.execute_route(&route, request).await {
             Ok(response) => {
                 self.record_activity(
-                    &route.virtual_model.id,
-                    &route.provider.id,
+                    Some(&route),
+                    request,
                     200,
                     start_time.elapsed().as_millis() as u64,
+                    false,
                     None,
                 );
                 Ok(response)
@@ -156,10 +205,11 @@ impl ProxyServer {
                             self.execute_route(&fallback_route, request).await
                         {
                             self.record_activity(
-                                &fallback_route.virtual_model.id,
-                                &fallback_route.provider.id,
+                                Some(&fallback_route),
+                                request,
                                 200,
                                 start_time.elapsed().as_millis() as u64,
+                                true,
                                 None,
                             );
                             return Ok(fallback_response);
@@ -168,11 +218,12 @@ impl ProxyServer {
                 }
 
                 self.record_activity(
-                    &route.virtual_model.id,
-                    &route.provider.id,
+                    Some(&route),
+                    request,
                     error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", error.category)),
+                    false,
+                    Some(&error),
                 );
                 Err(error)
             }
@@ -201,11 +252,12 @@ impl ProxyServer {
             Ok(route) => route,
             Err(error) => {
                 self.record_activity(
-                    &request.virtual_model_id,
-                    "unknown",
+                    None,
+                    request,
                     error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", error.category)),
+                    false,
+                    Some(&error),
                 );
                 return Err(error);
             }
@@ -218,10 +270,11 @@ impl ProxyServer {
         {
             Ok(()) => {
                 self.record_activity(
-                    &route.virtual_model.id,
-                    &route.provider.id,
+                    Some(&route),
+                    request,
                     200,
                     start_time.elapsed().as_millis() as u64,
+                    false,
                     None,
                 );
                 Ok(())
@@ -248,10 +301,11 @@ impl ProxyServer {
                             .is_ok()
                         {
                             self.record_activity(
-                                &fallback_route.virtual_model.id,
-                                &fallback_route.provider.id,
+                                Some(&fallback_route),
+                                request,
                                 200,
                                 start_time.elapsed().as_millis() as u64,
+                                true,
                                 None,
                             );
                             return Ok(());
@@ -260,11 +314,12 @@ impl ProxyServer {
                 }
 
                 self.record_activity(
-                    &route.virtual_model.id,
-                    &route.provider.id,
+                    Some(&route),
+                    request,
                     primary_error.status_code,
                     start_time.elapsed().as_millis() as u64,
-                    Some(format!("{:?}", primary_error.category)),
+                    false,
+                    Some(&primary_error),
                 );
                 Err(primary_error)
             }
@@ -386,28 +441,112 @@ impl ProxyServer {
 
     fn record_activity(
         &self,
-        vm_id: &str,
-        provider_id: &str,
-        status: u16,
+        route: Option<&ResolvedRoute>,
+        request: &NeutralChatRequest,
+        status_code: u16,
         duration_ms: u64,
-        error_category: Option<String>,
+        used_fallback: bool,
+        error: Option<&ProxyError>,
     ) {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis() as u64)
-            .unwrap_or(0);
+        let now_ms = Self::current_time_ms();
+        let (virtual_model_id, upstream_model_id, provider_id, provider_protocol) = match route {
+            Some(route) => (
+                route.virtual_model.id.clone(),
+                Some(route.upstream_model.upstream_model_id.clone()),
+                route.provider.id.clone(),
+                Some(match route.provider.protocol {
+                    ProviderProtocol::Openai => "openai".to_string(),
+                    ProviderProtocol::Anthropic => "anthropic".to_string(),
+                    ProviderProtocol::Gemini => "gemini".to_string(),
+                }),
+            ),
+            None => (
+                request.virtual_model_id.clone(),
+                None,
+                "unknown".to_string(),
+                None,
+            ),
+        };
 
         self.activity_log.record(ActivityItem {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp_ms: now_ms,
-            virtual_model_id: vm_id.to_string(),
-            provider_id: provider_id.to_string(),
-            status_code: status,
+            virtual_model_id,
+            upstream_model_id,
+            provider_id,
+            provider_protocol,
+            status_code,
             duration_ms,
-            error_category,
+            error_category: error.map(|error| format!("{:?}", error.category)),
+            error_detail: error.and_then(Self::sanitized_upstream_error),
+            stream: request.stream,
+            message_count: request.messages.len(),
+            tool_count: request.tools.len(),
+            used_fallback,
             prompt_tokens: None,
             completion_tokens: None,
         });
+    }
+
+    fn current_time_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn sanitized_upstream_error(error: &ProxyError) -> Option<String> {
+        let body = error.upstream_body.as_deref()?;
+        let payload: serde_json::Value = serde_json::from_str(body).ok()?;
+        let detail = payload.get("error").unwrap_or(&payload);
+        if let Some(message) = detail.as_str() {
+            return Some(Self::sanitize_log_text(message));
+        }
+
+        let object = detail.as_object()?;
+        let fields = ["message", "type", "param", "code"];
+        let parts = fields
+            .into_iter()
+            .filter_map(|key| {
+                let value = object.get(key)?;
+                let raw = match value {
+                    serde_json::Value::String(value) => value.clone(),
+                    serde_json::Value::Number(value) => value.to_string(),
+                    serde_json::Value::Bool(value) => value.to_string(),
+                    _ => return None,
+                };
+                Some(format!("{key}={}", Self::sanitize_log_text(&raw)))
+            })
+            .collect::<Vec<_>>();
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+
+    fn sanitize_log_text(value: &str) -> String {
+        let mut redact_next = false;
+        let mut sanitized = Vec::new();
+        for token in value.split_whitespace() {
+            let comparable = token
+                .trim_matches(|character: char| {
+                    !character.is_ascii_alphanumeric() && !matches!(character, '-' | '_' | '=')
+                })
+                .to_ascii_lowercase();
+            if redact_next {
+                sanitized.push("[REDACTED]".to_string());
+                redact_next = false;
+            } else if comparable == "bearer" {
+                sanitized.push("Bearer".to_string());
+                redact_next = true;
+            } else if comparable.starts_with("sk-")
+                || comparable.starts_with("api_key=")
+                || comparable.starts_with("apikey=")
+                || comparable.starts_with("authorization=")
+            {
+                sanitized.push("[REDACTED]".to_string());
+            } else {
+                sanitized.push(token.to_string());
+            }
+        }
+        sanitized.join(" ").chars().take(500).collect()
     }
 
     /// 注入并融合包含自定义虚拟模型的模型列表描述 JSON
@@ -419,5 +558,27 @@ impl ProxyServer {
             &config.upstream_models,
         );
         base_json
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_error_detail_keeps_diagnostics_and_redacts_credentials() {
+        let error = ProxyError::new(ErrorCategory::InvalidRequest, "rejected", 400)
+            .with_upstream_body(
+                r#"{"error":{"message":"Invalid schema; token sk-secret-value Bearer secret-token","type":"invalid_request_error","param":"tools[0].parameters","code":"invalid_function_parameters"}}"#,
+            );
+
+        let detail = ProxyServer::sanitized_upstream_error(&error).unwrap();
+
+        assert!(detail.contains("Invalid schema"));
+        assert!(detail.contains("param=tools[0].parameters"));
+        assert!(detail.contains("code=invalid_function_parameters"));
+        assert!(!detail.contains("sk-secret-value"));
+        assert!(!detail.contains("secret-token"));
+        assert!(detail.contains("[REDACTED]"));
     }
 }

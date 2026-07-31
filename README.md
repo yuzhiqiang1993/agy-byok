@@ -4,7 +4,7 @@
 [![Status: Prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#当前状态)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#路线图)
 
-> 为 Antigravity App 和 Antigravity IDE 提供本地、安全、可恢复的 Bring Your Own Key / Model 能力。
+> 面向 Antigravity App 和 Antigravity IDE 提供本地、可恢复的 Bring Your Own Key / Model 能力；当前可运行实现以 Antigravity IDE 为主。
 
 > [!IMPORTANT]
 > AGY BYOK 当前提供可运行的 macOS 桌面原型，可配置模型、启停代理，并通过 Antigravity IDE 原生 `jetski.cloudCodeUrl` 设置启用、启动或停用 IDE 接入。不会复制、修改或重签厂商 App Bundle。
@@ -16,7 +16,7 @@ AGY BYOK 只解决四个核心问题：
 1. 让 Antigravity App 和 Antigravity IDE 能发现并选择自定义模型。
 2. 让自定义模型请求经过 AGY BYOK 自己的代理和协议转换代码。
 3. 支持文本、图片、工具调用和模型思考等级。
-4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并可精确恢复用户原 settings。
+4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并只恢复接管前的 `jetski.cloudCodeUrl` 值。
 
 项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。Antigravity IDE `2.1.1` 的 Extension 与 Electron Main 都原生读取 `jetski.cloudCodeUrl`；AGY BYOK 只管理这一项用户设置，即可让两条 Cloud Code 路径统一进入本地代理。
 
@@ -28,33 +28,46 @@ AGY BYOK 只解决四个核心问题：
 - **中立协议**：先将 Antigravity/Gemini 请求转换为 Canonical Protocol，再适配目标 Provider。
 - **多模态与工具**：保留文本、图片顺序、Function Calling、流式 Tool Call 和公开的 Thinking Summary。
 - **本地直接配置**：Provider 地址、API Key 和自定义 Header 统一保存在本地配置中，空 API Key 可连接无鉴权上游。
-- **透明路由**：用户选择哪个模型就请求哪个模型，不静默跨模型切换。
-- **安全宿主边界**：厂商 App Bundle 始终只读；IDE settings 根据精确 Receipt 启用和恢复，检测到第三方漂移时停止自动覆盖。
+- **透明路由**：原生模型继续转发到官方 Cloud Code，自定义 VirtualModel 才进入 Provider Adapter；默认不跨模型切换，只有显式配置 fallback 时才尝试一次安全降级。
+- **安全宿主边界**：厂商 App Bundle 始终只读；IDE settings 只管理 `jetski.cloudCodeUrl`，其他配置变化不参与接入状态判断。
 
 ## 当前状态
 
-当前代码已经建立 `proxy-core`、`host-integration` 和最小 Tauri 2 桌面控制面。桌面 App 可以直接管理本地配置、启停代理、检测 IDE、启用或停用原生 `jetski.cloudCodeUrl` 接入，并启动厂商原版 IDE；生产代码不提供修改厂商原版 Bundle 的 Apply API。
+当前代码已经建立 `proxy-core`、`host-integration` 和最小 Tauri 2 桌面控制面。桌面 App 可以管理本地配置、显式启停代理、检测 IDE、启用或停用原生 `jetski.cloudCodeUrl` 接入，并启动厂商原版 IDE；IDE 运行中切换接入时会自动退出、更新 settings 并重新启动。生产代码不提供修改厂商原版 Bundle 的 Apply API。
 
 | 范围 | 当前状态 |
 | :--- | :--- |
 | Cargo Workspace 与架构契约 | 已建立 |
-| Provider、UpstreamModel、VirtualModel | 已建立 |
-| Canonical Protocol 与 Reasoning Capability | 已建立 |
-| Cloud Code 生成请求与响应 Envelope | 已实现 |
-| IDE 2.1.1 模型发现 | 已验证 `jetski.cloudCodeUrl` 同时接管 Extension LS 与 Electron Main；`models` 和 `agentModelSorts` 成对注入 |
+| Provider、UpstreamModel、VirtualModel | 已建立，支持启停、参数覆盖、Reasoning Capability 和单级 fallback 配置 |
+| 配置持久化与启动校验 | 已实现；配置写入 `config.v1.json`，Provider API Key 当前仍为本地明文存储 |
+| Antigravity 请求/响应转换 | 已实现文本、内联图片、工具调用、Thinking、非流响应和 SSE 事件转换 |
+| 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models` |
 | OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
-| Mock 上游、协议、HTTP 与历史恢复事务 | 已有自动测试覆盖 |
-| `127.0.0.1:50999` HTTP 监听与 Health Probe | 已实现 |
-| SSE 端到端流式转发 | 自定义 VirtualModel HTTP 路径已实现 |
-| 配置持久化与启动校验 | 已实现，桌面 UI 已接入模型添加、删除和 API Key 显示遮挡 |
-| Tool Call/Thinking 状态机 | Provider 与 Egress 聚合已实现，宿主 Tool Result 关联待 Fixture |
-| Tauri 2 桌面控制面 | 最小窗口、Proxy Supervisor、模型配置、IDE 检测与原生配置接入已实现 |
-| Antigravity IDE 接入与恢复 | 原厂 IDE + `jetski.cloudCodeUrl` 已真实显示 6 个自定义模型；启停事务保存并恢复原 settings，厂商 App 保持 Google 公证状态 |
-| Antigravity App 接入 | 尚未进入新项目实现 |
+| 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
+| Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
+| CLI 入口 | `cargo run -p agy-byok` 固定绑定 `127.0.0.1:51234`；端口占用时启动失败 |
+| Tauri 2 桌面控制面 | 已实现最小窗口、模型配置、代理显式启停、状态查询、IDE 检测与原生配置接入 |
+| 桌面动态端口 | 优先使用配置端口，默认 `51234`；占用时选择随机空闲回环端口并持久化实际端口 |
+| IDE settings ownership | 只管理 `jetski.cloudCodeUrl`，记录接管前的目标键值，不恢复整个 settings 文件 |
+| 自动测试 | 已覆盖配置、Adapter、SSE、HTTP、模型目录注入、settings 最小编辑和 ownership 语义 |
+| Antigravity IDE 接入 | 原厂 IDE + `jetski.cloudCodeUrl` 已真实显示 6 个自定义模型，厂商 App 保持 Google 公证状态 |
+| Antigravity App 接入 | 尚未进入当前实现 |
 
-桌面 App 可通过“启动代理”绑定 `127.0.0.1:50999`，提供 Health、模型列表以及非流式和流式生成路由；原有 `cargo run -p agy-byok` CLI 仍可独立启动代理核心。详细边界见 [系统架构与实现方案](docs/ARCHITECTURE.md)。
+当前代理生命周期是最小实现，不是完整 Supervisor：桌面进程只在内存中保存一个 `HttpServerHandle`，通过 `start_proxy`、`stop_proxy` 和 `proxy_status` 显式管理。当前没有自动启动、崩溃拉起、后台守护、持续健康监控、期望状态持久化或异常退出后的自动恢复。
 
-## 计划架构
+CLI 与桌面端口策略不同：CLI 当前固定使用 `51234`，不会读取 `AppConfig.proxy_port` 作为监听端口，也不会自动回退；桌面端读取并管理 `proxy_port`，端口冲突时回退到系统分配的空闲端口，再把实际端口写回配置。当前 IDE 接入和代理边界见 [IDE 接入与代理安全复盘](docs/IDE_PATCH_SAFETY.md)。
+
+当前仍未完成或需要继续收口的能力包括：
+
+- 宿主 Tool Result 与 OpenAI/Anthropic Tool Call ID 的真实多轮关联 Fixture。
+- 配置层 `extra_body` 受控字段校验，以及 fallback 对单次请求参数的完整继承。
+- Provider disabled、目录条目和实际可路由状态的一致性校验。
+- 流式 usage 到活动日志的贯通，以及响应体统一大小限制。
+- Host 路由认证与浏览器跨 Origin 访问策略收紧。
+- API Key 的系统钥匙串或独立 Secret Store。
+- Antigravity App 接入、完整桌面设置、发布签名、Notarization 和自动更新。
+
+## 当前架构
 
 ```mermaid
 flowchart TD
@@ -63,7 +76,7 @@ flowchart TD
     subgraph Desktop[AGY BYOK Tauri App]
         UI[菜单栏与管理界面]
         Integration[Host Integration]
-        Transaction[IDE Settings Transaction]
+        Ownership[IDE Setting Ownership]
         Config[Local Config]
 
         subgraph Core[proxy-core]
@@ -80,7 +93,7 @@ flowchart TD
 
     UI --> Core
     UI --> Integration
-    Integration --> Transaction
+    Integration --> Ownership
     Host --> Server
     Server --> Ingress
     Ingress --> Router
@@ -108,7 +121,7 @@ agy-byok/
 ├── Cargo.lock                 # 可复现依赖锁文件
 ├── crates/
 │   ├── proxy-core/            # 代理领域、路由与 Provider Adapter
-│   └── host-integration/       # 宿主发现、只读兼容性校验与 IDE settings 恢复
+│   └── host-integration/       # 宿主发现、只读兼容性校验与 IDE 目标键 ownership
 ├── src-tauri/                  # Tauri Commands、代理生命周期与打包配置
 ├── src/                        # 原生 TypeScript 桌面界面
 ├── package.json
@@ -164,24 +177,40 @@ cargo test --workspace --locked
 
 ### 当前限制
 
-`cargo run -p agy-byok` 会加载并校验配置，绑定 `127.0.0.1:50999`，然后执行内部 Health Probe。首次启动会创建：
+`cargo run -p agy-byok` 会加载并校验配置，固定绑定 `127.0.0.1:51234`，然后执行内部 Health Probe。CLI 不使用配置中的 `proxy_port` 决定监听端口，端口占用时也不会自动选择其他端口。首次启动会创建：
 
 ```text
 ~/Library/Application Support/AGY BYOK/config.v1.json
 ```
 
-开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。管理模型列表路由仍要求进程内 Token；IDE 的模型发现和生成路由仅允许 Loopback，但不要求 Electron Main 或插件 Language Server 携带 AGY BYOK 随机 Token，因为宿主没有可用的 Token 注入通道。这意味着同一用户权限下的其他本地进程也能访问这些宿主路由。透明转发保留厂商 `Authorization`，并禁止把本地 Token 发往官方服务。
+开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。桌面端优先使用配置中的端口；默认值为 `51234`，端口占用时回退到随机空闲回环端口，并持久化实际端口供 IDE settings 使用。
 
-V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不能可靠覆盖内置扩展，V9/V10 的托管副本路线也已被否决。V11 使用厂商原生 `jetski.cloudCodeUrl`：桌面 App 在 IDE 退出时事务性更新用户 settings，启动原厂 `/Applications/Antigravity IDE.app`，停用时逐字节恢复原文件；不创建 App 副本，不执行 codesign 或 quarantine 写入。真实探针已确认 Electron Main 与插件 LS 都连接 `127.0.0.1:50999`，且 6 个自定义模型在下拉框可见。详细原理见 [IDE 集成链路](docs/ANTIGRAVITY_IDE_INTEGRATION.md)。Provider API Key 直接写入本地配置。
+HTTP Server 只绑定 IPv4 Loopback，并拒绝非 Loopback peer，但这不等于只有 AGY BYOK 桌面进程可以访问：
+
+- `/health`、`/healthz` 公开。
+- `/v1/models`、`/v1beta/models` 默认要求进程内随机 Token。
+- IDE 使用的 `/v1internal:*` 宿主路由默认不要求 AGY BYOK Token，因为 Electron Main 和插件 Language Server 没有可用的 Token 注入通道。
+- 当前所有已识别路由返回开放 CORS，预检允许任意 Origin、Header，以及 GET、POST、OPTIONS。
+
+因此当前安全边界是 **LoopbackOnly + 本机调用方可信假设**，不是浏览器 Origin 隔离。其他本地进程，以及能够访问本机回环地址的浏览器页面，都可能调用未认证的宿主路由；在收紧 Host 认证或 CORS 前，不应把代理暴露到非回环地址，也不适合作为多用户共享服务。透明转发会剥离 `x-agy-byok-token`，但会保留厂商 `Authorization`；如果把本地 Token 放在 `Authorization` 中访问透明转发路由，该 Header 也会被转发，因此管理调用应使用专用的 `x-agy-byok-token`。
+
+当前 IDE settings 接入采用目标键 ownership，而不是整文件 Receipt/快照恢复：
+
+- 状态检查只判断 `jetski.cloudCodeUrl` 是否精确等于当前代理 Endpoint，不依赖 ownership 文件，也不受其他 settings 变化影响。
+- 启用时只最小修改目标键，并记录接管前的值和尾逗号信息；如果代理 Endpoint 变化且旧 Endpoint 仍由 AGY BYOK 管理，会继续保留第一次启用前的值。
+- 停用时只有目标键仍等于当前受管 Endpoint 才会处理：存在匹配 ownership 时恢复原值，否则删除目标键；如果用户或第三方已把目标键改成其他值，则视为 Disabled 且不覆盖该值。
+- 旧版 `ide-settings-receipt.json` 和 `ide-settings-original.jsonc` 不参与当前状态判断。
+
+V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不能可靠覆盖内置扩展，V9/V10 的托管副本路线也已被否决。当前实现不创建 App 副本，不执行 codesign 或 quarantine 写入。历史 V11 真实探针使用的是 `127.0.0.1:50999`，它只代表当时的验证环境：探针已确认 Electron Main 与插件 LS 都进入代理，且 6 个自定义模型在下拉框可见；当前 CLI 和桌面默认端口均已调整为 `51234`。详细原理见 [IDE 接入与代理安全复盘](docs/IDE_PATCH_SAFETY.md)。
 
 ## 实现原则
 
 ### 请求链路透明
 
-- 原生模型继续访问原 Cloud Code 服务。
-- 自定义模型才进入 Provider Adapter。
-- 鉴权、计费和限流错误不能伪装成模型回答。
-- 默认不自动切换 Provider 或模型。
+- 原生模型继续访问原 Cloud Code 服务，自定义模型才进入 Provider Adapter。
+- 透明转发保留 method、path/query、body、厂商 Authorization 和大部分端到端 Header，但会过滤 hop-by-hop Header、Host、Content-Length 和 `x-agy-byok-token`，并强制 `Accept-Encoding: identity`。
+- 生成路由需要先读取受大小限制的 UTF-8 JSON 并识别模型 ID，因此它不是字节级任意协议代理。
+- 默认不自动切换 Provider 或模型；只有显式配置 fallback、主路由发生可重试错误且流式响应尚未输出 frame 时，才尝试一次备用 VirtualModel。
 
 ### 能力显式声明
 
@@ -198,10 +227,10 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 ### 厂商 Bundle 必须只读
 
 - 不修改厂商 App Bundle 内的资源、可执行文件、签名或 quarantine。
-- 版本号只用于筛选只读候选 Profile，完整文件哈希决定能否生成内存候选。
-- 历史 Restore 必须同时校验 Receipt、当前 post-hash、完整 Snapshot 和 Google 深度签名。
-- 宿主升级后禁止用旧版本备份覆盖新版本。
-- 未匹配 Profile 时只允许诊断，不允许尝试写入。
+- 版本、文件哈希和 Google 签名只用于只读兼容性判断；未匹配 Profile 时禁止启用 IDE 配置接入。
+- 当前生产接入只修改用户 settings 中的 `jetski.cloudCodeUrl`，并拒绝 symlink、重复目标键和非法 JSONC。
+- ownership 只负责目标键原值，不拥有整个 settings 文件；其他键的变化必须保留。
+- 用户或第三方改写目标键后，停用操作不得覆盖其新值。
 
 ## 路线图
 
@@ -231,12 +260,13 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 
 - [x] 初始化 Tauri 2 最小桌面窗口
 - [x] 接入 Provider/Model 添加、删除和本地配置
-- [x] 实现 Proxy Supervisor 与状态 Overview
+- [x] 实现基于单个 `HttpServerHandle` 的显式启停与状态查询
+- [ ] 自动启动、持续健康监控、崩溃拉起和期望状态持久化
 - [ ] 菜单栏、完整编辑与 Settings
 
 ### M4：macOS 宿主接入
 
-- [x] Antigravity IDE 2.1.1 原生 `jetski.cloudCodeUrl` 接入与 settings 事务
+- [x] Antigravity IDE 2.1.1 原生 `jetski.cloudCodeUrl` 接入与目标键 ownership
 - [ ] Antigravity App 分层接入 Profile
 - [x] 历史 Receipt v2 与完整 Snapshot Restore 测试
 - [x] 真实 IDE Discovery 与只读候选校验
@@ -261,7 +291,13 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 - API Key、Authorization、Cookie 和原始 Header
 - 未脱敏的 Provider 错误正文
 
-远程 Provider 默认必须使用 HTTPS；只有显式配置的 Loopback Provider 可以使用 HTTP。附件下载需要限制大小、重定向和目标地址，并防止 SSRF 与跨 Origin 凭证泄漏。
+应用只在内存中保留最近 200 条脱敏调用元数据，包括路由模型、Provider、协议、流式状态、消息/工具数量、耗时、HTTP 状态，以及从结构化 Provider 错误中提取并截断的诊断摘要；应用退出后自动清空，也可在界面手动清空。
+
+远程 Provider 默认必须使用 HTTPS；只有显式配置的 Loopback Provider 可以使用 HTTP。Provider API Key 当前以明文写入本地配置，桌面 UI 的遮挡只影响显示，不等同于加密存储。
+
+本地 HTTP Server 当前采用 LoopbackOnly，但宿主路由默认无 AGY BYOK Token 且开放 CORS。这个边界用于兼容当前 IDE，不应解释为浏览器 Origin 安全隔离；在 Host 认证或 CORS 策略收紧前，禁止改为非回环监听，也不应作为共享代理服务。
+
+附件下载能力尚未实现；后续实现时需要限制大小、重定向和目标地址，并防止 SSRF 与跨 Origin 凭证泄漏。
 
 如果发现安全问题，请不要在公开 Issue 中附带真实 API Key、Prompt、文件内容或安装备份。
 

@@ -52,6 +52,46 @@ impl OpenAIAdapter {
         })
     }
 
+    fn normalize_json_schema_types(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(schema_type) = object.get_mut("type") {
+                    Self::normalize_json_schema_type(schema_type);
+                }
+                for child in object.values_mut() {
+                    Self::normalize_json_schema_types(child);
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    Self::normalize_json_schema_types(child);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn normalize_json_schema_type(value: &mut Value) {
+        match value {
+            Value::String(schema_type) if Self::is_json_schema_type(schema_type) => {
+                schema_type.make_ascii_lowercase();
+            }
+            Value::Array(schema_types) => {
+                for schema_type in schema_types {
+                    Self::normalize_json_schema_type(schema_type);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn is_json_schema_type(value: &str) -> bool {
+        matches!(
+            value,
+            "NULL" | "BOOLEAN" | "OBJECT" | "ARRAY" | "NUMBER" | "INTEGER" | "STRING"
+        )
+    }
+
     fn convert_message(msg: &NeutralMessage) -> Value {
         let role_str = match msg.role {
             MessageRole::System => "system",
@@ -447,12 +487,14 @@ impl ProviderAdapter for OpenAIAdapter {
                 .tools
                 .iter()
                 .map(|t| {
+                    let mut parameters = t.function.parameters_schema.clone();
+                    Self::normalize_json_schema_types(&mut parameters);
                     json!({
                         "type": "function",
                         "function": {
                             "name": t.function.name,
                             "description": t.function.description,
-                            "parameters": t.function.parameters_schema
+                            "parameters": parameters
                         }
                     })
                 })

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::antigravity::AntigravityRequestParser;
     use crate::domain::*;
     use crate::providers::*;
     use crate::routing::{ResolvedRoute, RouteTable};
@@ -148,6 +149,7 @@ mod tests {
     #[test]
     fn request_reasoning_level_overrides_virtual_model_default() {
         let config = AppConfig {
+            proxy_port: 51234,
             providers: vec![create_provider(ProviderProtocol::Openai)],
             upstream_models: vec![create_upstream_model(reasoning_capability([
                 (
@@ -172,6 +174,7 @@ mod tests {
     #[test]
     fn unsupported_reasoning_level_fails_during_routing() {
         let config = AppConfig {
+            proxy_port: 51234,
             providers: vec![create_provider(ProviderProtocol::Openai)],
             upstream_models: vec![create_upstream_model(reasoning_capability([(
                 ReasoningLevel::High,
@@ -204,6 +207,101 @@ mod tests {
             .unwrap();
 
         assert_eq!(payload["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn openai_preserves_tool_call_and_result_pairing() {
+        let adapter = OpenAIAdapter::new();
+        let route = create_dummy_route(
+            ProviderProtocol::Openai,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+        let request = AntigravityRequestParser::parse(
+            &json!({
+                "model": "vm-1",
+                "contents": [
+                    {
+                        "role": "model",
+                        "parts": [{
+                            "functionCall": {
+                                "id": "call-1",
+                                "name": "view_file",
+                                "args": { "path": "src/main.rs" }
+                            }
+                        }]
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{
+                            "functionResponse": {
+                                "id": "call-1",
+                                "name": "view_file",
+                                "response": { "content": "file contents" }
+                            }
+                        }]
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let payload = adapter.build_request_payload(&route, &request).unwrap();
+
+        assert_eq!(payload["messages"][0]["role"], "assistant");
+        assert_eq!(payload["messages"][0]["tool_calls"][0]["id"], "call-1");
+        assert_eq!(payload["messages"][1]["role"], "tool");
+        assert_eq!(payload["messages"][1]["tool_call_id"], "call-1");
+        assert_eq!(
+            payload["messages"][1]["content"],
+            r#"{"content":"file contents"}"#
+        );
+    }
+
+    #[test]
+    fn openai_normalizes_gemini_tool_schema_types() {
+        let adapter = OpenAIAdapter::new();
+        let route = create_dummy_route(
+            ProviderProtocol::Openai,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+        let mut request = basic_request();
+        request.tools = vec![NeutralTool {
+            function: NeutralToolFunction {
+                name: "ask_permission".to_string(),
+                description: Some("Ask for permission".to_string()),
+                parameters_schema: json!({
+                    "type": "OBJECT",
+                    "properties": {
+                        "message": { "type": "STRING" },
+                        "choices": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "label": { "type": ["STRING", "NULL"] }
+                                }
+                            }
+                        }
+                    }
+                }),
+            },
+        }];
+
+        let payload = adapter.build_request_payload(&route, &request).unwrap();
+        let parameters = &payload["tools"][0]["function"]["parameters"];
+
+        assert_eq!(parameters["type"], "object");
+        assert_eq!(parameters["properties"]["message"]["type"], "string");
+        assert_eq!(parameters["properties"]["choices"]["type"], "array");
+        assert_eq!(
+            parameters["properties"]["choices"]["items"]["type"],
+            "object"
+        );
+        assert_eq!(
+            parameters["properties"]["choices"]["items"]["properties"]["label"]["type"],
+            json!(["string", "null"])
+        );
     }
 
     #[test]

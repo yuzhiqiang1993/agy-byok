@@ -13,6 +13,7 @@ mod tests {
 
     fn connection_test_config(generate_endpoint: String) -> AppConfig {
         AppConfig {
+            proxy_port: 51234,
             providers: vec![Provider {
                 id: "p-connection".to_string(),
                 name: "Connection Provider".to_string(),
@@ -180,6 +181,7 @@ mod tests {
         };
 
         let config = AppConfig {
+            proxy_port: 51234,
             providers: vec![provider],
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
@@ -208,7 +210,15 @@ mod tests {
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
         assert_eq!(activities[0].virtual_model_id, "vm-test-1");
+        assert_eq!(activities[0].upstream_model_id.as_deref(), Some("gpt-4o"));
+        assert_eq!(activities[0].provider_id, "p-test");
+        assert_eq!(activities[0].provider_protocol.as_deref(), Some("openai"));
         assert_eq!(activities[0].status_code, 200);
+        assert!(!activities[0].stream);
+        assert_eq!(activities[0].message_count, 1);
+        assert_eq!(activities[0].tool_count, 0);
+        assert!(!activities[0].used_fallback);
+        assert!(activities[0].error_detail.is_none());
     }
 
     #[tokio::test]
@@ -265,6 +275,7 @@ mod tests {
         let (mock_url, _handle) = MockProviderServer::start_chunked(200, chunks).await;
 
         let config = AppConfig {
+            proxy_port: 51234,
             providers: vec![Provider {
                 id: "p-stream".to_string(),
                 name: "Mock Stream Provider".to_string(),
@@ -331,11 +342,14 @@ mod tests {
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
         assert_eq!(activities[0].status_code, 200);
+        assert!(activities[0].stream);
+        assert_eq!(activities[0].message_count, 1);
     }
 
     #[test]
     fn model_list_injection_reports_reasoning_capability() {
         let config = AppConfig {
+            proxy_port: 51234,
             providers: vec![],
             upstream_models: vec![UpstreamModel {
                 id: "um-1".to_string(),
@@ -556,6 +570,25 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_request_parser_extracts_nested_model_id_variants() {
+        let variants = [
+            json!({ "request": { "requestedModel": "models/MODEL_PLACEHOLDER_M400" } }),
+            json!({ "request": { "planModel": "MODEL_PLACEHOLDER_M400" } }),
+            json!({ "request": { "requested_model": "MODEL_PLACEHOLDER_M400" } }),
+            json!({ "request": { "plan_model": "MODEL_PLACEHOLDER_M400" } }),
+            json!({ "request": { "modelId": "MODEL_PLACEHOLDER_M400" } }),
+            json!({ "request": { "model_id": "MODEL_PLACEHOLDER_M400" } }),
+        ];
+
+        for body in variants {
+            assert_eq!(
+                AntigravityRequestParser::extract_model_id(&body.to_string()).unwrap(),
+                "MODEL_PLACEHOLDER_M400"
+            );
+        }
+    }
+
+    #[test]
     fn antigravity_request_parser_preserves_thinking_and_unique_tool_ids() {
         let body = json!({
             "model": "vm-1",
@@ -590,6 +623,93 @@ mod tests {
         };
         assert_eq!(first_id, "call_0_1");
         assert_eq!(second_id, "call_0_2");
+    }
+
+    #[test]
+    fn antigravity_request_parser_pairs_tool_results_with_function_calls() {
+        let body = json!({
+            "model": "vm-1",
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "id": "call-explicit",
+                            "name": "view_file",
+                            "args": "{\"path\":\"src/main.rs\"}"
+                        }
+                    }]
+                },
+                {
+                    "role": "user",
+                    "parts": [{
+                        "functionResponse": {
+                            "id": "call-explicit",
+                            "name": "view_file",
+                            "response": "file contents"
+                        }
+                    }]
+                }
+            ]
+        })
+        .to_string();
+
+        let request = AntigravityRequestParser::parse(&body).unwrap();
+
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.messages[0].role, MessageRole::Assistant);
+        assert_eq!(request.messages[1].role, MessageRole::Tool);
+        assert_eq!(
+            request.messages[0].blocks[0],
+            NeutralContentBlock::ToolCall {
+                id: "call-explicit".to_string(),
+                name: "view_file".to_string(),
+                arguments_json: "{\"path\":\"src/main.rs\"}".to_string(),
+            }
+        );
+        assert_eq!(
+            request.messages[1].blocks[0],
+            NeutralContentBlock::ToolResult {
+                tool_call_id: "call-explicit".to_string(),
+                content: "file contents".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn antigravity_request_parser_matches_missing_ids_by_function_order() {
+        let body = json!({
+            "model": "vm-1",
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [
+                        { "functionCall": { "name": "view_file", "args": { "path": "a" } } },
+                        { "functionCall": { "name": "view_file", "args": { "path": "b" } } }
+                    ]
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                        { "functionResponse": { "name": "view_file", "response": { "ok": "a" } } },
+                        { "functionResponse": { "name": "view_file", "response": { "ok": "b" } } }
+                    ]
+                }
+            ]
+        })
+        .to_string();
+
+        let request = AntigravityRequestParser::parse(&body).unwrap();
+
+        assert_eq!(request.messages.len(), 3);
+        let result_ids = request.messages[1..]
+            .iter()
+            .map(|message| match &message.blocks[0] {
+                NeutralContentBlock::ToolResult { tool_call_id, .. } => tool_call_id.as_str(),
+                block => panic!("expected tool result, got {block:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(result_ids, vec!["call_0_0", "call_0_1"]);
     }
 
     #[test]

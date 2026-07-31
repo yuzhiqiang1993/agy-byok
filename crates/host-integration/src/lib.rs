@@ -10,6 +10,7 @@ pub use error::HostIntegrationError;
 pub use ide_settings::{
     disable_ide_settings, enable_ide_settings, inspect_ide_settings, IdeSettingsState,
     IdeSettingsStatus, IDE_CLOUD_CODE_SETTING, IDE_SETTINGS_BACKUP_FILE, IDE_SETTINGS_RECEIPT_FILE,
+    IDE_SETTING_OWNERSHIP_FILE,
 };
 
 pub use profile::{HostLayout, InstallationState, PatchProfile};

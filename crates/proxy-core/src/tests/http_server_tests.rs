@@ -18,6 +18,7 @@ mod tests {
 
     fn model_config(generate_endpoint: String) -> AppConfig {
         AppConfig {
+            proxy_port: 51234,
             providers: vec![Provider {
                 id: "provider-1".to_string(),
                 name: "Mock Provider".to_string(),
@@ -143,7 +144,20 @@ mod tests {
             .expect("occupied port must fail");
         assert_eq!(error.category, ErrorCategory::ConnectionFailed);
 
+        let (fallback_proxy, _) = create_proxy(AppConfig::default(), occupied_port).await;
+        let fallback_handle = LoopbackHttpServer::start(
+            fallback_proxy,
+            HttpServerOptions {
+                fallback_to_random_port_on_bind_error: true,
+                ..test_options()
+            },
+        )
+        .await
+        .unwrap();
+        assert_ne!(fallback_handle.local_addr().port(), occupied_port);
+
         drop(client);
+        fallback_handle.shutdown().await.unwrap();
         handle.shutdown().await.unwrap();
     }
 
@@ -349,7 +363,9 @@ mod tests {
             create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
         let mut options = test_options();
         options.official_cloud_code_endpoint = Some(official_url);
-        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let handle = LoopbackHttpServer::start(proxy.clone(), options)
+            .await
+            .unwrap();
         let client = reqwest::Client::new();
 
         let response = client
@@ -368,6 +384,16 @@ mod tests {
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         assert_eq!(response.text().await.unwrap(), official_response);
+        let activities = proxy.activity_log().get_recent();
+        assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].virtual_model_id, "MODEL_NATIVE");
+        assert_eq!(
+            activities[0].upstream_model_id.as_deref(),
+            Some("MODEL_NATIVE")
+        );
+        assert_eq!(activities[0].provider_id, "antigravity-official");
+        assert_eq!(activities[0].provider_protocol.as_deref(), Some("native"));
+        assert_eq!(activities[0].status_code, 200);
 
         drop(client);
         handle.shutdown().await.unwrap();
@@ -441,8 +467,8 @@ mod tests {
             ))
             .header("x-agy-byok-token", token)
             .json(&json!({
-                "model": "MODEL_PLACEHOLDER_M400",
                 "request": {
+                    "requestedModel": "MODEL_PLACEHOLDER_M400",
                     "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }]
                 }
             }))

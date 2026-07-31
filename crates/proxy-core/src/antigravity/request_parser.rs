@@ -3,6 +3,7 @@ use crate::domain::{
     NeutralTool, NeutralToolFunction, ParameterOverrides, ProxyError,
 };
 use serde_json::Value;
+use std::collections::{HashMap, VecDeque};
 
 pub struct AntigravityRequestParser;
 
@@ -15,12 +16,14 @@ impl AntigravityRequestParser {
                 400,
             )
         })?;
-        val["model"]
-            .as_str()
-            .or_else(|| val["requestedModel"].as_str())
-            .or_else(|| val["planModel"].as_str())
-            .or_else(|| val["request"]["model"].as_str())
-            .map(ToOwned::to_owned)
+        Self::model_id_from_object(&val)
+            .or_else(|| val.get("request").and_then(Self::model_id_from_object))
+            .map(|model_id| {
+                model_id
+                    .strip_prefix("models/")
+                    .unwrap_or(model_id)
+                    .to_owned()
+            })
             .ok_or_else(|| {
                 ProxyError::new(
                     ErrorCategory::InvalidRequest,
@@ -28,6 +31,20 @@ impl AntigravityRequestParser {
                     400,
                 )
             })
+    }
+
+    fn model_id_from_object(value: &Value) -> Option<&str> {
+        [
+            "model",
+            "requestedModel",
+            "planModel",
+            "requested_model",
+            "plan_model",
+            "modelId",
+            "model_id",
+        ]
+        .into_iter()
+        .find_map(|key| value.get(key).and_then(Value::as_str))
     }
 
     pub fn parse(body: &str) -> Result<NeutralChatRequest, ProxyError> {
@@ -57,6 +74,7 @@ impl AntigravityRequestParser {
             .map(|s| s.to_string());
 
         let mut messages = Vec::new();
+        let mut pending_tool_calls: HashMap<String, VecDeque<String>> = HashMap::new();
         if let Some(contents) = request_payload["contents"]
             .as_array()
             .or_else(|| request_payload["messages"].as_array())
@@ -74,6 +92,7 @@ impl AntigravityRequestParser {
                 };
 
                 let mut blocks = Vec::new();
+                let mut tool_results = Vec::new();
                 if let Some(parts) = item["parts"].as_array() {
                     for (part_index, part) in parts.iter().enumerate() {
                         if part["thought"].as_bool().unwrap_or(false) {
@@ -94,24 +113,66 @@ impl AntigravityRequestParser {
                             });
                         } else if let Some(fc) = part.get("functionCall") {
                             let name = fc["name"].as_str().unwrap_or_default().to_string();
-                            let args = fc["args"].to_string();
+                            let id = fc["id"]
+                                .as_str()
+                                .filter(|id| !id.is_empty())
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("call_{message_index}_{part_index}"));
+                            let arguments_json = match fc.get("args") {
+                                Some(Value::String(arguments)) => arguments.clone(),
+                                Some(arguments) => arguments.to_string(),
+                                None => "{}".to_string(),
+                            };
+                            pending_tool_calls
+                                .entry(name.clone())
+                                .or_default()
+                                .push_back(id.clone());
                             blocks.push(NeutralContentBlock::ToolCall {
-                                id: format!("call_{message_index}_{part_index}"),
+                                id,
                                 name,
-                                arguments_json: args,
+                                arguments_json,
                             });
                         } else if let Some(fr) = part.get("functionResponse") {
-                            let id = fr["name"].as_str().unwrap_or_default().to_string();
-                            let resp = fr["response"].to_string();
-                            blocks.push(NeutralContentBlock::ToolResult {
-                                tool_call_id: id,
-                                content: resp,
+                            let name = fr["name"].as_str().unwrap_or_default().to_string();
+                            let explicit_id = fr["id"]
+                                .as_str()
+                                .filter(|id| !id.is_empty())
+                                .map(str::to_string);
+                            let id = if let Some(explicit_id) = explicit_id {
+                                if let Some(queue) = pending_tool_calls.get_mut(&name) {
+                                    if let Some(position) =
+                                        queue.iter().position(|id| id == &explicit_id)
+                                    {
+                                        queue.remove(position);
+                                    }
+                                }
+                                explicit_id
+                            } else {
+                                pending_tool_calls
+                                    .get_mut(&name)
+                                    .and_then(VecDeque::pop_front)
+                                    .unwrap_or_else(|| format!("call_{name}"))
+                            };
+                            let content = match fr.get("response") {
+                                Some(Value::String(response)) => response.clone(),
+                                Some(response) => response.to_string(),
+                                None => "{}".to_string(),
+                            };
+                            tool_results.push(NeutralMessage {
+                                role: MessageRole::Tool,
+                                blocks: vec![NeutralContentBlock::ToolResult {
+                                    tool_call_id: id,
+                                    content,
+                                }],
                             });
                         }
                     }
                 }
 
-                messages.push(NeutralMessage { role, blocks });
+                if !blocks.is_empty() || tool_results.is_empty() {
+                    messages.push(NeutralMessage { role, blocks });
+                }
+                messages.extend(tool_results);
             }
         }
 

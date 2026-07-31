@@ -57,6 +57,7 @@ interface VirtualModel {
 }
 
 interface AppConfig {
+  proxy_port: number;
   providers: Provider[];
   upstream_models: UpstreamModel[];
   virtual_models: VirtualModel[];
@@ -71,6 +72,25 @@ interface ModelConnectionTestResult {
   success: boolean;
   durationMs: number;
   message: string;
+}
+
+interface ActivityItem {
+  id: string;
+  timestampMs: number;
+  virtualModelId: string;
+  upstreamModelId: string | null;
+  providerId: string;
+  providerProtocol: string | null;
+  statusCode: number;
+  durationMs: number;
+  errorCategory: string | null;
+  errorDetail: string | null;
+  stream: boolean;
+  messageCount: number;
+  toolCount: number;
+  usedFallback: boolean;
+  promptTokens: number | null;
+  completionTokens: number | null;
 }
 
 interface ProviderCatalogModel {
@@ -89,7 +109,7 @@ interface IdeStatus {
   extensionVersion: string | null;
   extensionSha256: string | null;
   message: string;
-  integrationState: "disabled" | "enabled" | "external" | "conflict";
+  integrationState: "disabled" | "enabled";
   settingsPath: string;
   integrationMessage: string;
   canEnableIntegration: boolean;
@@ -106,6 +126,7 @@ const emptyParameters = (): ParameterOverrides => ({
 });
 
 let config: AppConfig = {
+  proxy_port: 51234,
   providers: [],
   upstream_models: [],
   virtual_models: [],
@@ -117,6 +138,8 @@ let editingProviderId: string | null = null;
 let draftProviderId = `provider-${crypto.randomUUID()}`;
 let catalogModels: ProviderCatalogModel[] = [];
 let selectedCatalogModelIds = new Set<string>();
+let activityRequestVersion = 0;
+let activityActionInProgress = false;
 
 const element = <T extends HTMLElement>(selector: string): T => {
   const value = document.querySelector<T>(selector);
@@ -139,6 +162,10 @@ const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
 const enableIdeIntegrationButton = element<HTMLButtonElement>("#enable-ide-integration");
 const launchIdeButton = element<HTMLButtonElement>("#launch-ide");
 const disableIdeIntegrationButton = element<HTMLButtonElement>("#disable-ide-integration");
+const activityList = element<HTMLDivElement>("#activity-list");
+const activityCount = element<HTMLSpanElement>("#activity-count");
+const refreshActivityButton = element<HTMLButtonElement>("#refresh-activity");
+const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
 
 providerFormPanel.open = false;
 
@@ -183,7 +210,7 @@ function renderReadiness(): void {
   const proxyRunning = latestProxyStatus?.state === "running";
   const ideReady = latestIdeStatus
     ? latestIdeStatus.compatible
-      && (latestIdeStatus.integrationState === "enabled" || latestIdeStatus.integrationState === "external")
+      && latestIdeStatus.integrationState === "enabled"
     : false;
 
   setReadinessStep(
@@ -249,17 +276,26 @@ async function withBusy(button: HTMLButtonElement, action: () => Promise<void>):
 
 function renderProxy(status: ProxyStatus): void {
   latestProxyStatus = status;
+  const actualPort = proxyPortFromAddress(status.address);
+  if (actualPort !== null) config.proxy_port = actualPort;
   const state = element<HTMLSpanElement>("#proxy-state");
   const address = element<HTMLElement>("#proxy-address");
   const running = status.state === "running";
   state.textContent = running ? "运行中" : "已停止";
   state.className = `status-pill ${running ? "success" : "neutral"}`;
-  address.textContent = running && status.address ? status.address : "127.0.0.1:50999";
+  address.textContent = status.address ?? `127.0.0.1:${config.proxy_port}`;
   startProxyButton.hidden = running;
   stopProxyButton.hidden = !running;
   setButtonUnavailable(startProxyButton, running);
   setButtonUnavailable(stopProxyButton, !running);
   renderReadiness();
+}
+
+function proxyPortFromAddress(address: string | null): number | null {
+  if (!address) return null;
+  const separator = address.lastIndexOf(":");
+  const port = Number(address.slice(separator + 1));
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
 function renderIde(status: IdeStatus): void {
@@ -285,20 +321,18 @@ function renderIde(status: IdeStatus): void {
   const integrationLabels: Record<IdeStatus["integrationState"], string> = {
     disabled: "未启用",
     enabled: "已启用",
-    external: "外部配置",
-    conflict: "配置冲突",
   };
   integrationState.textContent = integrationLabels[status.integrationState];
-  integrationState.className = `status-pill ${status.integrationState === "enabled" || status.integrationState === "external" ? "accent" : "neutral"}`;
+  integrationState.className = `status-pill ${status.integrationState === "enabled" ? "accent" : "neutral"}`;
   integrationDetail.textContent = status.integrationMessage;
   element<HTMLElement>("#ide-settings-path").textContent = status.settingsPath;
 
-  const integrationReady = status.integrationState === "enabled" || status.integrationState === "external";
+  const integrationReady = status.integrationState === "enabled";
   enableIdeIntegrationButton.hidden = status.integrationState !== "disabled";
   launchIdeButton.hidden = !integrationReady || status.ideRunning;
   disableIdeIntegrationButton.hidden = status.integrationState !== "enabled";
-  enableIdeIntegrationButton.textContent = status.ideRunning ? "退出 IDE 后启用" : "启用 IDE 接入";
-  disableIdeIntegrationButton.textContent = status.ideRunning ? "退出 IDE 后停用" : "停用 IDE 接入";
+  enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启 IDE" : "启用 IDE 接入";
+  disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启 IDE" : "停用 IDE 接入";
   setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
@@ -559,6 +593,7 @@ async function removeModel(virtualModelId: string, button: HTMLButtonElement): P
       : config.upstream_models.filter((item) => item.id !== target.upstream_model_id);
 
     await persistConfig({
+      proxy_port: config.proxy_port,
       providers: config.providers,
       upstream_models: remainingUpstreamModels,
       virtual_models: remainingVirtualModels,
@@ -575,6 +610,7 @@ async function removeProvider(providerId: string, button: HTMLButtonElement): Pr
         .map((item) => item.id),
     );
     await persistConfig({
+      proxy_port: config.proxy_port,
       providers: config.providers.filter((item) => item.id !== providerId),
       upstream_models: config.upstream_models.filter((item) => item.provider_id !== providerId),
       virtual_models: config.virtual_models.filter(
@@ -881,6 +917,7 @@ async function saveProvider(): Promise<void> {
     ? config.providers.map((item) => item.id === provider.id ? provider : item)
     : [...config.providers, provider];
   await persistConfig({
+    proxy_port: config.proxy_port,
     providers,
     upstream_models: [...remainingUpstreams, ...nextUpstreams],
     virtual_models: [...remainingVirtuals, ...nextVirtuals],
@@ -889,6 +926,137 @@ async function saveProvider(): Promise<void> {
   resetProviderEditor();
   providerFormPanel.open = false;
   showNotice(`${action}供应商 ${provider.name}，接入 ${selectedModels.length} 个模型`);
+}
+
+function activityMetric(label: string, value: string): HTMLDivElement {
+  const metric = document.createElement("div");
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value;
+  metric.append(term, detail);
+  return metric;
+}
+
+function formatActivityTime(timestampMs: number): { label: string; dateTime: string | null } {
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) return { label: "时间未知", dateTime: null };
+  return {
+    label: new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date),
+    dateTime: date.toISOString(),
+  };
+}
+
+function formatDuration(durationMs: number): string {
+  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`;
+}
+
+function renderActivityLog(items: ActivityItem[]): void {
+  const orderedItems = [...items].sort((left, right) => right.timestampMs - left.timestampMs);
+  activityCount.textContent = `最近 ${orderedItems.length} 条`;
+  activityCount.setAttribute("aria-label", `最近 ${orderedItems.length} 条日志`);
+  setButtonUnavailable(clearActivityButton, orderedItems.length === 0);
+  activityList.replaceChildren();
+
+  if (orderedItems.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "暂无调用日志。通过本地代理发起模型请求后，记录会显示在这里。";
+    activityList.append(empty);
+    return;
+  }
+
+  for (const item of orderedItems) {
+    const success = item.statusCode >= 200 && item.statusCode < 300 && item.errorCategory === null;
+    const card = document.createElement("article");
+    card.className = `activity-item ${success ? "success" : "error"}`;
+
+    const heading = document.createElement("div");
+    heading.className = "activity-item-heading";
+    const timestamp = document.createElement("time");
+    const formattedTime = formatActivityTime(item.timestampMs);
+    timestamp.textContent = formattedTime.label;
+    if (formattedTime.dateTime) timestamp.dateTime = formattedTime.dateTime;
+    const status = document.createElement("span");
+    status.className = `status-pill ${success ? "success" : "error"}`;
+    status.textContent = success ? "成功" : "失败";
+    heading.append(timestamp, status);
+
+    const route = document.createElement("div");
+    route.className = "activity-route";
+    const virtualModel = document.createElement("div");
+    const virtualLabel = document.createElement("span");
+    virtualLabel.textContent = "虚拟模型";
+    const virtualValue = document.createElement("code");
+    virtualValue.textContent = item.virtualModelId;
+    virtualModel.append(virtualLabel, virtualValue);
+    const upstreamModel = document.createElement("div");
+    const upstreamLabel = document.createElement("span");
+    upstreamLabel.textContent = "上游模型";
+    const upstreamValue = document.createElement("code");
+    upstreamValue.textContent = item.upstreamModelId ?? "—";
+    upstreamModel.append(upstreamLabel, upstreamValue);
+    const provider = document.createElement("div");
+    const providerLabel = document.createElement("span");
+    providerLabel.textContent = "Provider / 协议";
+    const providerValue = document.createElement("code");
+    providerValue.textContent = `${item.providerId} / ${item.providerProtocol ?? "未知"}`;
+    provider.append(providerLabel, providerValue);
+    route.append(virtualModel, upstreamModel, provider);
+
+    const metrics = document.createElement("dl");
+    metrics.className = "activity-metrics";
+    metrics.append(
+      activityMetric("请求", item.stream ? "流式" : "非流式"),
+      activityMetric("消息", String(item.messageCount)),
+      activityMetric("工具", String(item.toolCount)),
+      activityMetric("耗时", formatDuration(item.durationMs)),
+      activityMetric("HTTP", item.statusCode > 0 ? String(item.statusCode) : "无响应"),
+    );
+
+    card.append(heading, route, metrics);
+    if (!success) {
+      const error = document.createElement("div");
+      error.className = "activity-error";
+      const category = document.createElement("strong");
+      category.textContent = item.errorCategory ?? "未分类错误";
+      const detail = document.createElement("p");
+      detail.textContent = item.errorDetail ?? "未提供错误详情";
+      error.append(category, detail);
+      card.append(error);
+    }
+    activityList.append(card);
+  }
+}
+
+async function refreshActivityLog(silent = false): Promise<void> {
+  const requestVersion = ++activityRequestVersion;
+  try {
+    const items = await invoke<ActivityItem[]>("get_activity_log");
+    if (requestVersion === activityRequestVersion) renderActivityLog(items);
+  } catch (error) {
+    if (!silent) throw error;
+  }
+}
+
+async function clearActivityLog(): Promise<void> {
+  activityActionInProgress = true;
+  activityRequestVersion += 1;
+  try {
+    await invoke<void>("clear_activity_log");
+    activityRequestVersion += 1;
+    renderActivityLog([]);
+    showNotice("调用日志已清空");
+  } finally {
+    activityActionInProgress = false;
+  }
 }
 
 async function refreshProxy(): Promise<void> {
@@ -903,15 +1071,21 @@ async function initialize(): Promise<void> {
   try {
     config = await invoke<AppConfig>("get_config");
     renderProviders();
-    await Promise.all([refreshProxy(), refreshIde()]);
+    await Promise.all([refreshProxy(), refreshIde(), refreshActivityLog(true)]);
   } catch (error) {
     showNotice(`初始化失败：${errorMessage(error)}`, "error");
   }
 }
 
 startProxyButton.addEventListener("click", () => void withBusy(startProxyButton, async () => {
-  renderProxy(await invoke<ProxyStatus>("start_proxy"));
-  showNotice("本地代理已启动");
+  const preferredPort = config.proxy_port;
+  const status = await invoke<ProxyStatus>("start_proxy");
+  renderProxy(status);
+  await refreshIde();
+  const actualPort = proxyPortFromAddress(status.address);
+  showNotice(actualPort !== null && actualPort !== preferredPort
+    ? `首选端口 ${preferredPort} 已占用，代理已切换到 ${actualPort}；请重新启用 IDE 接入`
+    : "本地代理已启动");
 }));
 
 stopProxyButton.addEventListener("click", () => void withBusy(stopProxyButton, async () => {
@@ -926,6 +1100,14 @@ element<HTMLButtonElement>("#refresh-ide").addEventListener("click", (event) => 
 
 element<HTMLButtonElement>("#dismiss-notice").addEventListener("click", dismissNotice);
 
+refreshActivityButton.addEventListener("click", () => {
+  void withBusy(refreshActivityButton, () => refreshActivityLog());
+});
+
+clearActivityButton.addEventListener("click", () => {
+  void withBusy(clearActivityButton, clearActivityLog);
+});
+
 openProviderFormButton.addEventListener("click", () => openProviderEditor());
 
 element<HTMLButtonElement>("#cancel-provider").addEventListener("click", () => {
@@ -935,9 +1117,12 @@ element<HTMLButtonElement>("#cancel-provider").addEventListener("click", () => {
 
 enableIdeIntegrationButton.addEventListener("click", () => {
   void withBusy(enableIdeIntegrationButton, async () => {
-    showNotice("正在启用 IDE 原生配置接入…");
-    renderIde(await invoke<IdeStatus>("enable_ide_integration"));
-    showNotice("IDE 原生配置接入已启用；请启动代理后打开 Antigravity IDE");
+    showNotice("正在启用 IDE 原生配置接入；运行中的 IDE 将自动重启…");
+    const status = await invoke<IdeStatus>("enable_ide_integration");
+    renderIde(status);
+    showNotice(status.ideRunning
+      ? "IDE 原生配置接入已启用，Antigravity IDE 已重启"
+      : "IDE 原生配置接入已启用；请启动代理后打开 Antigravity IDE");
   });
 });
 
@@ -948,9 +1133,12 @@ launchIdeButton.addEventListener("click", () => void withBusy(launchIdeButton, a
 
 disableIdeIntegrationButton.addEventListener("click", () => {
   void withBusy(disableIdeIntegrationButton, async () => {
-    showNotice("正在停用 IDE 原生配置接入并恢复原 settings…");
-    renderIde(await invoke<IdeStatus>("disable_ide_integration"));
-    showNotice("IDE 原生配置接入已停用，原 settings 已恢复");
+    showNotice("正在停用 IDE 原生配置接入；运行中的 IDE 将自动重启…");
+    const status = await invoke<IdeStatus>("disable_ide_integration");
+    renderIde(status);
+    showNotice(status.ideRunning
+      ? "IDE 原生配置接入已停用，Antigravity IDE 已重启"
+      : "IDE 原生配置接入已停用，原 settings 已恢复");
   });
 });
 
@@ -991,5 +1179,9 @@ element<HTMLButtonElement>("#toggle-api-key").addEventListener("click", (event) 
   input.type = visible ? "password" : "text";
   button.textContent = visible ? "显示" : "隐藏";
 });
+
+window.setInterval(() => {
+  if (!activityActionInProgress) void refreshActivityLog(true);
+}, 2000);
 
 void initialize();

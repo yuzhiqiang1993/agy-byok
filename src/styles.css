@@ -250,6 +250,7 @@ code {
 }
 .status-pill.success { background: #dff8b4; color: #304c13; }
 .status-pill.accent { background: #dbe7fc; color: #2d4c77; }
+.status-pill.error { background: #f9ddd7; color: #843a30; }
 
 .card-actions, .form-actions {
   display: flex;
@@ -403,6 +404,94 @@ button.danger-confirm { background: #9d493e; color: #fff; }
 .connection-result.pending { color: #6a746f; }
 .connection-result.success { color: #3f681d; }
 .connection-result.error { color: #9d493e; }
+
+.activity-panel {
+  margin-bottom: 14px;
+  padding: 19px 20px;
+}
+.activity-panel .panel-heading { align-items: center; }
+.activity-privacy { line-height: 1.5; }
+.activity-list {
+  display: grid;
+  max-height: 560px;
+  gap: 9px;
+  margin-top: 16px;
+  padding-right: 3px;
+  overflow-y: auto;
+}
+.activity-list > .empty-state { margin: 0; }
+.activity-item {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid #dce2dd;
+  border-left: 4px solid #96c85c;
+  border-radius: 11px;
+  background: #fbfcfa;
+}
+.activity-item.error { border-left-color: #cf7466; }
+.activity-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-item-heading time { color: #626d67; font-size: 11px; font-weight: 750; }
+.activity-route {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+.activity-route > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f0f3f0;
+}
+.activity-route span, .activity-metrics dt {
+  color: #818b86;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.activity-route code {
+  color: #344039;
+  font-size: 11px;
+  font-weight: 700;
+}
+.activity-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.activity-metrics > div {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid #e3e8e4;
+  border-radius: 8px;
+}
+.activity-metrics dt, .activity-metrics dd { margin: 0; }
+.activity-metrics dd {
+  margin-top: 3px;
+  color: #3f4a44;
+  font-size: 11px;
+  font-weight: 750;
+}
+.activity-error {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #efd0ca;
+  border-radius: 8px;
+  background: #fff3f0;
+  color: #813a31;
+  overflow-wrap: anywhere;
+}
+.activity-error strong { font-size: 11px; }
+.activity-error p { margin: 3px 0 0; font-size: 11px; line-height: 1.45; }
 
 .form-panel {
   margin-bottom: 14px;
@@ -588,6 +677,10 @@ footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center
   .catalog-toolbar, .catalog-save-row { align-items: stretch; flex-direction: column; }
   .catalog-toolbar .check-label { align-self: flex-start; }
   .catalog-model-row { align-items: flex-start; }
+  .activity-panel .panel-heading { align-items: stretch; flex-direction: column; }
+  .activity-actions { flex-wrap: wrap; }
+  .activity-route { grid-template-columns: 1fr; }
+  .activity-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -622,6 +715,18 @@ footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center
     background: #323a35;
     color: #c0cac4;
   }
+  .activity-item {
+    border-color: #414a44;
+    border-left-color: #96c85c;
+    background: #252c28;
+  }
+  .activity-item.error { border-left-color: #d17b6e; }
+  .activity-item-heading time { color: #b6c0ba; }
+  .activity-route > div { background: #303833; }
+  .activity-route code, .activity-metrics dd { color: #e0e7e2; }
+  .activity-metrics > div { border-color: #3c453f; }
+  .activity-error { border-color: #704b45; background: #3b2926; color: #f0b7ad; }
+  .status-pill.error { background: #56332e; color: #f1b2a7; }
   button.secondary { color: #dce4df; }
   button.quiet { color: #b6c0ba; }
   button.quiet:hover:not(:disabled) { background: #303833; }

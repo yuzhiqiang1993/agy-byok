@@ -3,8 +3,10 @@ use agy_byok::domain::{
     VirtualModel,
 };
 use agy_byok::providers::{fetch_provider_models, ProviderCatalogModel};
-use agy_byok::proxy::{HttpServerHandle, HttpServerOptions, LoopbackHttpServer, ProxyServer};
-use agy_byok::storage::{default_config_path, AppConfig, ConfigStore};
+use agy_byok::proxy::{
+    ActivityItem, ActivityLog, HttpServerHandle, HttpServerOptions, LoopbackHttpServer, ProxyServer,
+};
+use agy_byok::storage::{default_config_path, AppConfig, ConfigStore, DEFAULT_PROXY_PORT};
 use host_integration::{
     disable_ide_settings, discover, enable_ide_settings, inspect_ide_settings,
     CodeSignatureVerifier, IdeSettingsState, InstallationState, MacOsCodeSignatureVerifier,
@@ -14,18 +16,21 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::State;
 use tokio::sync::Mutex;
 
-const PROXY_PORT: u16 = 50999;
-const OFFICIAL_CLOUD_CODE_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
+const OFFICIAL_CLOUD_CODE_ENDPOINT: &str = "https://daily-cloudcode-pa.googleapis.com";
 const ANTIGRAVITY_IDE_PATH: &str = "/Applications/Antigravity IDE.app";
+const ANTIGRAVITY_IDE_BUNDLE_ID: &str = "com.google.antigravity-ide";
+const IDE_RESTART_TIMEOUT: Duration = Duration::from_secs(15);
+const IDE_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 struct DesktopState {
     config_store: ConfigStore,
     ide_settings_path: PathBuf,
     ide_integration_root: PathBuf,
+    activity_log: Arc<ActivityLog>,
     proxy_handle: Mutex<Option<HttpServerHandle>>,
 }
 
@@ -71,7 +76,9 @@ fn get_config(state: State<'_, DesktopState>) -> AppConfig {
 }
 
 #[tauri::command]
-fn save_config(config: AppConfig, state: State<'_, DesktopState>) -> Result<AppConfig, String> {
+fn save_config(mut config: AppConfig, state: State<'_, DesktopState>) -> Result<AppConfig, String> {
+    // 代理端口由桌面运行时管理，避免前端旧快照覆盖刚选出的空闲端口。
+    config.proxy_port = state.config_store.get_config().proxy_port;
     state.config_store.update_config(config)?;
     Ok(state.config_store.get_config())
 }
@@ -135,6 +142,7 @@ async fn test_provider_model_connection(
 fn preview_model_config(provider: Provider, upstream_model_id: String) -> AppConfig {
     let provider_id = provider.id.clone();
     AppConfig {
+        proxy_port: DEFAULT_PROXY_PORT,
         providers: vec![provider],
         upstream_models: vec![UpstreamModel {
             id: "preview-upstream".to_string(),
@@ -188,28 +196,57 @@ fn model_connection_error_message(error: &ProxyError) -> String {
 }
 
 #[tauri::command]
+fn get_activity_log(state: State<'_, DesktopState>) -> Vec<ActivityItem> {
+    state.activity_log.get_recent()
+}
+
+#[tauri::command]
+fn clear_activity_log(state: State<'_, DesktopState>) {
+    state.activity_log.clear();
+}
+
+#[tauri::command]
 async fn proxy_status(state: State<'_, DesktopState>) -> Result<ProxyStatus, String> {
     let handle = state.proxy_handle.lock().await;
-    Ok(status_from_handle(handle.as_ref()))
+    Ok(status_from_handle(
+        handle.as_ref(),
+        state.config_store.get_config().proxy_port,
+    ))
 }
 
 #[tauri::command]
 async fn start_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, String> {
     let mut handle = state.proxy_handle.lock().await;
     if handle.is_some() {
-        return Ok(status_from_handle(handle.as_ref()));
+        return Ok(status_from_handle(
+            handle.as_ref(),
+            state.config_store.get_config().proxy_port,
+        ));
     }
 
-    let server = Arc::new(ProxyServer::new(state.config_store.clone(), PROXY_PORT));
+    let preferred_port = state.config_store.get_config().proxy_port;
+    let server = Arc::new(ProxyServer::with_activity_log(
+        state.config_store.clone(),
+        preferred_port,
+        state.activity_log.clone(),
+    ));
     let options = HttpServerOptions {
         official_cloud_code_endpoint: Some(OFFICIAL_CLOUD_CODE_ENDPOINT.to_string()),
+        fallback_to_random_port_on_bind_error: true,
         ..HttpServerOptions::default()
     };
     let started = LoopbackHttpServer::start(server, options)
         .await
         .map_err(|error| error.to_string())?;
+    let actual_port = started.local_addr().port();
+    let mut config = state.config_store.get_config();
+    config.proxy_port = actual_port;
+    if let Err(error) = state.config_store.update_config(config) {
+        let _ = started.shutdown().await;
+        return Err(format!("无法保存本地代理端口：{error}"));
+    }
     *handle = Some(started);
-    Ok(status_from_handle(handle.as_ref()))
+    Ok(status_from_handle(handle.as_ref(), actual_port))
 }
 
 #[tauri::command]
@@ -220,7 +257,10 @@ async fn stop_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, Strin
     }
     Ok(ProxyStatus {
         state: "stopped",
-        address: None,
+        address: Some(format!(
+            "127.0.0.1:{}",
+            state.config_store.get_config().proxy_port
+        )),
     })
 }
 
@@ -228,8 +268,9 @@ async fn stop_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, Strin
 async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
+    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
     tauri::async_runtime::spawn_blocking(move || {
-        discover_ide_sync(&settings_path, &integration_root)
+        discover_ide_sync(&settings_path, &integration_root, &endpoint)
     })
     .await
     .map_err(|error| format!("IDE discovery task failed: {error}"))?
@@ -239,21 +280,32 @@ async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, Strin
 async fn enable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
+    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
     tauri::async_runtime::spawn_blocking(move || {
-        ensure_app_not_running(Path::new(ANTIGRAVITY_IDE_PATH), "Antigravity IDE")?;
-        let current = discover_ide_sync(&settings_path, &integration_root)?;
+        let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
+        let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
         if !current.compatible {
             return Err(current.message);
         }
-        if matches!(current.integration_state, "enabled" | "external") {
+        if current.integration_state == "enabled" {
             return Ok(current);
         }
         if !current.can_enable_integration {
             return Err(current.integration_message);
         }
-        enable_ide_settings(&settings_path, &integration_root, local_proxy_endpoint())
-            .map_err(|error| error.to_string())?;
-        discover_ide_sync(&settings_path, &integration_root)
+
+        let restart_ide = stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?;
+        if let Err(error) = enable_ide_settings(&settings_path, &integration_root, &endpoint) {
+            if restart_ide {
+                let _ = launch_ide_app();
+            }
+            return Err(error.to_string());
+        }
+        if restart_ide {
+            restart_ide_app(app_path, "Antigravity IDE")
+                .map_err(|error| format!("IDE 接入已启用，但自动重启失败：{error}"))?;
+        }
+        discover_ide_sync(&settings_path, &integration_root, &endpoint)
     })
     .await
     .map_err(|error| format!("IDE integration activation task failed: {error}"))?
@@ -266,24 +318,16 @@ async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
     }
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
+    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
     tauri::async_runtime::spawn_blocking(move || {
-        let current = discover_ide_sync(&settings_path, &integration_root)?;
+        let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
         if !current.compatible {
             return Err(current.message);
         }
         if !current.can_launch_ide {
             return Err("请先启用 Antigravity IDE 原生配置接入".to_string());
         }
-        let status = Command::new("/usr/bin/open")
-            .env("TMPDIR", "/private/tmp")
-            .arg(ANTIGRAVITY_IDE_PATH)
-            .status()
-            .map_err(|error| format!("无法启动 Antigravity IDE：{error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("启动 Antigravity IDE 失败：{status}"))
-        }
+        launch_ide_app()
     })
     .await
     .map_err(|error| format!("IDE launch task failed: {error}"))?
@@ -293,21 +337,42 @@ async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
 async fn disable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
+    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
     tauri::async_runtime::spawn_blocking(move || {
-        ensure_app_not_running(Path::new(ANTIGRAVITY_IDE_PATH), "Antigravity IDE")?;
-        disable_ide_settings(&settings_path, &integration_root, local_proxy_endpoint())
-            .map_err(|error| error.to_string())?;
-        discover_ide_sync(&settings_path, &integration_root)
+        let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
+        let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
+        if !current.compatible {
+            return Err(current.message);
+        }
+        if current.integration_state == "disabled" {
+            return Ok(current);
+        }
+        if !current.can_disable_integration {
+            return Err(current.integration_message);
+        }
+
+        let restart_ide = stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?;
+        if let Err(error) = disable_ide_settings(&settings_path, &integration_root, &endpoint) {
+            if restart_ide {
+                let _ = launch_ide_app();
+            }
+            return Err(error.to_string());
+        }
+        if restart_ide {
+            restart_ide_app(app_path, "Antigravity IDE")
+                .map_err(|error| format!("IDE 接入已停用，但自动重启失败：{error}"))?;
+        }
+        discover_ide_sync(&settings_path, &integration_root, &endpoint)
     })
     .await
     .map_err(|error| format!("IDE integration deactivation task failed: {error}"))?
 }
 
-fn local_proxy_endpoint() -> &'static str {
-    "http://127.0.0.1:50999"
+fn local_proxy_endpoint(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
 }
 
-fn status_from_handle(handle: Option<&HttpServerHandle>) -> ProxyStatus {
+fn status_from_handle(handle: Option<&HttpServerHandle>, configured_port: u16) -> ProxyStatus {
     match handle {
         Some(handle) => ProxyStatus {
             state: "running",
@@ -315,38 +380,34 @@ fn status_from_handle(handle: Option<&HttpServerHandle>) -> ProxyStatus {
         },
         None => ProxyStatus {
             state: "stopped",
-            address: None,
+            address: Some(format!("127.0.0.1:{configured_port}")),
         },
     }
 }
 
-fn discover_ide_sync(settings_path: &Path, integration_root: &Path) -> Result<IdeStatus, String> {
+fn discover_ide_sync(
+    settings_path: &Path,
+    integration_root: &Path,
+    endpoint: &str,
+) -> Result<IdeStatus, String> {
     let profile = PatchProfile::antigravity_ide_2_1_1();
-    let (integration_state, integration_message, can_disable_integration) =
-        match inspect_ide_settings(settings_path, integration_root, local_proxy_endpoint()) {
-            Ok(status) => match (status.state, status.receipt_path.is_some()) {
-                (IdeSettingsState::Disabled, true) => (
+    let (integration_state, integration_message, can_disable_integration, settings_valid) =
+        match inspect_ide_settings(settings_path, integration_root, endpoint) {
+            Ok(status) => match status.state {
+                IdeSettingsState::Disabled => (
                     "disabled",
-                    "发现未完成的启用事务；可再次启用以安全继续".to_string(),
+                    format!("jetski.cloudCodeUrl 尚未指向当前本地代理 {endpoint}"),
                     false,
-                ),
-                (IdeSettingsState::Disabled, false) => (
-                    "disabled",
-                    "尚未设置 jetski.cloudCodeUrl；厂商 App 保持只读".to_string(),
-                    false,
-                ),
-                (IdeSettingsState::Enabled, _) => (
-                    "enabled",
-                    "AGY BYOK 已通过原生 jetski.cloudCodeUrl 接管 IDE 双 Endpoint".to_string(),
                     true,
                 ),
-                (IdeSettingsState::External, _) => (
-                    "external",
-                    "jetski.cloudCodeUrl 已由外部配置；AGY BYOK 不会覆盖或删除".to_string(),
-                    false,
+                IdeSettingsState::Enabled => (
+                    "enabled",
+                    format!("jetski.cloudCodeUrl 已指向当前本地代理 {endpoint}"),
+                    true,
+                    true,
                 ),
             },
-            Err(error) => ("conflict", error.to_string(), false),
+            Err(error) => ("disabled", error.to_string(), false, false),
         };
 
     let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
@@ -405,14 +466,14 @@ fn discover_ide_sync(settings_path: &Path, integration_root: &Path) -> Result<Id
         ),
         Err(error) => (false, "incompatible", error.to_string()),
     };
-    let integration_ready = matches!(integration_state, "enabled" | "external");
-    let can_enable_integration = compatible && integration_state == "disabled" && !ide_running;
+    let integration_ready = integration_state == "enabled";
+    let can_enable_integration = compatible && settings_valid && integration_state == "disabled";
     let can_launch_ide = compatible && integration_ready && !ide_running;
-    let can_disable_integration = can_disable_integration && !ide_running;
+    let can_disable_integration = can_disable_integration && compatible;
     let integration_message = if ide_running && integration_state == "disabled" {
-        format!("{integration_message}；Antigravity IDE 当前正在运行，请完全退出后重新检测")
+        format!("{integration_message}；启用后将自动重启 Antigravity IDE")
     } else if ide_running {
-        format!("{integration_message}；Antigravity IDE 当前正在运行")
+        format!("{integration_message}；停用后将自动重启 Antigravity IDE")
     } else {
         integration_message
     };
@@ -437,12 +498,56 @@ fn discover_ide_sync(settings_path: &Path, integration_root: &Path) -> Result<Id
     })
 }
 
-fn ensure_app_not_running(app_path: &Path, label: &str) -> Result<(), String> {
-    if is_app_running(app_path, label)? {
-        Err(format!("请先完全退出 {label}"))
-    } else {
-        Ok(())
+fn stop_ide_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool, String> {
+    if !is_app_running(app_path, label)? {
+        return Ok(false);
     }
+
+    let script = format!("tell application id \"{ANTIGRAVITY_IDE_BUNDLE_ID}\" to quit");
+    let status = Command::new("/usr/bin/osascript")
+        .args(["-e", &script])
+        .status()
+        .map_err(|error| format!("无法请求 {label} 退出：{error}"))?;
+    if !status.success() {
+        return Err(format!("请求 {label} 退出失败：{status}"));
+    }
+
+    wait_for_app_state(app_path, label, false)?;
+    Ok(true)
+}
+
+fn restart_ide_app(app_path: &Path, label: &str) -> Result<(), String> {
+    launch_ide_app()?;
+    wait_for_app_state(app_path, label, true)
+}
+
+fn launch_ide_app() -> Result<(), String> {
+    let status = Command::new("/usr/bin/open")
+        .env("TMPDIR", "/private/tmp")
+        .arg(ANTIGRAVITY_IDE_PATH)
+        .status()
+        .map_err(|error| format!("无法启动 Antigravity IDE：{error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("启动 Antigravity IDE 失败：{status}"))
+    }
+}
+
+fn wait_for_app_state(app_path: &Path, label: &str, expected_running: bool) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < IDE_RESTART_TIMEOUT {
+        if is_app_running(app_path, label)? == expected_running {
+            return Ok(());
+        }
+        std::thread::sleep(IDE_PROCESS_POLL_INTERVAL);
+    }
+
+    let expected = if expected_running { "启动" } else { "退出" };
+    Err(format!(
+        "等待 {label} {expected}超时（{} 秒）",
+        IDE_RESTART_TIMEOUT.as_secs()
+    ))
 }
 
 fn is_app_running(app_path: &Path, label: &str) -> Result<bool, String> {
@@ -483,6 +588,7 @@ fn create_state() -> Result<DesktopState, String> {
         config_store,
         ide_settings_path,
         ide_integration_root,
+        activity_log: Arc::new(ActivityLog::new()),
         proxy_handle: Mutex::new(None),
     })
 }
@@ -498,6 +604,8 @@ pub fn run() {
             test_model_connection,
             fetch_provider_catalog,
             test_provider_model_connection,
+            get_activity_log,
+            clear_activity_log,
             proxy_status,
             start_proxy,
             stop_proxy,

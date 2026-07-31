@@ -44,9 +44,17 @@ impl RouteTable {
             .virtual_models
             .iter()
             .find(|vm| {
-                vm.enabled
-                    && (vm.id == request.virtual_model_id
-                        || vm.effective_host_model_id() == request.virtual_model_id)
+                if !vm.enabled {
+                    return false;
+                }
+                let catalog_key = if vm.id.starts_with("custom-") {
+                    vm.id.clone()
+                } else {
+                    format!("custom-{}", vm.id)
+                };
+                vm.id == request.virtual_model_id
+                    || vm.effective_host_model_id() == request.virtual_model_id
+                    || catalog_key == request.virtual_model_id
             })
             .ok_or_else(|| {
                 ProxyError::new(

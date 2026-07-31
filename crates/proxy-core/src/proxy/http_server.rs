@@ -13,7 +13,7 @@ use serde_json::json;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore};
 use tokio::task::{JoinHandle, JoinSet};
@@ -250,6 +250,7 @@ async fn handle_request(
     options: HttpServerOptions,
     semaphore: Arc<Semaphore>,
 ) -> Result<HttpResponse, Infallible> {
+    tracing::info!("INCOMING PATH: {}", request.uri().path());
     let route = route_kind(request.uri().path());
     let Some(route) = route else {
         return Ok(error_response(
@@ -353,7 +354,9 @@ fn route_kind(path: &str) -> Option<RouteKind> {
         "/v1internal:fetchAvailableModels" => Some(RouteKind::FetchModels),
         "/v1internal:generateContent" => Some(RouteKind::Generate),
         "/v1internal:streamGenerateContent" => Some(RouteKind::StreamGenerate),
-        _ if path.starts_with("/v1internal:") => Some(RouteKind::Passthrough),
+        _ if path.starts_with("/v1internal:") || path.starts_with("/v1internal/") => {
+            Some(RouteKind::Passthrough)
+        }
         _ => None,
     }
 }
@@ -476,55 +479,32 @@ async fn handle_fetch_models_request(
     };
     let response = match send_forward_request(parts, body, &proxy, endpoint).await {
         Ok(response) => response,
-        Err(response) => return response,
+        Err(_) => return model_list_response(&proxy),
     };
     let status = response.status();
-    let headers = response.headers().clone();
+    if !status.is_success() {
+        tracing::warn!(
+            "Official model catalog returned status {}, falling back to custom models",
+            status
+        );
+        return model_list_response(&proxy);
+    }
     if response
         .content_length()
         .is_some_and(|length| length > options.max_body_bytes as u64)
     {
-        return error_response(
-            StatusCode::BAD_GATEWAY,
-            "Official model catalog exceeds the configured limit",
-            "upstream_response_too_large",
-        );
+        return model_list_response(&proxy);
     }
     let body = match response.bytes().await {
         Ok(body) => body,
-        Err(error) => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!("Failed to read official model catalog: {error}"),
-                "native_forwarding_failed",
-            )
-        }
+        Err(_) => return model_list_response(&proxy),
     };
     if body.len() > options.max_body_bytes {
-        return error_response(
-            StatusCode::BAD_GATEWAY,
-            "Official model catalog exceeds the configured limit",
-            "upstream_response_too_large",
-        );
-    }
-    if !status.is_success() {
-        return bytes_response(status, &headers, body);
+        return model_list_response(&proxy);
     }
     let upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(models) => models,
-        Err(error) => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!(
-                    "Official model catalog is not valid JSON (status {status}, content-type {}): {error}",
-                    headers
-                        .get(CONTENT_TYPE)
-                        .and_then(|value| value.to_str().ok())
-                        .unwrap_or("unknown")
-                ),
-                "invalid_upstream_response",
-            )
-        }
+        Err(_) => return model_list_response(&proxy),
     };
     let models = proxy.handle_model_list(upstream_models);
     full_response(StatusCode::OK, "application/json", models.to_string())
@@ -544,6 +524,7 @@ async fn forward_native_request(
         Err(response) => return response,
     };
     let status = response.status();
+    tracing::info!("NATIVE FORWARD STATUS: {}", status);
     let headers = response.headers().clone();
     if !stream {
         let _permit = permit;
@@ -693,16 +674,33 @@ async fn handle_generate_request(
                 "native_forwarding_unavailable",
             );
         };
-        return forward_native_request(
+        let request_shape = AntigravityRequestParser::parse(body_text).ok();
+        let started = Instant::now();
+        let response = forward_native_request(
             parts,
             body,
-            proxy,
+            proxy.clone(),
             endpoint,
             permit,
             stream,
             options.stream_buffer_capacity,
         )
         .await;
+        proxy.record_official_generation(
+            &model_id,
+            stream,
+            request_shape
+                .as_ref()
+                .map(|request| request.messages.len())
+                .unwrap_or(0),
+            request_shape
+                .as_ref()
+                .map(|request| request.tools.len())
+                .unwrap_or(0),
+            response.status().as_u16(),
+            started.elapsed().as_millis() as u64,
+        );
+        return response;
     }
 
     let mut neutral_request = match AntigravityRequestParser::parse(body_text) {

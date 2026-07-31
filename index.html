@@ -62,7 +62,7 @@
           </div>
           <div class="status-body">
             <span class="detail-label">监听地址</span>
-            <code id="proxy-address">127.0.0.1:50999</code>
+            <code id="proxy-address">127.0.0.1:51234</code>
             <p class="muted compact">模型配置保存后立即生效，无需重启代理。</p>
           </div>
           <div class="card-actions">
@@ -113,6 +113,26 @@
         </div>
         <p class="panel-intro">每个代理只配置一次，再从它的模型目录中选择要接入 Antigravity IDE 的模型。</p>
         <div id="provider-list" class="provider-list"></div>
+      </section>
+
+      <section class="panel activity-panel" aria-labelledby="activity-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">ACTIVITY LOG</p>
+            <h2 id="activity-title">调用日志</h2>
+          </div>
+          <div class="heading-actions activity-actions">
+            <span id="activity-count" class="count-badge" aria-label="最近日志数量">最近 0 条</span>
+            <button id="refresh-activity" class="secondary compact-button" type="button">刷新</button>
+            <button id="clear-activity" class="danger-text" type="button" disabled>清空</button>
+          </div>
+        </div>
+        <p class="panel-intro activity-privacy">
+          日志仅保存在内存中，不记录 Prompt、回答、Tool 参数、Header 或 API Key。
+        </p>
+        <div id="activity-list" class="activity-list" aria-live="polite">
+          <p class="empty-state">正在读取调用日志…</p>
+        </div>
       </section>
 
       <details id="provider-form-panel" class="panel form-panel">
