@@ -186,6 +186,7 @@ let changedCatalogReasoningModelIds = new Set<string>();
 let legacyCatalogModelIds = new Set<string>();
 let providerEditorDirty = false;
 let providerEditorBusy = false;
+let providerEditorReturnFocus: HTMLElement | null = null;
 let configMutationInProgress = false;
 let pendingProviderSavePlan: ProviderSavePlan | null = null;
 const connectionTestsInFlight = new Map<string, Promise<ModelConnectionTestOutcome>>();
@@ -211,7 +212,7 @@ const noticeText = element<HTMLSpanElement>("#notice-text");
 const providerList = element<HTMLDivElement>("#provider-list");
 const providerCount = element<HTMLSpanElement>("#provider-count");
 const providerForm = element<HTMLFormElement>("#provider-form");
-const providerFormPanel = element<HTMLDetailsElement>("#provider-form-panel");
+const providerFormPanel = element<HTMLElement>("#provider-form-panel");
 const openProviderFormButton = element<HTMLButtonElement>("#open-provider-form");
 const catalogResults = element<HTMLElement>("#catalog-results");
 const catalogModelList = element<HTMLDivElement>("#catalog-model-list");
@@ -231,7 +232,7 @@ const providerChangeSummary = element<HTMLElement>("#provider-change-summary");
 const applyReasoningTemplateButton = element<HTMLButtonElement>("#apply-reasoning-template");
 const failedActivityOnlyCheckbox = element<HTMLInputElement>("#activity-failed-only");
 
-providerFormPanel.open = false;
+providerFormPanel.hidden = true;
 
 function showNotice(message: string, kind: "success" | "error" = "success"): void {
   if (noticeTimer !== null) window.clearTimeout(noticeTimer);
@@ -311,7 +312,10 @@ function renderReadiness(): void {
     title.textContent = "先添加上游服务并选择模型";
     detail.textContent = "读取上游模型目录，再选择要接入 IDE 的模型。";
     readinessActionButton.textContent = "添加第一个上游服务";
-    readinessActionButton.onclick = () => openProviderEditor();
+    readinessActionButton.onclick = () => {
+      switchTab("tab-models");
+      openProviderEditor();
+    };
   } else if (proxyStatusLoadFailed || ideStatusLoadFailed) {
     title.textContent = "部分运行状态读取失败";
     detail.textContent = "请使用对应卡片的刷新操作重试。";
@@ -494,14 +498,14 @@ function protocolName(protocol: ProviderProtocol): string {
 }
 
 function renderProviders(): void {
-  providerCount.textContent = String(config.providers.length);
+  providerCount.textContent = `${config.providers.length} 个服务`;
   providerList.replaceChildren();
   renderReadiness();
 
   if (config.providers.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "还没有供应商。添加代理连接后即可自动获取并选择模型。";
+    empty.textContent = "还没有上游服务。添加连接后即可获取并选择模型。";
     providerList.append(empty);
     return;
   }
@@ -518,10 +522,27 @@ function renderProviders(): void {
     const protocol = document.createElement("span");
     protocol.className = "status-pill neutral";
     protocol.textContent = protocolName(provider.protocol);
+    const endpointText = document.createElement("span");
+    endpointText.className = "provider-endpoint-text";
+    endpointText.textContent = provider.models_endpoint;
+    
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "copy-endpoint-btn";
+    copyButton.title = "复制接口地址";
+    copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+    copyButton.addEventListener("click", () => {
+      navigator.clipboard.writeText(provider.models_endpoint).then(() => {
+        const originalHtml = copyButton.innerHTML;
+        copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        setTimeout(() => { copyButton.innerHTML = originalHtml; }, 2000);
+      });
+    });
+
     const endpoint = document.createElement("code");
     endpoint.className = "provider-endpoint";
-    endpoint.textContent = provider.models_endpoint;
     endpoint.title = provider.models_endpoint;
+    endpoint.append(endpointText, copyButton);
     identity.append(title, endpoint);
 
     const providerUpstreams = config.upstream_models.filter(
@@ -536,16 +557,18 @@ function renderProviders(): void {
     const providerMeta = document.createElement("div");
     providerMeta.className = "provider-meta";
     const count = document.createElement("strong");
-    count.textContent = `${providerUpstreams.length} 个上游模型 · ${modelLinks.length} 个 IDE 入口`;
+    count.textContent = `${providerUpstreams.length} 个上游模型`;
     providerMeta.append(protocol, count);
     heading.append(identity, providerMeta);
 
     const providerActions = document.createElement("div");
     providerActions.className = "provider-actions";
+    const providerEditActions = document.createElement("div");
+    providerEditActions.className = "provider-edit-actions";
     const manage = document.createElement("button");
     manage.type = "button";
     manage.className = "secondary compact-button";
-    manage.textContent = "管理上游模型";
+    manage.textContent = "编辑上游服务";
     manage.addEventListener("click", () => openProviderEditor(provider.id));
     const removeProviderButton = document.createElement("button");
     removeProviderButton.type = "button";
@@ -557,6 +580,10 @@ function renderProviders(): void {
       () => removeProvider(provider.id, removeProviderButton),
       () => destructiveMutationBlocker(new Set(modelLinks.map(({ virtualModel }) => virtualModel.id))),
     );
+    providerEditActions.append(manage, removeProviderButton);
+
+    const providerTestActions = document.createElement("div");
+    providerTestActions.className = "provider-test-actions";
     const testAllModels = document.createElement("button");
     testAllModels.type = "button";
     testAllModels.className = "secondary compact-button provider-bulk-test";
@@ -602,13 +629,13 @@ function renderProviders(): void {
       const passed = allVirtualModels.filter(
         (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "success",
       ).length;
-      const time = formatActivityTime(testSession.completedAt).label;
       testSummary.classList.add(failedVirtualModels.length > 0 ? "error" : "success");
-      testSummary.textContent = `最近测试 ${time} · ${passed} 通过 · ${failedVirtualModels.length} 失败`;
-      providerActions.append(manage, removeProviderButton, testSummary, testAllModels);
-    } else {
-      providerActions.append(manage, removeProviderButton, testAllModels);
+      testSummary.textContent = `${passed}/${allVirtualModels.length} 通过`;
+      testSummary.title = `最近测试：${formatActivityTime(testSession.completedAt).label} · ${passed} 通过 · ${failedVirtualModels.length} 失败`;
+      providerTestActions.append(testSummary);
     }
+    providerTestActions.append(testAllModels);
+    providerActions.append(providerEditActions, providerTestActions);
 
     const models = document.createElement("div");
     models.className = "provider-models";
@@ -618,12 +645,21 @@ function renderProviders(): void {
       empty.textContent = "尚未接入 IDE 模型入口";
       models.append(empty);
     } else {
+      const modelsHeader = document.createElement("div");
+      modelsHeader.className = "provider-models-header";
+      for (const label of ["上游模型", "模型能力", "IDE 模型入口"]) {
+        const column = document.createElement("span");
+        column.textContent = label;
+        modelsHeader.append(column);
+      }
+      models.append(modelsHeader);
+
       for (const upstream of providerUpstreams) {
         const virtualModels = modelLinks
           .filter((link) => link.upstream.id === upstream.id)
           .map((link) => link.virtualModel);
         if (virtualModels.length > 0) {
-          models.append(providerModelGroup(provider, upstream, virtualModels));
+          models.append(providerModelGroup(upstream, virtualModels));
         }
       }
     }
@@ -634,18 +670,18 @@ function renderProviders(): void {
 }
 
 function providerModelGroup(
-  provider: Provider,
   upstream: UpstreamModel,
   virtualModels: VirtualModel[],
 ): HTMLElement {
-  const group = document.createElement("details");
-  group.className = "provider-model-group";
-  const summary = document.createElement("summary");
-  summary.className = "provider-model-group-summary";
-  const heading = document.createElement("div");
-  heading.className = "provider-model-group-heading";
+  const item = document.createElement("article");
+  item.className = "provider-model-item";
+
+  const main = document.createElement("div");
+  main.className = "provider-model-main";
   const name = document.createElement("h4");
   name.textContent = upstream.display_name;
+  main.append(name);
+
   const capabilities = document.createElement("div");
   capabilities.className = "capability-list";
   if (upstream.capabilities.vision) capabilities.append(capabilityBadge("图像输入"));
@@ -653,106 +689,35 @@ function providerModelGroup(
   if (Object.keys(upstream.capabilities.reasoning.levels).length > 0) {
     capabilities.append(capabilityBadge("思考档位"));
   }
-  heading.append(name, capabilities);
-  const meta = document.createElement("span");
-  meta.className = "provider-model-group-meta";
-  meta.textContent = `${virtualModels.length} 个 IDE 入口`;
-  summary.append(heading, meta);
+
   const variants = document.createElement("div");
-  variants.className = "provider-model-variants";
+  variants.className = "provider-model-variants-inline";
   for (const virtualModel of virtualModels) {
-    variants.append(providerModelRow(provider, virtualModel, upstream));
+    const variant = document.createElement("div");
+    variant.className = "model-variant-pill provider-model-variant";
+    variant.dataset.virtualModelId = virtualModel.id;
+    variant.title = virtualModel.display_name;
+
+    const label = document.createElement("span");
+    label.className = "model-variant-label";
+    label.textContent = virtualModel.default_reasoning_level
+      ? reasoningLevelLabel(virtualModel.default_reasoning_level)
+      : "Default";
+
+    const connectionResult = document.createElement("span");
+    connectionResult.className = "connection-result";
+    connectionResult.setAttribute("role", "status");
+    connectionResult.setAttribute("aria-live", "polite");
+    connectionResult.hidden = true;
+    const existingState = connectionTestResults.get(virtualModel.id);
+    if (existingState) renderConnectionTestState(connectionResult, existingState);
+
+    variant.append(label, connectionResult);
+    variants.append(variant);
   }
-  group.append(summary, variants);
-  return group;
-}
 
-function providerModelRow(
-  provider: Provider,
-  virtualModel: VirtualModel,
-  upstream: UpstreamModel,
-): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "provider-model-variant";
-  row.dataset.virtualModelId = virtualModel.id;
-  const content = document.createElement("div");
-  content.className = "variant-main";
-  const titleRow = document.createElement("div");
-  titleRow.className = "model-title-row";
-  const title = document.createElement("h5");
-  title.textContent = configuredModelDisplayName(
-    virtualModel.display_name,
-    provider.name,
-    virtualModel.default_reasoning_level,
-    Object.keys(upstream.capabilities.reasoning.levels).length > 0,
-  );
-  titleRow.append(title);
-  const meta = document.createElement("p");
-  meta.className = "muted compact";
-  meta.textContent = virtualModel.default_reasoning_level
-    ? `思考档位：${reasoningLevelLabel(virtualModel.default_reasoning_level)}`
-    : Object.keys(upstream.capabilities.reasoning.levels).length > 0
-      ? "思考档位：模型默认"
-      : "普通 IDE 模型入口";
-  const technical = document.createElement("details");
-  technical.className = "variant-technical";
-  const technicalSummary = document.createElement("summary");
-  technicalSummary.textContent = "技术详情";
-  const technicalValue = document.createElement("code");
-  technicalValue.textContent = `Host ID: ${effectiveHostModelId(virtualModel)} · VirtualModel: ${virtualModel.id}`;
-  technical.append(technicalSummary, technicalValue);
-  content.append(titleRow, meta, technical);
-
-  const connectionResult = document.createElement("p");
-  connectionResult.className = "connection-result";
-  connectionResult.setAttribute("role", "status");
-  connectionResult.setAttribute("aria-live", "polite");
-  connectionResult.hidden = true;
-  content.append(connectionResult);
-
-  const actions = document.createElement("div");
-  actions.className = "variant-actions";
-  const testConnection = document.createElement("button");
-  testConnection.type = "button";
-  testConnection.className = "secondary compact-button model-test-button";
-  testConnection.textContent = "测试 IDE 路由";
-  testConnection.addEventListener("click", () => {
-    void withBusy(testConnection, async () => {
-      await testVirtualModelConnection(virtualModel.id, connectionResult);
-      const providerVirtualIds = config.virtual_models.flatMap((model) => {
-        const candidateUpstream = config.upstream_models.find(
-          (item) => item.id === model.upstream_model_id && item.provider_id === provider.id,
-        );
-        return candidateUpstream ? [model.id] : [];
-      }).sort();
-      const existingSession = providerTestSessions.get(provider.id);
-      if (
-        existingSession
-        && JSON.stringify([...existingSession.targetVirtualModelIds].sort())
-          === JSON.stringify(providerVirtualIds)
-      ) {
-        existingSession.completedAt = Date.now();
-      } else {
-        providerTestSessions.delete(provider.id);
-      }
-      window.setTimeout(renderProviders, 0);
-    }, "测试中…");
-  });
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "danger-text";
-  remove.textContent = "移除入口";
-  armDestructiveButton(
-    remove,
-    "确认移除入口",
-    () => removeModel(virtualModel.id, remove),
-    () => destructiveMutationBlocker(new Set([virtualModel.id])),
-  );
-  actions.append(testConnection, remove);
-  const existingState = connectionTestResults.get(virtualModel.id);
-  if (existingState) renderConnectionTestState(connectionResult, existingState);
-  row.append(content, actions);
-  return row;
+  item.append(main, capabilities, variants);
+  return item;
 }
 
 async function withConnectionTestSlot<T>(action: () => Promise<T>): Promise<T> {
@@ -799,7 +764,7 @@ function renderConnectionTestState(target: HTMLElement, state: ConnectionTestVie
   target.hidden = false;
   target.className = `connection-result ${state.status === "testing" ? "pending" : state.status}`;
   target.textContent = state.message;
-  target.title = state.status === "error" ? state.message : "";
+  target.title = state.message;
 }
 
 async function testVirtualModelConnection(
@@ -845,12 +810,6 @@ async function testProviderModels(
     row.dataset.virtualModelId,
     row.querySelector<HTMLElement>(".connection-result"),
   ]));
-  const rowTestButtons = [...card.querySelectorAll<HTMLButtonElement>(".model-test-button")];
-  for (const button of rowTestButtons) {
-    button.dataset.bulkBusy = "true";
-    button.disabled = true;
-  }
-
   let nextIndex = 0;
   let completed = 0;
   let succeeded = 0;
@@ -867,16 +826,8 @@ async function testProviderModels(
     }
   };
 
-  try {
-    const concurrency = Math.min(3, virtualModels.length);
-    await Promise.all(Array.from({ length: concurrency }, worker));
-  } finally {
-    for (const button of rowTestButtons) {
-      delete button.dataset.bulkBusy;
-      button.disabled = button.dataset.busy === "true"
-        || button.dataset.unavailable === "true";
-    }
-  }
+  const concurrency = Math.min(3, virtualModels.length);
+  await Promise.all(Array.from({ length: concurrency }, worker));
 
   const failed = virtualModels.length - succeeded;
   providerTestSessions.set(providerId, {
@@ -954,7 +905,21 @@ function armDestructiveButton(
 function capabilityBadge(label: string): HTMLSpanElement {
   const badge = document.createElement("span");
   badge.className = "capability-badge";
-  badge.textContent = label;
+  badge.title = label;
+  let icon = "";
+  if (label === "图像输入") {
+    icon = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+  } else if (label === "工具调用") {
+    icon = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`;
+  } else if (label === "思考档位") {
+    icon = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`;
+  }
+  const shortLabels: Record<string, string> = {
+    图像输入: "图像",
+    工具调用: "工具",
+    思考档位: "思考",
+  };
+  badge.innerHTML = `${icon}${shortLabels[label] ?? label}`;
   return badge;
 }
 
@@ -1103,28 +1068,7 @@ async function persistConfig(next: AppConfig): Promise<void> {
   }
 }
 
-async function removeModel(virtualModelId: string, button: HTMLButtonElement): Promise<void> {
-  await withBusy(button, async () => {
-    const target = config.virtual_models.find((item) => item.id === virtualModelId);
-    if (!target) return;
 
-    const remainingVirtualModels = config.virtual_models.filter((item) => item.id !== virtualModelId);
-    const upstreamStillUsed = remainingVirtualModels.some(
-      (item) => item.upstream_model_id === target.upstream_model_id,
-    );
-    const remainingUpstreamModels = upstreamStillUsed
-      ? config.upstream_models
-      : config.upstream_models.filter((item) => item.id !== target.upstream_model_id);
-
-    await persistConfig({
-      proxy_port: config.proxy_port,
-      providers: config.providers,
-      upstream_models: remainingUpstreamModels,
-      virtual_models: remainingVirtualModels,
-    });
-    showNotice("模型已从 IDE 接入列表移除");
-  });
-}
 
 async function removeProvider(providerId: string, button: HTMLButtonElement): Promise<void> {
   await withBusy(button, async () => {
@@ -1141,7 +1085,7 @@ async function removeProvider(providerId: string, button: HTMLButtonElement): Pr
         (item) => !upstreamIds.has(item.upstream_model_id),
       ),
     });
-    showNotice("供应商及其接入模型已删除");
+    showNotice("上游服务及其接入模型已删除");
   });
 }
 
@@ -1239,7 +1183,10 @@ function resetProviderEditor(): void {
   editingProviderId = null;
   draftProviderId = `provider-${crypto.randomUUID()}`;
   providerForm.reset();
-  element<HTMLButtonElement>("#toggle-api-key").textContent = "显示";
+  const apiKeyToggle = element<HTMLButtonElement>("#toggle-api-key");
+  apiKeyToggle.textContent = "显示";
+  apiKeyToggle.setAttribute("aria-pressed", "false");
+  apiKeyToggle.setAttribute("aria-label", "显示 API Key");
   element<HTMLInputElement>("#api-key").type = "password";
   element<HTMLElement>("#provider-form-title").textContent = "添加上游服务";
   element<HTMLElement>("#provider-form-kicker").textContent = "ADD UPSTREAM";
@@ -1252,17 +1199,24 @@ function resetProviderEditor(): void {
 
 function closeProviderEditor(force = false): boolean {
   if (!force && !confirmDiscardProviderChanges()) return false;
+  const returnFocus = providerEditorReturnFocus;
+  providerEditorReturnFocus = null;
+  providerFormPanel.hidden = true;
+  document.body.classList.remove("modal-open");
   resetProviderEditor();
-  providerFormPanel.open = false;
+  if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
   return true;
 }
 
 function openProviderEditor(providerId: string | null = null): void {
-  if (providerFormPanel.open && editingProviderId === providerId) {
-    providerFormPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!providerFormPanel.hidden && editingProviderId === providerId) {
+    element<HTMLInputElement>("#provider-name").focus();
     return;
   }
   if (!confirmDiscardProviderChanges()) return;
+  providerEditorReturnFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
   resetProviderEditor();
   editingProviderId = providerId;
   const provider = providerId
@@ -1270,7 +1224,7 @@ function openProviderEditor(providerId: string | null = null): void {
     : undefined;
   if (provider) {
     draftProviderId = provider.id;
-    element<HTMLElement>("#provider-form-title").textContent = `管理上游服务 · ${provider.name}`;
+    element<HTMLElement>("#provider-form-title").textContent = `编辑上游服务 · ${provider.name}`;
     element<HTMLElement>("#provider-form-kicker").textContent = "EDIT UPSTREAM";
     element<HTMLInputElement>("#provider-name").value = provider.name;
     element<HTMLSelectElement>("#protocol").value = provider.protocol;
@@ -1279,9 +1233,9 @@ function openProviderEditor(providerId: string | null = null): void {
     element<HTMLInputElement>("#models-endpoint").value = provider.models_endpoint;
     element<HTMLInputElement>("#generate-endpoint").value = provider.generate_endpoint;
   }
-  providerFormPanel.open = true;
-  providerFormPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  window.setTimeout(() => element<HTMLInputElement>("#provider-name").focus(), 250);
+  providerFormPanel.hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => element<HTMLInputElement>("#provider-name").focus(), 100);
 }
 
 async function fetchProviderCatalog(): Promise<void> {
@@ -2261,8 +2215,36 @@ applyReasoningTemplateButton.addEventListener("click", () => {
   showNotice(`已将模板应用到 ${catalogReasoningEnabledModelIds.size} 个上游模型`);
 });
 
-element<HTMLElement>("#provider-form-summary").addEventListener("click", (event) => {
-  if (providerFormPanel.open && !confirmDiscardProviderChanges()) event.preventDefault();
+element<HTMLButtonElement>("#close-provider-modal").addEventListener("click", () => {
+  closeProviderEditor();
+});
+
+element<HTMLElement>("#provider-modal-backdrop").addEventListener("click", () => {
+  closeProviderEditor();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (providerFormPanel.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeProviderEditor();
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = [...providerFormPanel.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+  )].filter((item) => !item.hidden && item.getClientRects().length > 0);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 });
 
 window.addEventListener("beforeunload", (event) => {
@@ -2277,6 +2259,8 @@ element<HTMLButtonElement>("#toggle-api-key").addEventListener("click", (event) 
   const visible = input.type === "text";
   input.type = visible ? "password" : "text";
   button.textContent = visible ? "显示" : "隐藏";
+  button.setAttribute("aria-pressed", String(!visible));
+  button.setAttribute("aria-label", visible ? "显示 API Key" : "隐藏 API Key");
 });
 
 failedActivityOnlyCheckbox.addEventListener("change", () => {
@@ -2292,5 +2276,55 @@ window.setInterval(() => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void refreshActivityLog(true);
 });
+
+const tabTriggers = [...document.querySelectorAll<HTMLButtonElement>(".tab-trigger")];
+const tabPanes = [...document.querySelectorAll<HTMLElement>(".tab-pane")];
+const pageTitle = element<HTMLHeadingElement>("#page-title");
+const pageDescription = element<HTMLParagraphElement>("#page-description");
+const tabCopy: Record<string, { title: string; description: string }> = {
+  "tab-status": {
+    title: "运行状态",
+    description: "查看本地代理与 Antigravity IDE 的连接状态。",
+  },
+  "tab-models": {
+    title: "上游模型",
+    description: "管理上游服务、模型能力和 IDE 模型入口。",
+  },
+  "tab-activity": {
+    title: "调用日志",
+    description: "查看请求路由、Token 用量与失败详情。",
+  },
+};
+
+function switchTab(targetId: string): void {
+  const currentPane = tabPanes.find((pane) => pane.classList.contains("active"));
+  if (currentPane?.id === targetId) return;
+  if (!providerFormPanel.hidden) {
+    if (!confirmDiscardProviderChanges()) return;
+    closeProviderEditor(true);
+  }
+
+  for (const trigger of tabTriggers) {
+    const active = trigger.dataset.target === targetId;
+    trigger.classList.toggle("active", active);
+    trigger.setAttribute("aria-current", active ? "page" : "false");
+  }
+  for (const pane of tabPanes) {
+    pane.classList.toggle("active", pane.id === targetId);
+  }
+  const copy = tabCopy[targetId];
+  if (copy) {
+    pageTitle.textContent = copy.title;
+    pageDescription.textContent = copy.description;
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+for (const trigger of tabTriggers) {
+  trigger.addEventListener("click", () => {
+    const targetId = trigger.dataset.target;
+    if (targetId) switchTab(targetId);
+  });
+}
 
 void initialize();
