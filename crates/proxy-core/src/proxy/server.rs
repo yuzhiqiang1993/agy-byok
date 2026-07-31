@@ -6,7 +6,8 @@ use crate::antigravity::{
 };
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
-    NeutralStreamEvent, ParameterOverrides, ProviderProtocol, ProxyError,
+    NeutralStreamEvent, ParameterOverrides, ProviderProtocol, ProxyError, ReasoningLevel,
+    UsageInfo,
 };
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
@@ -17,6 +18,39 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CONNECTION_TEST_TIMEOUT_MS: u64 = 15_000;
+
+struct ActivityOutcome<'a> {
+    status_code: u16,
+    duration_ms: u64,
+    fallback_attempted: bool,
+    fallback_succeeded: bool,
+    usage: Option<&'a UsageInfo>,
+    error: Option<&'a ProxyError>,
+}
+
+impl<'a> ActivityOutcome<'a> {
+    fn success(duration_ms: u64, used_fallback: bool, usage: Option<&'a UsageInfo>) -> Self {
+        Self {
+            status_code: 200,
+            duration_ms,
+            fallback_attempted: used_fallback,
+            fallback_succeeded: used_fallback,
+            usage,
+            error: None,
+        }
+    }
+
+    fn failure(duration_ms: u64, fallback_attempted: bool, error: &'a ProxyError) -> Self {
+        Self {
+            status_code: error.status_code,
+            duration_ms,
+            fallback_attempted,
+            fallback_succeeded: false,
+            usage: None,
+            error: Some(error),
+        }
+    }
+}
 
 #[async_trait]
 pub(crate) trait EncodedFrameSink: Send {
@@ -53,11 +87,15 @@ struct AntigravityEventSink<'a> {
     encoder: AntigravityStreamEncoder,
     frame_sink: &'a mut dyn EncodedFrameSink,
     emitted_frame: &'a mut bool,
+    usage: &'a mut Option<UsageInfo>,
 }
 
 #[async_trait]
 impl NeutralEventSink for AntigravityEventSink<'_> {
     async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError> {
+        if let NeutralStreamEvent::UsageUpdate(usage) = &event {
+            *self.usage = Some(usage.clone());
+        }
         for frame in self.encoder.encode_event(&event)? {
             *self.emitted_frame = true;
             self.frame_sink.send(frame).await?;
@@ -122,6 +160,7 @@ impl ProxyServer {
         self.activity_log.record(ActivityItem {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp_ms: Self::current_time_ms(),
+            requested_virtual_model_id: model_id.to_string(),
             virtual_model_id: model_id.to_string(),
             upstream_model_id: Some(model_id.to_string()),
             provider_id: "antigravity-official".to_string(),
@@ -135,6 +174,8 @@ impl ProxyServer {
             message_count,
             tool_count,
             used_fallback: false,
+            fallback_attempted: false,
+            fallback_succeeded: false,
             prompt_tokens: None,
             completion_tokens: None,
         });
@@ -205,63 +246,93 @@ impl ProxyServer {
                 self.record_activity(
                     None,
                     request,
-                    error.status_code,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    Some(&error),
+                    ActivityOutcome::failure(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        &error,
+                    ),
                 );
                 return Err(error);
             }
         };
 
         match self.execute_route(&route, request).await {
-            Ok(response) => {
+            Ok((response, usage)) => {
                 self.record_activity(
                     Some(&route),
                     request,
-                    200,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    None,
+                    ActivityOutcome::success(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        usage.as_ref(),
+                    ),
                 );
                 Ok(response)
             }
-            Err(error) => {
-                if error.is_retryable_for_fallback() {
-                    if let Ok(Some(fallback_route)) = RouteTable::resolve_fallback(&config, &route)
-                    {
-                        tracing::info!(
-                            "Primary route {} failed with {:?}, attempting fallback to {}",
-                            route.virtual_model.id,
-                            error.category,
-                            fallback_route.virtual_model.id
-                        );
-
-                        if let Ok(fallback_response) =
-                            self.execute_route(&fallback_route, request).await
-                        {
-                            self.record_activity(
-                                Some(&fallback_route),
-                                request,
-                                200,
-                                start_time.elapsed().as_millis() as u64,
-                                true,
-                                None,
+            Err(primary_error) => {
+                if primary_error.is_retryable_for_fallback() {
+                    match RouteTable::resolve_fallback(&config, &route) {
+                        Ok(Some(fallback_route)) => {
+                            tracing::info!(
+                                "Primary route {} failed with {:?}, attempting fallback to {}",
+                                route.virtual_model.id,
+                                primary_error.category,
+                                fallback_route.virtual_model.id
                             );
-                            return Ok(fallback_response);
+
+                            match self.execute_route(&fallback_route, request).await {
+                                Ok((fallback_response, usage)) => {
+                                    self.record_activity(
+                                        Some(&fallback_route),
+                                        request,
+                                        ActivityOutcome::success(
+                                            start_time.elapsed().as_millis() as u64,
+                                            true,
+                                            usage.as_ref(),
+                                        ),
+                                    );
+                                    return Ok(fallback_response);
+                                }
+                                Err(fallback_error) => {
+                                    self.record_activity(
+                                        Some(&fallback_route),
+                                        request,
+                                        ActivityOutcome::failure(
+                                            start_time.elapsed().as_millis() as u64,
+                                            true,
+                                            &fallback_error,
+                                        ),
+                                    );
+                                    return Err(fallback_error);
+                                }
+                            }
                         }
+                        Err(fallback_error) => {
+                            self.record_activity(
+                                Some(&route),
+                                request,
+                                ActivityOutcome::failure(
+                                    start_time.elapsed().as_millis() as u64,
+                                    true,
+                                    &fallback_error,
+                                ),
+                            );
+                            return Err(fallback_error);
+                        }
+                        Ok(None) => {}
                     }
                 }
 
                 self.record_activity(
                     Some(&route),
                     request,
-                    error.status_code,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    Some(&error),
+                    ActivityOutcome::failure(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        &primary_error,
+                    ),
                 );
-                Err(error)
+                Err(primary_error)
             }
         }
     }
@@ -299,10 +370,11 @@ impl ProxyServer {
                 self.record_activity(
                     None,
                     request,
-                    error.status_code,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    Some(&error),
+                    ActivityOutcome::failure(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        &error,
+                    ),
                 );
                 return Err(error);
             }
@@ -313,58 +385,88 @@ impl ProxyServer {
             .execute_stream_route(&route, request, frame_sink, &mut emitted_frame)
             .await
         {
-            Ok(()) => {
+            Ok(usage) => {
                 self.record_activity(
                     Some(&route),
                     request,
-                    200,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    None,
+                    ActivityOutcome::success(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        usage.as_ref(),
+                    ),
                 );
                 Ok(())
             }
             Err(primary_error) => {
                 if !emitted_frame && primary_error.is_retryable_for_fallback() {
-                    if let Ok(Some(fallback_route)) = RouteTable::resolve_fallback(&config, &route)
-                    {
-                        tracing::info!(
-                            "Primary stream route {} failed with {:?}, attempting fallback to {}",
-                            route.virtual_model.id,
-                            primary_error.category,
-                            fallback_route.virtual_model.id
-                        );
-
-                        if self
-                            .execute_stream_route(
-                                &fallback_route,
-                                request,
-                                frame_sink,
-                                &mut emitted_frame,
-                            )
-                            .await
-                            .is_ok()
-                        {
-                            self.record_activity(
-                                Some(&fallback_route),
-                                request,
-                                200,
-                                start_time.elapsed().as_millis() as u64,
-                                true,
-                                None,
+                    match RouteTable::resolve_fallback(&config, &route) {
+                        Ok(Some(fallback_route)) => {
+                            tracing::info!(
+                                "Primary stream route {} failed with {:?}, attempting fallback to {}",
+                                route.virtual_model.id,
+                                primary_error.category,
+                                fallback_route.virtual_model.id
                             );
-                            return Ok(());
+
+                            match self
+                                .execute_stream_route(
+                                    &fallback_route,
+                                    request,
+                                    frame_sink,
+                                    &mut emitted_frame,
+                                )
+                                .await
+                            {
+                                Ok(usage) => {
+                                    self.record_activity(
+                                        Some(&fallback_route),
+                                        request,
+                                        ActivityOutcome::success(
+                                            start_time.elapsed().as_millis() as u64,
+                                            true,
+                                            usage.as_ref(),
+                                        ),
+                                    );
+                                    return Ok(());
+                                }
+                                Err(fallback_error) => {
+                                    self.record_activity(
+                                        Some(&fallback_route),
+                                        request,
+                                        ActivityOutcome::failure(
+                                            start_time.elapsed().as_millis() as u64,
+                                            true,
+                                            &fallback_error,
+                                        ),
+                                    );
+                                    return Err(fallback_error);
+                                }
+                            }
                         }
+                        Err(fallback_error) => {
+                            self.record_activity(
+                                Some(&route),
+                                request,
+                                ActivityOutcome::failure(
+                                    start_time.elapsed().as_millis() as u64,
+                                    true,
+                                    &fallback_error,
+                                ),
+                            );
+                            return Err(fallback_error);
+                        }
+                        Ok(None) => {}
                     }
                 }
 
                 self.record_activity(
                     Some(&route),
                     request,
-                    primary_error.status_code,
-                    start_time.elapsed().as_millis() as u64,
-                    false,
-                    Some(&primary_error),
+                    ActivityOutcome::failure(
+                        start_time.elapsed().as_millis() as u64,
+                        false,
+                        &primary_error,
+                    ),
                 );
                 Err(primary_error)
             }
@@ -375,7 +477,7 @@ impl ProxyServer {
         &self,
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
-    ) -> Result<String, ProxyError> {
+    ) -> Result<(String, Option<UsageInfo>), ProxyError> {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         let body = response.text().await.map_err(|error| {
@@ -386,8 +488,10 @@ impl ProxyServer {
             )
         })?;
         let neutral_response = adapter.parse_response(status, &body, &route.upstream_model)?;
-        Ok(AntigravityResponseEncoder::encode_response(
-            &neutral_response,
+        let usage = neutral_response.usage.clone();
+        Ok((
+            AntigravityResponseEncoder::encode_response(&neutral_response),
+            usage,
         ))
     }
 
@@ -397,7 +501,7 @@ impl ProxyServer {
         request: &NeutralChatRequest,
         frame_sink: &mut dyn EncodedFrameSink,
         emitted_frame: &mut bool,
-    ) -> Result<(), ProxyError> {
+    ) -> Result<Option<UsageInfo>, ProxyError> {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         if status >= 400 {
@@ -419,18 +523,23 @@ impl ProxyServer {
         }
 
         let mut provider_decoder = adapter.create_stream_decoder(&route.upstream_model);
-        let mut event_sink = AntigravityEventSink {
-            encoder: AntigravityStreamEncoder::new(),
-            frame_sink,
-            emitted_frame,
-        };
-        StreamPipe::process_stream_to(
-            response,
-            route.provider.stream_idle_timeout_ms,
-            provider_decoder.as_mut(),
-            &mut event_sink,
-        )
-        .await
+        let mut usage = None;
+        {
+            let mut event_sink = AntigravityEventSink {
+                encoder: AntigravityStreamEncoder::new(),
+                frame_sink,
+                emitted_frame,
+                usage: &mut usage,
+            };
+            StreamPipe::process_stream_to(
+                response,
+                route.provider.stream_idle_timeout_ms,
+                provider_decoder.as_mut(),
+                &mut event_sink,
+            )
+            .await?;
+        }
+        Ok(usage)
     }
 
     async fn send_upstream(
@@ -483,10 +592,7 @@ impl ProxyServer {
         &self,
         route: Option<&ResolvedRoute>,
         request: &NeutralChatRequest,
-        status_code: u16,
-        duration_ms: u64,
-        used_fallback: bool,
-        error: Option<&ProxyError>,
+        outcome: ActivityOutcome<'_>,
     ) {
         let now_ms = Self::current_time_ms();
         let (virtual_model_id, upstream_model_id, provider_id, provider_protocol) = match route {
@@ -511,20 +617,26 @@ impl ProxyServer {
         self.activity_log.record(ActivityItem {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp_ms: now_ms,
+            requested_virtual_model_id: request.virtual_model_id.clone(),
             virtual_model_id,
             upstream_model_id,
             provider_id,
             provider_protocol,
-            status_code,
-            duration_ms,
-            error_category: error.map(|error| format!("{:?}", error.category)),
-            error_detail: error.and_then(Self::sanitized_upstream_error),
+            status_code: outcome.status_code,
+            duration_ms: outcome.duration_ms,
+            error_category: outcome.error.map(|error| format!("{:?}", error.category)),
+            error_detail: outcome.error.map(|error| {
+                Self::sanitized_upstream_error(error)
+                    .unwrap_or_else(|| Self::sanitize_log_text(&error.message))
+            }),
             stream: request.stream,
             message_count: request.messages.len(),
             tool_count: request.tools.len(),
-            used_fallback,
-            prompt_tokens: None,
-            completion_tokens: None,
+            used_fallback: outcome.fallback_succeeded,
+            fallback_attempted: outcome.fallback_attempted,
+            fallback_succeeded: outcome.fallback_succeeded,
+            prompt_tokens: outcome.usage.map(|usage| usage.prompt_tokens),
+            completion_tokens: outcome.usage.map(|usage| usage.completion_tokens),
         });
     }
 
@@ -592,18 +704,123 @@ impl ProxyServer {
     /// 注入并融合包含自定义虚拟模型的模型列表描述 JSON
     pub fn handle_model_list(&self, mut base_json: serde_json::Value) -> serde_json::Value {
         let config = self.config_store.get_config();
+        let catalog_virtual_models = config
+            .virtual_models
+            .iter()
+            .cloned()
+            .map(|mut virtual_model| {
+                let upstream_model = config
+                    .upstream_models
+                    .iter()
+                    .find(|upstream| upstream.id == virtual_model.upstream_model_id);
+                if let Some(upstream_model) = upstream_model {
+                    let provider = config
+                        .providers
+                        .iter()
+                        .find(|provider| provider.id == upstream_model.provider_id);
+                    if let Some(provider) = provider {
+                        virtual_model.display_name = configured_model_display_name(
+                            &virtual_model.display_name,
+                            virtual_model.default_reasoning_level,
+                            &provider.name,
+                            upstream_model.capabilities.reasoning.supports_reasoning(),
+                        );
+                    }
+                }
+                virtual_model
+            })
+            .collect::<Vec<_>>();
         AntigravityModelDescriptor::inject_into_model_list(
             &mut base_json,
-            &config.virtual_models,
+            &catalog_virtual_models,
             &config.upstream_models,
         );
         base_json
     }
 }
 
+fn configured_model_display_name(
+    model_name: &str,
+    reasoning_level: Option<ReasoningLevel>,
+    provider_name: &str,
+    supports_reasoning: bool,
+) -> String {
+    let legacy_suffix = format!(" · {provider_name}");
+    let provider_suffix = format!("({provider_name})");
+    let mut base_name = model_name
+        .strip_suffix(&legacy_suffix)
+        .unwrap_or(model_name);
+    for known_reasoning in [
+        "default", "off", "low", "medium", "high", "xhigh", "max", "auto",
+    ] {
+        let known_suffix = format!(" {known_reasoning}({provider_name})");
+        if let Some(stripped) = base_name.strip_suffix(&known_suffix) {
+            base_name = stripped;
+            break;
+        }
+    }
+    base_name = base_name
+        .strip_suffix(&provider_suffix)
+        .unwrap_or(base_name);
+    if !supports_reasoning {
+        return format!("{base_name}{provider_suffix}");
+    }
+
+    let reasoning = match reasoning_level {
+        None => "default",
+        Some(ReasoningLevel::Off) => "off",
+        Some(ReasoningLevel::Low) => "low",
+        Some(ReasoningLevel::Medium) => "medium",
+        Some(ReasoningLevel::High) => "high",
+        Some(ReasoningLevel::XHigh) => "xhigh",
+        Some(ReasoningLevel::Max) => "max",
+        Some(ReasoningLevel::Auto) => "auto",
+    };
+    format!("{base_name} {reasoning}({provider_name})")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_suffix_is_added_once_to_catalog_display_name() {
+        assert_eq!(
+            configured_model_display_name(
+                "GPT Test",
+                Some(ReasoningLevel::High),
+                "Provider A",
+                true
+            ),
+            "GPT Test high(Provider A)"
+        );
+        assert_eq!(
+            configured_model_display_name(
+                "GPT Test high(Provider A)",
+                Some(ReasoningLevel::High),
+                "Provider A",
+                true
+            ),
+            "GPT Test high(Provider A)"
+        );
+        assert_eq!(
+            configured_model_display_name(
+                "GPT Test low(Provider A)",
+                Some(ReasoningLevel::Max),
+                "Provider A",
+                true
+            ),
+            "GPT Test max(Provider A)"
+        );
+        assert_eq!(
+            configured_model_display_name("GPT Test", None, "Provider A", false),
+            "GPT Test(Provider A)"
+        );
+        assert_eq!(
+            configured_model_display_name("GPT Test high(Provider A)", None, "Provider A", false),
+            "GPT Test(Provider A)"
+        );
+    }
 
     #[test]
     fn upstream_error_detail_keeps_diagnostics_and_redacts_credentials() {

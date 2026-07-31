@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 
+const DEFAULT_MAX_TOKENS: u32 = 4096;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AnthropicContentBlockKind {
     Text,
@@ -552,7 +554,10 @@ impl ProviderAdapter for AnthropicAdapter {
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
     ) -> Result<Value, ProxyError> {
-        let max_tokens = route.final_parameters.max_tokens.unwrap_or(4096);
+        let max_tokens = route
+            .final_parameters
+            .max_tokens
+            .unwrap_or(DEFAULT_MAX_TOKENS);
 
         let mut payload = json!({
             "model": route.upstream_model.upstream_model_id,
@@ -620,6 +625,22 @@ impl ProviderAdapter for AnthropicAdapter {
                 .mapping_for(level)
             {
                 Some(ReasoningMapping::BudgetTokens(budget_tokens)) => {
+                    match route.final_parameters.max_tokens {
+                        Some(max_tokens) if max_tokens <= *budget_tokens => {
+                            return Err(ProxyError::new(
+                                ErrorCategory::InvalidRequest,
+                                format!(
+                                    "Anthropic max_tokens ({max_tokens}) must be greater than thinking budget ({budget_tokens})"
+                                ),
+                                400,
+                            ));
+                        }
+                        None => {
+                            payload["max_tokens"] =
+                                Value::from(budget_tokens.saturating_add(DEFAULT_MAX_TOKENS));
+                        }
+                        Some(_) => {}
+                    }
                     payload["thinking"] = json!({
                         "type": "enabled",
                         "budget_tokens": budget_tokens

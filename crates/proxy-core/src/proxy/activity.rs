@@ -9,6 +9,7 @@ const MAX_ACTIVITY_ITEMS: usize = 200;
 pub struct ActivityItem {
     pub id: String,
     pub timestamp_ms: u64,
+    pub requested_virtual_model_id: String,
     pub virtual_model_id: String,
     pub upstream_model_id: Option<String>,
     pub provider_id: String,
@@ -21,6 +22,8 @@ pub struct ActivityItem {
     pub message_count: usize,
     pub tool_count: usize,
     pub used_fallback: bool,
+    pub fallback_attempted: bool,
+    pub fallback_succeeded: bool,
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
 }

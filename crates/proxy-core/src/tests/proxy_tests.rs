@@ -51,6 +51,55 @@ mod tests {
         }
     }
 
+    fn fallback_config(primary_endpoint: String, fallback_endpoint: String) -> AppConfig {
+        let mut config = connection_test_config(primary_endpoint);
+        config.providers[0].id = "p-primary".to_string();
+        config.providers[0].name = "Primary Provider".to_string();
+        config.upstream_models[0].id = "um-primary".to_string();
+        config.upstream_models[0].provider_id = "p-primary".to_string();
+        config.upstream_models[0].upstream_model_id = "primary-model".to_string();
+        config.virtual_models[0].id = "vm-primary".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].upstream_model_id = "um-primary".to_string();
+        config.virtual_models[0].fallback_virtual_model_id = Some("vm-fallback".to_string());
+
+        let mut fallback_provider = config.providers[0].clone();
+        fallback_provider.id = "p-fallback".to_string();
+        fallback_provider.name = "Fallback Provider".to_string();
+        fallback_provider.generate_endpoint = fallback_endpoint;
+        config.providers.push(fallback_provider);
+
+        let mut fallback_upstream = config.upstream_models[0].clone();
+        fallback_upstream.id = "um-fallback".to_string();
+        fallback_upstream.provider_id = "p-fallback".to_string();
+        fallback_upstream.upstream_model_id = "fallback-model".to_string();
+        config.upstream_models.push(fallback_upstream);
+
+        let mut fallback_virtual = config.virtual_models[0].clone();
+        fallback_virtual.id = "vm-fallback".to_string();
+        fallback_virtual.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        fallback_virtual.upstream_model_id = "um-fallback".to_string();
+        fallback_virtual.fallback_virtual_model_id = None;
+        config.virtual_models.push(fallback_virtual);
+        config
+    }
+
+    fn chat_request(virtual_model_id: &str) -> NeutralChatRequest {
+        NeutralChatRequest {
+            virtual_model_id: virtual_model_id.to_string(),
+            messages: vec![NeutralMessage {
+                role: MessageRole::User,
+                blocks: vec![NeutralContentBlock::Text("hello".to_string())],
+            }],
+            system_instruction: None,
+            tools: vec![],
+            reasoning_level: None,
+            stream: false,
+            generation_parameters: ParameterOverrides::default(),
+            extra_body: HashMap::new(),
+        }
+    }
+
     #[test]
     fn injected_catalog_key_resolves_to_the_same_virtual_model() {
         let config = connection_test_config("http://localhost/chat".to_string());
@@ -82,6 +131,110 @@ mod tests {
 
         assert_eq!(catalog_key, config.virtual_models[0].catalog_key());
         assert_eq!(route.virtual_model.id, config.virtual_models[0].id);
+    }
+
+    #[test]
+    fn model_catalog_without_reasoning_uses_provider_only_name() {
+        let config = connection_test_config("http://localhost/chat".to_string());
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let catalog = server.handle_model_list(json!({ "models": {} }));
+        let model = &catalog["models"]["custom-vm-connection"];
+
+        assert_eq!(
+            model["displayName"],
+            "Connection Model(Connection Provider)"
+        );
+        assert_eq!(model["supportsThinking"], false);
+        assert!(model.get("reasoningEffort").is_none());
+        assert!(model.get("thinkingBudget").is_none());
+    }
+
+    #[test]
+    fn model_catalog_includes_provider_name_and_default_reasoning_level() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([(
+                ReasoningLevel::High,
+                ReasoningMapping::Effort("high".to_string()),
+            )]),
+        };
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let catalog = server.handle_model_list(json!({ "models": {} }));
+        let model = &catalog["models"]["custom-vm-connection"];
+
+        assert_eq!(
+            model["displayName"],
+            "Connection Model high(Connection Provider)"
+        );
+        assert_eq!(model["supportsThinking"], true);
+        assert_eq!(model["reasoningEffort"], "high");
+    }
+
+    #[test]
+    fn model_catalog_expands_reasoning_variants_with_distinct_names() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+        };
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+        let mut high_model = config.virtual_models[0].clone();
+        high_model.id = "vm-connection-high".to_string();
+        high_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        high_model.default_reasoning_level = Some(ReasoningLevel::High);
+        config.virtual_models.push(high_model);
+
+        let catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
+            .handle_model_list(json!({ "models": {} }));
+
+        assert_eq!(
+            catalog["models"]["custom-vm-connection"]["displayName"],
+            "Connection Model low(Connection Provider)"
+        );
+        assert_eq!(
+            catalog["models"]["custom-vm-connection-high"]["displayName"],
+            "Connection Model high(Connection Provider)"
+        );
+        assert_eq!(
+            catalog["models"]["custom-vm-connection"]["reasoningEffort"],
+            "low"
+        );
+        assert_eq!(
+            catalog["models"]["custom-vm-connection-high"]["reasoningEffort"],
+            "high"
+        );
+    }
+
+    #[test]
+    fn model_catalog_maps_budget_reasoning_preferences_to_ide_modes() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([(ReasoningLevel::High, ReasoningMapping::BudgetTokens(8192))]),
+        };
+
+        let default_catalog = ProxyServer::new(ConfigStore::in_memory(config.clone()), 0)
+            .handle_model_list(json!({ "models": {} }));
+        let default_model = &default_catalog["models"]["custom-vm-connection"];
+        assert_eq!(default_model["reasoningEffort"], "auto");
+        assert_eq!(default_model["thinkingBudget"], "auto");
+
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
+        let high_catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
+            .handle_model_list(json!({ "models": {} }));
+        let high_model = &high_catalog["models"]["custom-vm-connection"];
+        assert_eq!(high_model["reasoningEffort"], "high");
+        assert_eq!(high_model["thinkingBudget"], "enabled");
     }
 
     #[tokio::test]
@@ -162,6 +315,115 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn activity_distinguishes_requested_entry_from_successful_fallback_route() {
+        let (primary_url, _primary_handle) =
+            MockProviderServer::start(500, r#"{"error":{"message":"primary failed"}}"#).await;
+        let fallback_body = json!({
+            "id": "chatcmpl-fallback",
+            "model": "fallback-model",
+            "choices": [{
+                "message": { "role": "assistant", "content": "fallback response" },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 2,
+                "total_tokens": 7
+            }
+        })
+        .to_string();
+        let (fallback_url, _fallback_handle) = MockProviderServer::start(200, &fallback_body).await;
+        let config = fallback_config(
+            format!("{primary_url}/v1/chat"),
+            format!("{fallback_url}/v1/chat"),
+        );
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let response = server
+            .handle_chat_request(&chat_request("MODEL_PLACEHOLDER_M400"))
+            .await
+            .unwrap();
+
+        assert!(response.contains("fallback response"));
+        let activities = server.activity_log().get_recent();
+        assert_eq!(activities.len(), 1);
+        assert_eq!(
+            activities[0].requested_virtual_model_id,
+            "MODEL_PLACEHOLDER_M400"
+        );
+        assert_eq!(activities[0].virtual_model_id, "vm-fallback");
+        assert_eq!(
+            activities[0].upstream_model_id.as_deref(),
+            Some("fallback-model")
+        );
+        assert!(activities[0].used_fallback);
+        assert!(activities[0].fallback_attempted);
+        assert!(activities[0].fallback_succeeded);
+        assert_eq!(activities[0].prompt_tokens, Some(5));
+        assert_eq!(activities[0].completion_tokens, Some(2));
+    }
+
+    #[tokio::test]
+    async fn fallback_failure_is_returned_and_recorded_consistently() {
+        let (primary_url, _primary_handle) =
+            MockProviderServer::start(500, r#"{"error":{"message":"primary failed"}}"#).await;
+        let (fallback_url, _fallback_handle) =
+            MockProviderServer::start(401, r#"{"error":{"message":"fallback unauthorized"}}"#)
+                .await;
+        let config = fallback_config(
+            format!("{primary_url}/v1/chat"),
+            format!("{fallback_url}/v1/chat"),
+        );
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let error = server
+            .handle_chat_request(&chat_request("vm-primary"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status_code, 401);
+        let activities = server.activity_log().get_recent();
+        assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].virtual_model_id, "vm-fallback");
+        assert_eq!(activities[0].status_code, 401);
+        assert!(activities[0].fallback_attempted);
+        assert!(!activities[0].fallback_succeeded);
+        assert_eq!(
+            activities[0].error_detail.as_deref(),
+            Some("message=fallback unauthorized")
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_resolution_failure_is_visible_in_activity() {
+        let (primary_url, _primary_handle) =
+            MockProviderServer::start(500, r#"{"error":{"message":"primary failed"}}"#).await;
+        let mut config = fallback_config(
+            format!("{primary_url}/v1/chat"),
+            "http://localhost/unused".to_string(),
+        );
+        config.virtual_models[1].enabled = false;
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let error = server
+            .handle_chat_request(&chat_request("vm-primary"))
+            .await
+            .unwrap_err();
+
+        let activities = server.activity_log().get_recent();
+        assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].status_code, error.status_code);
+        assert_eq!(activities[0].virtual_model_id, "vm-primary");
+        assert!(activities[0].fallback_attempted);
+        assert!(!activities[0].fallback_succeeded);
+        assert!(activities[0]
+            .error_detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("vm-fallback"));
+    }
+
+    #[tokio::test]
     async fn proxy_server_handles_end_to_end_chat() {
         let mock_body = json!({
             "id": "chatcmpl-123",
@@ -172,7 +434,12 @@ mod tests {
                     "content": "Hello from Mock OpenAI!"
                 },
                 "finish_reason": "stop"
-            }]
+            }],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 4,
+                "total_tokens": 11
+            }
         })
         .to_string();
 
@@ -243,6 +510,7 @@ mod tests {
 
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].requested_virtual_model_id, "vm-test-1");
         assert_eq!(activities[0].virtual_model_id, "vm-test-1");
         assert_eq!(activities[0].upstream_model_id.as_deref(), Some("gpt-4o"));
         assert_eq!(activities[0].provider_id, "p-test");
@@ -252,6 +520,10 @@ mod tests {
         assert_eq!(activities[0].message_count, 1);
         assert_eq!(activities[0].tool_count, 0);
         assert!(!activities[0].used_fallback);
+        assert!(!activities[0].fallback_attempted);
+        assert!(!activities[0].fallback_succeeded);
+        assert_eq!(activities[0].prompt_tokens, Some(7));
+        assert_eq!(activities[0].completion_tokens, Some(4));
         assert!(activities[0].error_detail.is_none());
     }
 
@@ -378,6 +650,8 @@ mod tests {
         assert_eq!(activities[0].status_code, 200);
         assert!(activities[0].stream);
         assert_eq!(activities[0].message_count, 1);
+        assert_eq!(activities[0].prompt_tokens, Some(2));
+        assert_eq!(activities[0].completion_tokens, Some(3));
     }
 
     #[test]

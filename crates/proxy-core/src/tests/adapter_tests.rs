@@ -267,6 +267,26 @@ mod tests {
     }
 
     #[test]
+    fn openai_stream_requests_usage_chunk() {
+        let adapter = OpenAIAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::Openai,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+        route.final_parameters.extra_body = Some(HashMap::from([(
+            "stream_options".to_string(),
+            json!({ "include_usage": false, "custom_option": "retained" }),
+        )]));
+        let mut request = basic_request();
+        request.stream = true;
+
+        let payload = adapter.build_request_payload(&route, &request).unwrap();
+
+        assert_eq!(payload["stream_options"]["include_usage"], true);
+        assert_eq!(payload["stream_options"]["custom_option"], "retained");
+    }
+
+    #[test]
     fn openai_preserves_tool_call_and_result_pairing() {
         let adapter = OpenAIAdapter::new();
         let route = create_dummy_route(
@@ -400,6 +420,7 @@ mod tests {
             ProviderProtocol::Anthropic,
             ReasoningMapping::BudgetTokens(4096),
         );
+        route.final_parameters.max_tokens = None;
         route.final_parameters.extra_body = Some(HashMap::from([(
             "thinking".to_string(),
             json!({ "type": "disabled" }),
@@ -411,6 +432,25 @@ mod tests {
 
         assert_eq!(payload["thinking"]["type"], "enabled");
         assert_eq!(payload["thinking"]["budget_tokens"], 4096);
+        assert_eq!(payload["max_tokens"], 8192);
+    }
+
+    #[test]
+    fn anthropic_rejects_explicit_max_tokens_not_above_thinking_budget() {
+        let adapter = AnthropicAdapter::new();
+        let route = create_dummy_route(
+            ProviderProtocol::Anthropic,
+            ReasoningMapping::BudgetTokens(4096),
+        );
+
+        let error = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::InvalidRequest);
+        assert!(error
+            .message
+            .contains("must be greater than thinking budget"));
     }
 
     #[test]

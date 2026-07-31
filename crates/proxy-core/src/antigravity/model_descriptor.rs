@@ -1,4 +1,4 @@
-use crate::domain::{UpstreamModel, VirtualModel};
+use crate::domain::{ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
 pub struct AntigravityModelDescriptor;
@@ -12,7 +12,7 @@ impl AntigravityModelDescriptor {
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
         let supported_mime_types = supported_mime_types(caps.vision);
 
-        json!({
+        let mut descriptor = json!({
             "id": virtual_model.id,
             "name": format!("models/{host_model_id}"),
             "displayName": virtual_model.display_name,
@@ -23,7 +23,9 @@ impl AntigravityModelDescriptor {
             "supportsTools": caps.tools,
             "supportsThinking": caps.reasoning.supports_reasoning(),
             "supportedMimeTypes": supported_mime_types.keys().collect::<Vec<_>>()
-        })
+        });
+        apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
+        descriptor
     }
 
     pub fn build_cloud_code_catalog_entry(
@@ -43,7 +45,7 @@ impl AntigravityModelDescriptor {
             vec!["text"]
         };
 
-        json!({
+        let mut descriptor = json!({
             "displayName": virtual_model.display_name,
             "maxTokens": 128000,
             "maxOutputTokens": 8192,
@@ -62,7 +64,9 @@ impl AntigravityModelDescriptor {
             "input_modalities": input_modalities_lowercase,
             "supportedMimeTypes": supported_mime_types(caps.vision),
             "tokenizerType": "LLAMA_WITH_SPECIAL"
-        })
+        });
+        apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
+        descriptor
     }
 
     pub fn inject_into_model_list(
@@ -104,6 +108,78 @@ impl AntigravityModelDescriptor {
         }
 
         inject_models(models_json, models);
+    }
+}
+
+fn apply_reasoning_metadata(
+    descriptor: &mut Value,
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+) {
+    if !upstream_model.capabilities.reasoning.supports_reasoning() {
+        return;
+    }
+    let Some(descriptor) = descriptor.as_object_mut() else {
+        return;
+    };
+    let Some(level) = virtual_model.default_reasoning_level else {
+        descriptor.insert(
+            "reasoningEffort".to_string(),
+            Value::String("auto".to_string()),
+        );
+        if upstream_model
+            .capabilities
+            .reasoning
+            .levels
+            .values()
+            .any(|mapping| {
+                matches!(
+                    mapping,
+                    ReasoningMapping::BudgetTokens(_)
+                        | ReasoningMapping::Adaptive
+                        | ReasoningMapping::Disabled
+                )
+            })
+        {
+            descriptor.insert(
+                "thinkingBudget".to_string(),
+                Value::String("auto".to_string()),
+            );
+        }
+        return;
+    };
+    let Some(mapping) = upstream_model.capabilities.reasoning.mapping_for(level) else {
+        return;
+    };
+
+    let reasoning_effort = match mapping {
+        ReasoningMapping::Effort(value) | ReasoningMapping::NativeLevel(value) => {
+            Value::String(value.clone())
+        }
+        _ => serde_json::to_value(level).expect("reasoning level serialization cannot fail"),
+    };
+    descriptor.insert("reasoningEffort".to_string(), reasoning_effort);
+
+    match mapping {
+        ReasoningMapping::BudgetTokens(_) => {
+            descriptor.insert(
+                "thinkingBudget".to_string(),
+                Value::String("enabled".to_string()),
+            );
+        }
+        ReasoningMapping::Adaptive => {
+            descriptor.insert(
+                "thinkingBudget".to_string(),
+                Value::String("auto".to_string()),
+            );
+        }
+        ReasoningMapping::Disabled => {
+            descriptor.insert(
+                "thinkingBudget".to_string(),
+                Value::String("disabled".to_string()),
+            );
+        }
+        ReasoningMapping::Effort(_) | ReasoningMapping::NativeLevel(_) => {}
     }
 }
 

@@ -552,6 +552,13 @@ impl ProviderAdapter for OpenAIAdapter {
             }
         }
 
+        if request.stream {
+            if !payload["stream_options"].is_object() {
+                payload["stream_options"] = json!({});
+            }
+            payload["stream_options"]["include_usage"] = json!(true);
+        }
+
         Ok(payload)
     }
 
