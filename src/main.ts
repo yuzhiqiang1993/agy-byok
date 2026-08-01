@@ -7,10 +7,9 @@ type ProviderProtocol =
   | "openai_responses"
   | "anthropic_messages"
   | "gemini_generate_content";
-type ProtocolSelection = ProviderProtocol | "auto";
+
 type ReasoningLevel = "off" | "low" | "medium" | "high" | "x_high" | "max" | "auto";
 type ConfigurableReasoningLevel = "low" | "medium" | "high" | "x_high" | "max";
-type ReasoningVariant = "default" | ConfigurableReasoningLevel;
 
 type ReasoningMapping =
   | { kind: "effort"; value: string }
@@ -136,9 +135,15 @@ interface ActivityItem {
   completionTokens: number | null;
 }
 
+interface ProviderCatalogReasoning {
+  supported?: boolean;
+  levels?: ReasoningLevel[];
+}
+
 interface ProviderCatalogModel {
   id: string;
   displayName: string;
+  reasoning?: ProviderCatalogReasoning;
 }
 
 interface IdeStatus {
@@ -183,11 +188,13 @@ let editingProviderId: string | null = null;
 let draftProviderId = `provider-${crypto.randomUUID()}`;
 let catalogModels: ProviderCatalogModel[] = [];
 let selectedCatalogModelIds = new Set<string>();
-let globalCatalogReasoningVariants = new Set<ReasoningVariant>(["default"]);
-let catalogReasoningVariantsByModel = new Map<string, Set<ReasoningVariant>>();
+let catalogReasoningLevelsByModel = new Map<string, Set<ConfigurableReasoningLevel>>();
+let catalogCustomReasoningByModel = new Map<string, string>();
 let catalogVisionEnabledModelIds = new Set<string>();
 let catalogToolsEnabledModelIds = new Set<string>();
 let catalogReasoningEnabledModelIds = new Set<string>();
+let activeReasoningModel: ProviderCatalogModel | null = null;
+let draftReasoningLevels = new Set<ConfigurableReasoningLevel>();
 let changedCatalogCapabilityModelIds = new Set<string>();
 let changedCatalogReasoningModelIds = new Set<string>();
 let legacyCatalogModelIds = new Set<string>();
@@ -225,7 +232,6 @@ const catalogResults = element<HTMLElement>("#catalog-results");
 const catalogModelList = element<HTMLDivElement>("#catalog-model-list");
 const cancelProviderButton = element<HTMLButtonElement>("#cancel-provider");
 const saveProviderButton = element<HTMLButtonElement>("#save-provider");
-const startProxyButton = element<HTMLButtonElement>("#start-proxy");
 const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
 const enableIdeIntegrationButton = element<HTMLButtonElement>("#enable-ide-integration");
 const launchIdeButton = element<HTMLButtonElement>("#launch-ide");
@@ -237,10 +243,18 @@ const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
 const readinessActionButton = element<HTMLButtonElement>("#readiness-action");
 const providerDirtyBadge = element<HTMLElement>("#provider-editor-dirty");
 const providerChangeSummary = element<HTMLElement>("#provider-change-summary");
-const applyReasoningTemplateButton = element<HTMLButtonElement>("#apply-reasoning-template");
 const failedActivityOnlyCheckbox = element<HTMLInputElement>("#activity-failed-only");
 
+const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
+const reasoningModalBackdrop = element<HTMLDivElement>("#reasoning-modal-backdrop");
+const closeReasoningModalButton = element<HTMLButtonElement>("#close-reasoning-modal");
+const cancelReasoningModalButton = element<HTMLButtonElement>("#cancel-reasoning-modal");
+const confirmReasoningModalButton = element<HTMLButtonElement>("#confirm-reasoning-modal");
+const reasoningModalTitle = element<HTMLElement>("#reasoning-modal-title");
+const reasoningModalLevelsContainer = element<HTMLDivElement>("#reasoning-modal-levels");
+
 providerFormPanel.hidden = true;
+reasoningModal.hidden = true;
 
 function showNotice(message: string, kind: "success" | "error" = "success"): void {
   if (noticeTimer !== null) window.clearTimeout(noticeTimer);
@@ -318,7 +332,7 @@ function renderReadiness(): void {
   readinessActionButton.onclick = null;
   if (modelCountValue === 0) {
     title.textContent = "先添加上游服务并选择模型";
-    detail.textContent = "读取上游模型目录，再选择要接入 IDE 的模型。";
+    detail.textContent = "读取上游模型列表，再选择要接入 IDE 的模型。";
     readinessActionButton.textContent = "添加第一个上游服务";
     readinessActionButton.onclick = () => {
       switchTab("tab-models");
@@ -336,13 +350,13 @@ function renderReadiness(): void {
     title.textContent = "模型已就绪，下一步启动代理";
     detail.textContent = "代理启动后，IDE 才能访问自定义模型。";
     readinessActionButton.textContent = "启动本地代理";
-    readinessActionButton.onclick = () => startProxyButton.click();
+    readinessActionButton.onclick = () => void withBusy(readinessActionButton, startProxy);
   } else if (!ideReady) {
-    title.textContent = "代理已就绪，下一步启用 IDE 接入";
+    title.textContent = "代理已就绪，下一步启用模型注入";
     detail.textContent = latestIdeStatus.ideRunning
       ? "启用时应用会安全更新用户设置并自动重启 IDE。"
       : "启用只会管理 jetski.cloudCodeUrl，不修改厂商 App。";
-    readinessActionButton.textContent = latestIdeStatus.ideRunning ? "启用并重启 IDE" : "启用 IDE 接入";
+    readinessActionButton.textContent = latestIdeStatus.ideRunning ? "启用并重启 IDE" : "启用模型注入";
     readinessActionButton.onclick = () => enableIdeIntegrationButton.click();
   } else if (latestIdeStatus.ideRunning) {
     title.textContent = "一切就绪，Antigravity IDE 正在运行";
@@ -472,9 +486,7 @@ function renderProxy(status: ProxyStatus): void {
     }
   }
 
-  startProxyButton.hidden = running;
   stopProxyButton.hidden = !running;
-  setButtonUnavailable(startProxyButton, running);
   setButtonUnavailable(stopProxyButton, !running);
   renderReadiness();
 }
@@ -521,8 +533,8 @@ function renderIde(status: IdeStatus): void {
   enableIdeIntegrationButton.hidden = status.integrationState !== "disabled";
   launchIdeButton.hidden = !integrationReady || status.ideRunning;
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
-  enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启 IDE" : "启用 IDE 接入";
-  disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启 IDE" : "停用 IDE 接入";
+  enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启 IDE" : "启用模型注入";
+  disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启 IDE" : "停用模型注入";
   setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
@@ -1043,12 +1055,8 @@ function reasoningLevelLabel(level: ReasoningLevel): string {
     high: "High",
     x_high: "Extra High",
     max: "Max",
-    auto: "Auto",
+    auto: "自定义",
   }[level];
-}
-
-function reasoningVariantLabel(variant: ReasoningVariant): string {
-  return variant === "default" ? "Default" : reasoningLevelLabel(variant);
 }
 
 function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableReasoningLevel[] {
@@ -1057,19 +1065,72 @@ function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableRe
     : ["low", "medium", "high", "x_high", "max"];
 }
 
-function reasoningVariantsFor(
+function catalogReasoningLevelsForModel(
+  model: ProviderCatalogModel,
+  protocol: ProviderProtocol,
+  existingUpstream?: UpstreamModel,
+): ConfigurableReasoningLevel[] {
+  if (model.reasoning?.supported === false && !existingUpstream) return [];
+  const explicit = (model.reasoning?.levels ?? []).filter(
+    (level): level is ConfigurableReasoningLevel =>
+      configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
+  );
+  if (explicit.length > 0) return [...new Set(explicit)];
+  const existing = existingUpstream
+    ? (Object.keys(existingUpstream.capabilities.reasoning.levels) as ReasoningLevel[]).filter(
+        (level): level is ConfigurableReasoningLevel =>
+          configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
+      )
+    : [];
+  return existing.length > 0 ? [...new Set(existing)] : configurableReasoningLevels(protocol);
+}
+
+
+
+function catalogReasoningMetadataLabel(model: ProviderCatalogModel): string | null {
+  const metadata = model.reasoning;
+  if (!metadata) return null;
+  if (metadata.supported === false) return "思考：不支持";
+  const levels = (metadata.levels ?? []).filter((level) => level !== "off" && level !== "auto");
+  if (levels.length > 0) return `思考：${levels.map(reasoningLevelLabel).join(" · ")}`;
+  if (metadata.supported === true) return "思考：支持（等级未声明）";
+  return "思考：未声明";
+}
+
+function customReasoningValueFromUpstream(upstream: UpstreamModel): string | null {
+  const mapping = upstream.capabilities.reasoning.levels.auto;
+  if (!mapping) return null;
+  if (mapping.kind === "effort" || mapping.kind === "native_level") return mapping.value;
+  if (mapping.kind === "budget_tokens") return String(mapping.value);
+  return null;
+}
+
+function reasoningLevelsForVirtualModels(
   protocol: ProviderProtocol,
   virtualModels: VirtualModel[],
-): Set<ReasoningVariant> {
+): Set<ConfigurableReasoningLevel> {
   const configurable = new Set<ReasoningLevel>(configurableReasoningLevels(protocol));
-  const variants = new Set<ReasoningVariant>();
-  for (const virtualModel of virtualModels) {
-    const level = virtualModel.default_reasoning_level;
-    variants.add(level && configurable.has(level) ? level as ConfigurableReasoningLevel : "default");
-  }
-  if (variants.size === 0) variants.add("default");
-  return variants;
+  return new Set(
+    virtualModels.flatMap((virtualModel) => {
+      const level = virtualModel.default_reasoning_level;
+      return level && configurable.has(level)
+        ? [level as ConfigurableReasoningLevel]
+        : [];
+    }),
+  );
 }
+
+function customReasoningMapping(protocol: ProviderProtocol, value: string): ReasoningMapping | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (protocol === "openai_chat_completions" || protocol === "openai_responses") {
+    return { kind: "effort", value: normalized };
+  }
+  const budgetTokens = Number(normalized);
+  if (!Number.isInteger(budgetTokens) || budgetTokens < 1024) return null;
+  return { kind: "budget_tokens", value: budgetTokens };
+}
+
 
 function reasoningLevels(protocol: ProviderProtocol): Partial<Record<ReasoningLevel, ReasoningMapping>> {
   if (protocol === "anthropic_messages") {
@@ -1183,12 +1244,9 @@ function inferProviderBase(provider: Provider): string {
   }
 }
 
-function protocolDescription(protocol: ProtocolSelection): string {
-  if (protocol === "auto") {
-    return "推荐：根据 API 地址和模型目录自动判断；无法区分时默认使用 OpenAI Chat Completions。";
-  }
+function protocolDescription(protocol: ProviderProtocol): string {
   return {
-    openai_chat_completions: "适用于 /v1/chat/completions；绝大多数 OpenAI 兼容网关、DeepSeek、OpenRouter、Ollama 使用此协议。",
+    openai_chat_completions: "适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。",
     openai_responses: "适用于明确提供 /v1/responses 的 OpenAI Responses API 兼容服务；它不是 Chat Completions 的别名。",
     anthropic_messages: "适用于 /v1/messages；Anthropic 原生 API 及明确声明兼容 Messages API 的服务。",
     gemini_generate_content: "适用于 Google Gemini generateContent；典型地址包含 /v1beta/models 或 :generateContent。",
@@ -1196,44 +1254,12 @@ function protocolDescription(protocol: ProtocolSelection): string {
 }
 
 function updateProtocolHelp(): void {
-  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
-  element<HTMLElement>("#protocol-help").textContent = protocolDescription(selection);
-}
-
-function inferProtocolFromAddress(value: string): ProviderProtocol | null {
-  const address = value.trim().toLowerCase();
-  if (!address) return null;
-  if (address.includes("generatecontent") || address.includes("/v1beta")
-    || address.includes("generativelanguage.googleapis.com") || address.includes("gemini")) {
-    return "gemini_generate_content";
-  }
-  if (address.includes("/messages") || address.includes("anthropic") || address.includes("claude")) {
-    return "anthropic_messages";
-  }
-  if (address.includes("/responses")) return "openai_responses";
-  if (address.includes("/chat/completions")) return "openai_chat_completions";
-  return null;
-}
-
-function inferProtocolFromCatalog(
-  provider: Provider,
-  models: ProviderCatalogModel[],
-): ProviderProtocol {
-  const modelIds = models.map((model) => model.id.toLowerCase());
-  if (modelIds.some((id) => id.startsWith("gemini-") || id.startsWith("models/gemini-"))) {
-    return "gemini_generate_content";
-  }
-  if (modelIds.some((id) => id.startsWith("claude-"))) return "anthropic_messages";
-  return inferProtocolFromAddress(provider.models_endpoint)
-    ?? inferProtocolFromAddress(provider.generate_endpoint)
-    ?? "openai_chat_completions";
+  const protocol = element<HTMLSelectElement>("#protocol").value as ProviderProtocol;
+  element<HTMLElement>("#protocol-help").textContent = protocolDescription(protocol);
 }
 
 function selectedProtocol(): ProviderProtocol {
-  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
-  if (selection !== "auto") return selection;
-  return inferProtocolFromAddress(element<HTMLInputElement>("#provider-base-url").value)
-    ?? "openai_chat_completions";
+  return element<HTMLSelectElement>("#protocol").value as ProviderProtocol;
 }
 
 function updateSuggestedEndpoints(): void {
@@ -1274,8 +1300,8 @@ function providerFromForm(): Provider {
 function resetCatalogResults(): void {
   catalogModels = [];
   selectedCatalogModelIds = new Set();
-  globalCatalogReasoningVariants = new Set<ReasoningVariant>(["default"]);
-  catalogReasoningVariantsByModel = new Map();
+  catalogReasoningLevelsByModel = new Map();
+  catalogCustomReasoningByModel = new Map();
   catalogVisionEnabledModelIds = new Set();
   catalogToolsEnabledModelIds = new Set();
   catalogReasoningEnabledModelIds = new Set();
@@ -1283,7 +1309,6 @@ function resetCatalogResults(): void {
   changedCatalogReasoningModelIds = new Set();
   legacyCatalogModelIds = new Set();
   catalogModelList.replaceChildren();
-  element<HTMLElement>("#global-reasoning-options").replaceChildren();
   catalogResults.hidden = true;
   element<HTMLInputElement>("#catalog-search").value = "";
   element<HTMLInputElement>("#select-all-models").checked = false;
@@ -1294,6 +1319,7 @@ function resetProviderEditor(): void {
   editingProviderId = null;
   draftProviderId = `provider-${crypto.randomUUID()}`;
   providerForm.reset();
+  document.querySelectorAll(".preset-btn").forEach((button) => button.removeAttribute("data-active"));
   const apiKeyToggle = element<HTMLButtonElement>("#toggle-api-key");
   apiKeyToggle.textContent = "显示";
   apiKeyToggle.setAttribute("aria-pressed", "false");
@@ -1301,7 +1327,7 @@ function resetProviderEditor(): void {
   element<HTMLInputElement>("#api-key").type = "password";
   element<HTMLElement>("#provider-form-title").textContent = "添加上游服务";
   element<HTMLElement>("#provider-form-kicker").textContent = "ADD UPSTREAM";
-  element<HTMLSelectElement>("#protocol").value = "auto";
+  element<HTMLSelectElement>("#protocol").value = "openai_chat_completions";
   updateProtocolHelp();
   resetCatalogResults();
   providerEditorDirty = false;
@@ -1319,6 +1345,70 @@ async function closeProviderEditor(force = false): Promise<boolean> {
   resetProviderEditor();
   if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
   return true;
+}
+
+const PROVIDER_PRESETS: Record<string, { name: string; protocol: ProviderProtocol; baseUrl: string }> = {
+  claude: { name: "Claude 官方", protocol: "anthropic_messages", baseUrl: "https://api.anthropic.com" },
+  openai: { name: "OpenAI 官方", protocol: "openai_chat_completions", baseUrl: "https://api.openai.com/v1" },
+  gemini: { name: "Gemini 官方", protocol: "gemini_generate_content", baseUrl: "https://generativelanguage.googleapis.com" },
+  cpa: { name: "CPA", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8317/v1" },
+  sub2api: { name: "Sub2API", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8080/v1" },
+  deepseek: { name: "DeepSeek", protocol: "openai_chat_completions", baseUrl: "https://api.deepseek.com" },
+  ollama: { name: "Ollama Local", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:11434/v1" },
+  openrouter: { name: "OpenRouter", protocol: "openai_chat_completions", baseUrl: "https://openrouter.ai/api/v1" },
+  modelgate: { name: "ModelGate", protocol: "openai_chat_completions", baseUrl: "https://mg.aid.pub/v1" },
+  groq: { name: "Groq", protocol: "openai_chat_completions", baseUrl: "https://api.groq.com/openai/v1" },
+  github: { name: "GitHub Models", protocol: "openai_chat_completions", baseUrl: "https://models.inference.ai.azure.com" },
+  siliconflow: { name: "SiliconFlow（硅基流动）", protocol: "openai_chat_completions", baseUrl: "https://api.siliconflow.cn/v1" },
+  dashscope: { name: "阿里云百炼", protocol: "openai_chat_completions", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  moonshot: { name: "Moonshot（Kimi）", protocol: "openai_chat_completions", baseUrl: "https://api.moonshot.cn/v1" },
+  mistral: { name: "Mistral", protocol: "openai_chat_completions", baseUrl: "https://api.mistral.ai/v1" },
+  xai: { name: "xAI", protocol: "openai_chat_completions", baseUrl: "https://api.x.ai/v1" },
+  perplexity: { name: "Perplexity", protocol: "openai_chat_completions", baseUrl: "https://api.perplexity.ai" },
+  together: { name: "Together AI", protocol: "openai_chat_completions", baseUrl: "https://api.together.xyz/v1" },
+  fireworks: { name: "Fireworks AI", protocol: "openai_chat_completions", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  cerebras: { name: "Cerebras", protocol: "openai_chat_completions", baseUrl: "https://api.cerebras.ai/v1" },
+  sambanova: { name: "SambaNova", protocol: "openai_chat_completions", baseUrl: "https://api.sambanova.ai/v1" },
+  deepinfra: { name: "DeepInfra", protocol: "openai_chat_completions", baseUrl: "https://api.deepinfra.com/v1/openai" },
+  huggingface: { name: "Hugging Face", protocol: "openai_chat_completions", baseUrl: "https://router.huggingface.co/v1" },
+  novita: { name: "Novita AI", protocol: "openai_chat_completions", baseUrl: "https://api.novita.ai/openai" },
+  zhipu: { name: "智谱 AI", protocol: "openai_chat_completions", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+  minimax: { name: "MiniMax", protocol: "openai_chat_completions", baseUrl: "https://api.minimaxi.com/v1" },
+  hunyuan: { name: "腾讯混元", protocol: "openai_chat_completions", baseUrl: "https://api.hunyuan.cloud.tencent.com/v1" },
+  volcengine: { name: "火山方舟", protocol: "openai_chat_completions", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" },
+  qianfan: { name: "百度千帆", protocol: "openai_chat_completions", baseUrl: "https://qianfan.baidubce.com/v2" },
+  baichuan: { name: "百川智能", protocol: "openai_chat_completions", baseUrl: "https://api.baichuan-ai.com/v1" },
+  yi: { name: "零一万物", protocol: "openai_chat_completions", baseUrl: "https://api.lingyiwanwu.com/v1" },
+  xunfei: { name: "讯飞星火", protocol: "openai_chat_completions", baseUrl: "https://spark-api-open.xf-yun.com/v1" },
+  stepfun: { name: "阶跃星辰", protocol: "openai_chat_completions", baseUrl: "https://api.stepfun.com/v1" },
+  custom: { name: "Custom OpenAI", protocol: "openai_chat_completions", baseUrl: "" },
+};
+
+function setupProviderPresets(): void {
+  const presetContainer = document.querySelector<HTMLElement>("#provider-presets");
+  if (!presetContainer) return;
+
+  const buttons = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-btn");
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const presetKey = button.dataset.preset;
+      if (!presetKey) return;
+      const preset = PROVIDER_PRESETS[presetKey];
+      if (!preset) return;
+
+      element<HTMLInputElement>("#provider-name").value = preset.name;
+      element<HTMLSelectElement>("#protocol").value = preset.protocol;
+      element<HTMLInputElement>("#provider-base-url").value = preset.baseUrl;
+      updateSuggestedEndpoints();
+      setProviderEditorDirty(true);
+
+      for (const item of buttons) item.removeAttribute("data-active");
+      button.setAttribute("data-active", "true");
+
+      if (presetKey !== "ollama") element<HTMLInputElement>("#api-key").focus();
+      else element<HTMLInputElement>("#provider-base-url").focus();
+    });
+  }
 }
 
 async function openProviderEditor(providerId: string | null = null): Promise<void> {
@@ -1356,18 +1446,8 @@ async function fetchProviderCatalog(): Promise<void> {
   if (!providerForm.reportValidity()) return;
   invalidatePendingProviderSave();
   refreshProviderEditorControls();
-  let provider = providerFromForm();
-  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
+  const provider = providerFromForm();
   const fetched = await invoke<ProviderCatalogModel[]>("fetch_provider_catalog", { provider });
-  if (selection === "auto") {
-    const detected = inferProtocolFromCatalog(provider, fetched);
-    if (detected !== provider.protocol) {
-      element<HTMLSelectElement>("#protocol").value = detected;
-      updateSuggestedEndpoints();
-      provider = providerFromForm();
-      showNotice(`已根据地址和模型目录选择 ${protocolName(detected)}`);
-    }
-  }
   const fetchedIds = new Set(fetched.map((model) => model.id));
   const byId = new Map(fetched.map((model) => [model.id, model]));
   const existingUpstreams = editingProviderId
@@ -1415,65 +1495,30 @@ async function fetchProviderCatalog(): Promise<void> {
       })
       .map((model) => model.id),
   );
-  globalCatalogReasoningVariants = new Set();
-  for (const upstream of existingUpstreams) {
-    if (!catalogReasoningEnabledModelIds.has(upstream.upstream_model_id)) continue;
-    const virtualModels = config.virtual_models.filter(
-      (item) => item.upstream_model_id === upstream.id,
-    );
-    for (const variant of reasoningVariantsFor(provider.protocol, virtualModels)) {
-      globalCatalogReasoningVariants.add(variant);
-    }
-  }
-  if (globalCatalogReasoningVariants.size === 0) {
-    globalCatalogReasoningVariants.add("default");
-  }
-  catalogReasoningVariantsByModel = new Map(catalogModels.map((model) => {
+  catalogReasoningLevelsByModel = new Map(catalogModels.map((model) => {
     const upstream = existingUpstreamsByModelId.get(model.id);
-    if (!upstream) return [model.id, new Set(globalCatalogReasoningVariants)];
+    if (!upstream) return [model.id, new Set<ConfigurableReasoningLevel>()];
     const virtualModels = config.virtual_models.filter(
       (item) => item.upstream_model_id === upstream.id,
     );
-    return [model.id, reasoningVariantsFor(provider.protocol, virtualModels)];
+    return [model.id, reasoningLevelsForVirtualModels(provider.protocol, virtualModels)];
   }));
+  catalogCustomReasoningByModel = new Map(
+    catalogModels.flatMap((model) => {
+      const upstream = existingUpstreamsByModelId.get(model.id);
+      const value = upstream ? customReasoningValueFromUpstream(upstream) : null;
+      return value ? [[model.id, value] as const] : [];
+    }),
+  );
   catalogResults.hidden = false;
   element<HTMLElement>("#catalog-status").textContent = legacyCatalogModelIds.size > 0
     ? `目录获取成功 · ${fetched.length} 个模型 · ${legacyCatalogModelIds.size} 个已配置模型未返回`
     : `目录获取成功 · ${fetched.length} 个模型`;
-  renderGlobalReasoningOptions(provider.protocol);
   renderCatalogModels();
   catalogResults.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function renderGlobalReasoningOptions(protocol: ProviderProtocol): void {
-  const container = element<HTMLElement>("#global-reasoning-options");
-  container.replaceChildren();
-  const availableVariants: ReasoningVariant[] = [
-    "default",
-    ...configurableReasoningLevels(protocol),
-  ];
-  for (const variant of availableVariants) {
-    const option = document.createElement("label");
-    option.className = "check-label";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = globalCatalogReasoningVariants.has(variant);
-    checkbox.addEventListener("change", () => {
-      if (!checkbox.checked && globalCatalogReasoningVariants.size === 1) {
-        checkbox.checked = true;
-        showNotice("思考档位模板至少保留一个选项", "error");
-        return;
-      }
-      if (checkbox.checked) globalCatalogReasoningVariants.add(variant);
-      else globalCatalogReasoningVariants.delete(variant);
-    });
-    const label = document.createElement("span");
-    label.textContent = reasoningVariantLabel(variant);
-    option.append(checkbox, label);
-    container.append(option);
-  }
-  applyReasoningTemplateButton.disabled = catalogReasoningEnabledModelIds.size === 0;
-}
+
 
 function catalogCapabilityToggle(
   modelId: string,
@@ -1497,6 +1542,104 @@ function catalogCapabilityToggle(
   return toggle;
 }
 
+function openReasoningModal(model: ProviderCatalogModel): void {
+  activeReasoningModel = model;
+  const existingUpstream = editingProviderId
+    ? config.upstream_models.find(
+        (item) => item.provider_id === editingProviderId && item.upstream_model_id === model.id,
+      )
+    : undefined;
+  const currentLevels = catalogReasoningLevelsByModel.get(model.id) ?? new Set<ConfigurableReasoningLevel>();
+  draftReasoningLevels = new Set(currentLevels);
+
+  reasoningModalTitle.textContent = `推理强度配置 · ${model.displayName}`;
+  reasoningModalLevelsContainer.replaceChildren();
+
+  const supportedLevels = catalogReasoningLevelsForModel(model, selectedProtocol(), existingUpstream);
+  for (const level of supportedLevels) {
+    const row = document.createElement("div");
+    row.className = "reasoning-modal-level-row";
+
+    const label = document.createElement("label");
+    label.className = "check-label";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = draftReasoningLevels.has(level);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) draftReasoningLevels.add(level);
+      else draftReasoningLevels.delete(level);
+    });
+    const text = document.createElement("span");
+    text.textContent = reasoningLevelLabel(level);
+    label.append(checkbox, text);
+
+    const testArea = document.createElement("div");
+    testArea.className = "reasoning-level-test-area";
+    const result = document.createElement("span");
+    result.className = "reasoning-level-test-result";
+    result.setAttribute("role", "status");
+
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "secondary compact-button";
+    testBtn.textContent = "测试";
+    testBtn.addEventListener("click", () => {
+      void withProviderEditorBusy(testBtn, async () => {
+        result.className = "reasoning-level-test-result pending";
+        result.textContent = "测试中…";
+        const response = await invoke<ModelConnectionTestResult>(
+          "test_provider_model_connection",
+          {
+            provider: providerFromForm(),
+            upstreamModelId: model.id,
+            reasoningLevel: level,
+            customReasoningValue: null,
+          },
+        );
+        if (response.success) {
+          result.className = "reasoning-level-test-result success";
+          result.textContent = `通过 · ${response.durationMs} ms`;
+        } else {
+          result.className = "reasoning-level-test-result error";
+          result.textContent = `失败 · ${response.message}`;
+        }
+        result.title = response.message ?? "";
+      }, "测试中…");
+    });
+
+    testArea.append(result, testBtn);
+    row.append(label, testArea);
+    reasoningModalLevelsContainer.append(row);
+  }
+
+  reasoningModal.hidden = false;
+}
+
+function closeReasoningModal(): void {
+  reasoningModal.hidden = true;
+  activeReasoningModel = null;
+}
+
+confirmReasoningModalButton.addEventListener("click", () => {
+  if (!activeReasoningModel) return;
+  const modelId = activeReasoningModel.id;
+  if (draftReasoningLevels.size > 0) {
+    catalogReasoningEnabledModelIds.add(modelId);
+    catalogReasoningLevelsByModel.set(modelId, new Set(draftReasoningLevels));
+  } else {
+    catalogReasoningEnabledModelIds.delete(modelId);
+    catalogReasoningLevelsByModel.delete(modelId);
+  }
+  changedCatalogReasoningModelIds.add(modelId);
+  setProviderEditorDirty(true);
+  renderCatalogModels();
+  closeReasoningModal();
+});
+
+cancelReasoningModalButton.addEventListener("click", closeReasoningModal);
+closeReasoningModalButton.addEventListener("click", closeReasoningModal);
+reasoningModalBackdrop.addEventListener("click", closeReasoningModal);
+
 function renderCatalogModels(): void {
   const query = element<HTMLInputElement>("#catalog-search").value.trim().toLowerCase();
   const visibleModels = catalogModels.filter((model) =>
@@ -1507,6 +1650,11 @@ function renderCatalogModels(): void {
   for (const model of visibleModels) {
     const row = document.createElement("div");
     const selected = selectedCatalogModelIds.has(model.id);
+    const existingUpstream = editingProviderId
+      ? config.upstream_models.find(
+          (item) => item.provider_id === editingProviderId && item.upstream_model_id === model.id,
+        )
+      : undefined;
     row.className = `catalog-model-row${selected ? "" : " unselected"}${legacyCatalogModelIds.has(model.id) ? " legacy" : ""}`;
     const select = document.createElement("label");
     select.className = "catalog-model-select";
@@ -1533,10 +1681,35 @@ function renderCatalogModels(): void {
       copy.append(legacy);
     }
     copy.append(id);
+    const reasoningMetadataLabel = catalogReasoningMetadataLabel(model);
+    if (reasoningMetadataLabel) {
+      const reasoningHint = document.createElement("span");
+      reasoningHint.className = `catalog-reasoning-hint${model.reasoning?.supported === false ? " unsupported" : ""}`;
+      reasoningHint.textContent = reasoningMetadataLabel;
+      copy.append(reasoningHint);
+    }
     select.append(checkbox, copy);
 
     const capabilities = document.createElement("div");
     capabilities.className = "catalog-model-capabilities";
+    const selectedLevels = catalogReasoningLevelsByModel.get(model.id);
+    const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id) && (selectedLevels?.size ?? 0) > 0;
+    const reasoningBtn = document.createElement("button");
+    reasoningBtn.type = "button";
+    reasoningBtn.className = `catalog-reasoning-trigger${reasoningEnabled ? " active" : ""}`;
+    const reasoningLevelsSummary = reasoningEnabled
+      ? [...selectedLevels!].map(reasoningLevelLabel).join(" · ")
+      : "";
+    reasoningBtn.textContent = reasoningEnabled
+      ? `推理强度：${reasoningLevelsSummary}`
+      : "配置推理强度";
+    const reasoningToggleLabel = catalogReasoningMetadataLabel(model);
+    reasoningBtn.title = reasoningToggleLabel ?? "点击配置并测试该模型的推理档位";
+    reasoningBtn.disabled = !selected || (model.reasoning?.supported === false && !existingUpstream);
+    reasoningBtn.addEventListener("click", () => {
+      openReasoningModal(model);
+    });
+
     capabilities.append(
       catalogCapabilityToggle(model.id, "图像输入", catalogVisionEnabledModelIds, () => {
         changedCatalogCapabilityModelIds.add(model.id);
@@ -1546,14 +1719,7 @@ function renderCatalogModels(): void {
         changedCatalogCapabilityModelIds.add(model.id);
         setProviderEditorDirty(true);
       }),
-      catalogCapabilityToggle(model.id, "思考档位", catalogReasoningEnabledModelIds, () => {
-        if (catalogReasoningEnabledModelIds.has(model.id)) {
-          catalogReasoningVariantsByModel.set(model.id, new Set(globalCatalogReasoningVariants));
-        }
-        changedCatalogReasoningModelIds.add(model.id);
-        applyReasoningTemplateButton.disabled = catalogReasoningEnabledModelIds.size === 0;
-        setProviderEditorDirty(true);
-      }),
+      reasoningBtn,
     );
     for (const input of capabilities.querySelectorAll<HTMLInputElement>("input")) {
       input.disabled = !selected;
@@ -1562,28 +1728,59 @@ function renderCatalogModels(): void {
     const test = document.createElement("button");
     test.type = "button";
     test.className = "secondary compact-button";
-    test.textContent = "测试上游生成";
+    test.textContent = "测试";
+    test.title = "测试当前模型已勾选的全部推理等级";
     const result = document.createElement("span");
     result.className = "catalog-model-test-result";
     result.setAttribute("role", "status");
     test.addEventListener("click", () => {
       void withProviderEditorBusy(test, async () => {
-        result.className = "catalog-model-test-result pending";
-        result.textContent = "测试中…";
-        const response = await invoke<ModelConnectionTestResult>(
-          "test_provider_model_connection",
-          { provider: providerFromForm(), upstreamModelId: model.id },
-        );
-        result.className = `catalog-model-test-result ${response.success ? "success" : "error"}`;
-        result.textContent = response.success
-          ? `测试通过 · ${response.durationMs} ms`
-          : `测试失败 · ${response.message}`;
-        result.title = response.message;
+        const provider = providerFromForm();
+        const testCases: Array<{
+          label: string;
+          reasoningLevel: ReasoningLevel | null;
+        }> = [];
+        if (catalogReasoningEnabledModelIds.has(model.id)) {
+          for (const level of catalogReasoningLevelsByModel.get(model.id) ?? []) {
+            testCases.push({ label: reasoningLevelLabel(level), reasoningLevel: level });
+          }
+
+        }
+        if (testCases.length === 0) {
+          testCases.push({ label: "普通请求", reasoningLevel: null });
+        }
+
+        const results: string[] = [];
+        let allSucceeded = true;
+        for (const [index, testCase] of testCases.entries()) {
+          result.className = "catalog-model-test-result pending";
+          result.textContent = `测试中 ${index + 1}/${testCases.length} · ${testCase.label}`;
+          const response = await invoke<ModelConnectionTestResult>(
+            "test_provider_model_connection",
+            {
+              provider,
+              upstreamModelId: model.id,
+              reasoningLevel: testCase.reasoningLevel,
+              customReasoningValue: null,
+            },
+          );
+          allSucceeded = allSucceeded && response.success;
+          results.push(`${testCase.label}：${response.success ? `通过 · ${response.durationMs} ms` : `失败 · ${response.message}`}`);
+        }
+        result.className = `catalog-model-test-result ${allSucceeded ? "success" : "error"}`;
+        result.textContent = allSucceeded
+          ? `全部通过 · ${testCases.length} 项`
+          : `测试完成 · ${results.filter((item) => item.includes("失败")).length} 项失败`;
+        result.title = results.join("\n");
       }, "测试中…");
     });
+    const testArea = document.createElement("div");
+    testArea.className = "catalog-model-test-area";
+    testArea.append(test, result);
     const actions = document.createElement("div");
     actions.className = "catalog-model-actions";
-    actions.append(capabilities, result, test);
+    actions.append(capabilities);
+    actions.append(testArea);
     row.append(select, actions);
     catalogModelList.append(row);
   }
@@ -1734,7 +1931,26 @@ async function saveProvider(): Promise<void> {
     selectedCatalogModelIds.has(model.id)
   );
   if (selectedModels.length === 0) {
-    showNotice("当前模型目录中没有有效选项，请重新获取模型", "error");
+    showNotice("当前模型列表中没有有效选项，请重新获取模型", "error");
+    return;
+  }
+  const missingReasoningLevels = selectedModels.find(
+    (model) => catalogReasoningEnabledModelIds.has(model.id)
+      && (catalogReasoningLevelsByModel.get(model.id)?.size ?? 0) === 0
+      && !catalogCustomReasoningByModel.has(model.id),
+  );
+  if (missingReasoningLevels) {
+    showNotice(`“${missingReasoningLevels.displayName}”已开启推理强度，请至少选择一个等级`, "error");
+    return;
+  }
+  const invalidCustomReasoning = selectedModels.find((model) => {
+    const value = catalogCustomReasoningByModel.get(model.id);
+    return catalogReasoningEnabledModelIds.has(model.id)
+      && value !== undefined
+      && customReasoningMapping(provider.protocol, value) === null;
+  });
+  if (invalidCustomReasoning) {
+    showNotice(`“${invalidCustomReasoning.displayName}”的自定义推理值不符合当前协议要求`, "error");
     return;
   }
   const protocol = provider.protocol;
@@ -1742,10 +1958,10 @@ async function saveProvider(): Promise<void> {
     && previousProvider.protocol !== provider.protocol;
   const nextUpstreams: UpstreamModel[] = [];
   const nextVirtuals: VirtualModel[] = [];
-  const reasoningVariantsForModel = (modelId: string): Set<ReasoningVariant> =>
+  const reasoningLevelsForModel = (modelId: string): Set<ConfigurableReasoningLevel> =>
     catalogReasoningEnabledModelIds.has(modelId)
-      ? catalogReasoningVariantsByModel.get(modelId) ?? new Set(globalCatalogReasoningVariants)
-      : new Set<ReasoningVariant>(["default"]);
+      ? catalogReasoningLevelsByModel.get(modelId) ?? new Set<ConfigurableReasoningLevel>()
+      : new Set<ConfigurableReasoningLevel>();
 
   for (const model of selectedModels) {
     const existingUpstream = providerUpstreams.find(
@@ -1764,9 +1980,13 @@ async function saveProvider(): Promise<void> {
       continue;
     }
 
-    const reasoningVariants = reasoningVariantsForModel(model.id);
+    const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id);
+    const selectedReasoningLevels = reasoningLevelsForModel(model.id);
+    const customReasoningSelected = catalogCustomReasoningByModel.has(model.id);
     const retainedReasoningLevels = new Set<ReasoningLevel | null>(
-      [...reasoningVariants].map((variant) => variant === "default" ? null : variant),
+      reasoningEnabled
+        ? [...selectedReasoningLevels, ...(customReasoningSelected ? ["auto" as const] : [])]
+        : [null],
     );
     for (const virtualModel of existingVirtuals) {
       if (retainedReasoningLevels.has(virtualModel.default_reasoning_level)) {
@@ -1816,30 +2036,32 @@ async function saveProvider(): Promise<void> {
     }
 
     const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id);
-    const reasoningVariants = reasoningVariantsForModel(model.id);
+    const selectedReasoningLevels = reasoningLevelsForModel(model.id);
     const availableMappings = reasoningLevels(protocol);
-    const enabledLevels = reasoningEnabled
-      ? reasoningVariants.has("default")
-        ? configurableReasoningLevels(protocol)
-        : [...reasoningVariants].filter(
-            (variant): variant is ConfigurableReasoningLevel => variant !== "default",
-          )
+    const availableReasoningLevels = catalogReasoningLevelsForModel(model, protocol, existingUpstream);
+    const customReasoningValue = catalogCustomReasoningByModel.get(model.id);
+    const customMapping = customReasoningValue
+      ? customReasoningMapping(protocol, customReasoningValue)
+      : null;
+    const enabledLevels: ReasoningLevel[] = reasoningEnabled
+      ? [
+          ...[...selectedReasoningLevels].filter((level) => availableReasoningLevels.includes(level)),
+          ...(customMapping ? ["auto" as const] : []),
+        ]
       : [];
-    const levels: Partial<Record<ReasoningLevel, ReasoningMapping>> = reasoningEnabled
-        && reasoningVariants.has("default")
-        && !protocolChanged
-      ? { ...existingUpstream?.capabilities.reasoning.levels }
-      : {};
+    const levels: Partial<Record<ReasoningLevel, ReasoningMapping>> = {};
     for (const level of enabledLevels) {
-      const mapping = (protocolChanged
-        ? undefined
-        : existingUpstream?.capabilities.reasoning.levels[level])
-        ?? availableMappings[level];
+      const mapping = level === "auto"
+        ? customMapping
+        : (protocolChanged
+          ? undefined
+          : existingUpstream?.capabilities.reasoning.levels[level])
+          ?? availableMappings[level];
       if (mapping) levels[level] = mapping;
     }
     const reasoning = { levels };
     const retainedReasoningLevels = new Set<ReasoningLevel | null>(
-      [...reasoningVariants].map((variant) => variant === "default" ? null : variant),
+      reasoningEnabled ? [...enabledLevels] : [null],
     );
     for (const virtualModel of existingVirtuals) {
       if (retainedReasoningLevels.has(virtualModel.default_reasoning_level)) {
@@ -1861,8 +2083,10 @@ async function saveProvider(): Promise<void> {
           enabled: true,
         });
 
-    for (const variant of reasoningVariants) {
-      const defaultReasoningLevel = variant === "default" ? null : variant;
+    const desiredReasoningLevels: Array<ReasoningLevel | null> = reasoningEnabled
+      ? enabledLevels
+      : [null];
+    for (const defaultReasoningLevel of desiredReasoningLevels) {
       const matchingVirtuals = existingVirtuals.filter(
         (virtualModel) => virtualModel.default_reasoning_level === defaultReasoningLevel,
       );
@@ -2238,16 +2462,16 @@ async function initialize(): Promise<void> {
   }
 }
 
-startProxyButton.addEventListener("click", () => void withBusy(startProxyButton, async () => {
+async function startProxy(): Promise<void> {
   const preferredPort = config.proxy_port;
   const status = await invoke<ProxyStatus>("start_proxy");
   renderProxy(status);
   await refreshIde();
   const actualPort = proxyPortFromAddress(status.address);
   showNotice(actualPort !== null && actualPort !== preferredPort
-    ? `首选端口 ${preferredPort} 已占用，代理已切换到 ${actualPort}；请停用后重新启用 IDE 接入以更新地址`
+    ? `首选端口 ${preferredPort} 已占用，代理已切换到 ${actualPort}；请停用后重新启用模型注入以更新地址`
     : "本地代理已启动");
-}));
+}
 
 stopProxyButton.addEventListener("click", () => void withBusy(stopProxyButton, async () => {
   renderProxy(await invoke<ProxyStatus>("stop_proxy"));
@@ -2258,6 +2482,20 @@ element<HTMLButtonElement>("#refresh-ide").addEventListener("click", (event) => 
   const button = event.currentTarget as HTMLButtonElement;
   void withBusy(button, refreshIde);
 });
+
+const copyProxyAddressBtn = document.querySelector("#copy-proxy-address");
+if (copyProxyAddressBtn) {
+  copyProxyAddressBtn.addEventListener("click", () => {
+    const address = element<HTMLElement>("#proxy-address").textContent?.trim() ?? "";
+    if (!address) return;
+    const fullUrl = address.startsWith("http") ? address : `http://${address}`;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      showNotice(`已复制代理地址 ${fullUrl}`);
+    }).catch((err) => {
+      showNotice(`复制失败：${errorMessage(err)}`, "error");
+    });
+  });
+}
 
 element<HTMLButtonElement>("#dismiss-notice").addEventListener("click", dismissNotice);
 
@@ -2279,12 +2517,25 @@ cancelProviderButton.addEventListener("click", () => {
 
 enableIdeIntegrationButton.addEventListener("click", () => {
   void withBusy(enableIdeIntegrationButton, async () => {
-    showNotice("正在启用 IDE 原生配置接入；运行中的 IDE 将自动重启…");
+    const isRunning = latestIdeStatus?.ideRunning ?? false;
+    const confirmMsg = isRunning
+      ? "启用 IDE 模型注入将安全更新配置，并自动重启正在运行的 Antigravity IDE。是否确定继续？"
+      : "启用 IDE 模型注入将配置 jetski.cloudCodeUrl 指向本地代理。是否确定继续？";
+    let confirmed = false;
+    try {
+      confirmed = await confirm(confirmMsg, { title: "确认启用模型注入", kind: "warning" });
+    } catch (err) {
+      console.error("Native confirm failed:", err);
+      confirmed = window.confirm(confirmMsg);
+    }
+    if (!confirmed) return;
+
+    showNotice("正在启用 IDE 模型注入；运行中的 IDE 将自动重启…");
     const status = await invoke<IdeStatus>("enable_ide_integration");
     renderIde(status);
     showNotice(status.ideRunning
-      ? "IDE 原生配置接入已启用，Antigravity IDE 已重启"
-      : "IDE 原生配置接入已启用；请启动代理后打开 Antigravity IDE");
+      ? "IDE 模型注入已启用，Antigravity IDE 已重启"
+      : "IDE 模型注入已启用；请启动代理后打开 Antigravity IDE");
   });
 });
 
@@ -2295,12 +2546,25 @@ launchIdeButton.addEventListener("click", () => void withBusy(launchIdeButton, a
 
 disableIdeIntegrationButton.addEventListener("click", () => {
   void withBusy(disableIdeIntegrationButton, async () => {
-    showNotice("正在停用 IDE 原生配置接入；运行中的 IDE 将自动重启…");
+    const isRunning = latestIdeStatus?.ideRunning ?? false;
+    const confirmMsg = isRunning
+      ? "停用 IDE 模型注入将恢复原始配置，并自动重启正在运行的 Antigravity IDE。是否确定继续？"
+      : "停用 IDE 模型注入将恢复原始 settings.json 配置。是否确定继续？";
+    let confirmed = false;
+    try {
+      confirmed = await confirm(confirmMsg, { title: "确认停用模型注入", kind: "warning" });
+    } catch (err) {
+      console.error("Native confirm failed:", err);
+      confirmed = window.confirm(confirmMsg);
+    }
+    if (!confirmed) return;
+
+    showNotice("正在停用 IDE 模型注入；运行中的 IDE 将自动重启…");
     const status = await invoke<IdeStatus>("disable_ide_integration");
     renderIde(status);
     showNotice(status.ideRunning
-      ? "IDE 原生配置接入已停用，Antigravity IDE 已重启"
-      : "IDE 原生配置接入已停用，原 settings 已恢复");
+      ? "IDE 模型注入已停用，Antigravity IDE 已重启"
+      : "IDE 模型注入已停用，原 settings 已恢复");
   });
 });
 
@@ -2347,14 +2611,7 @@ element<HTMLInputElement>("#select-all-models").addEventListener("change", (even
   renderCatalogModels();
 });
 
-applyReasoningTemplateButton.addEventListener("click", () => {
-  for (const modelId of catalogReasoningEnabledModelIds) {
-    catalogReasoningVariantsByModel.set(modelId, new Set(globalCatalogReasoningVariants));
-    changedCatalogReasoningModelIds.add(modelId);
-  }
-  setProviderEditorDirty(true);
-  showNotice(`已将模板应用到 ${catalogReasoningEnabledModelIds.size} 个上游模型`);
-});
+
 
 element<HTMLButtonElement>("#close-provider-modal").addEventListener("click", () => {
   void closeProviderEditor();
@@ -2365,6 +2622,13 @@ element<HTMLElement>("#provider-modal-backdrop").addEventListener("click", () =>
 });
 
 document.addEventListener("keydown", (event) => {
+  if (!reasoningModal.hidden) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeReasoningModal();
+      return;
+    }
+  }
   if (providerFormPanel.hidden) return;
   if (event.key === "Escape") {
     event.preventDefault();
@@ -2503,4 +2767,5 @@ for (const trigger of tabTriggers) {
   });
 }
 
+setupProviderPresets();
 void initialize();

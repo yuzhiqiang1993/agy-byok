@@ -61,24 +61,35 @@
       <div id="tab-status" class="tab-pane active">
         <section class="panel readiness-panel" aria-labelledby="readiness-title">
           <div class="readiness-copy">
-            <h2 id="readiness-title">正在确认运行状态…</h2>
-            <p id="readiness-detail" class="muted">检查模型、代理和 IDE 接入状态。</p>
+            <div class="readiness-text-group">
+              <h2 id="readiness-title">正在确认运行状态…</h2>
+              <p id="readiness-detail" class="muted">检查模型、代理和 IDE 接入状态。</p>
+            </div>
             <button id="readiness-action" class="primary compact-button" type="button" hidden>继续配置</button>
           </div>
           <ol class="readiness-steps" aria-label="使用准备进度">
             <li id="readiness-models" data-state="pending">
-              <span class="step-index">01</span>
-              <span>IDE 模型入口</span>
+              <div class="step-header">
+                <span class="step-index">01</span>
+                <span class="step-badge"></span>
+              </div>
+              <span class="step-title">模型入口</span>
               <strong id="readiness-models-value">检查中</strong>
             </li>
             <li id="readiness-proxy" data-state="pending">
-              <span class="step-index">02</span>
-              <span>本地代理</span>
+              <div class="step-header">
+                <span class="step-index">02</span>
+                <span class="step-badge"></span>
+              </div>
+              <span class="step-title">本地代理</span>
               <strong id="readiness-proxy-value">检查中</strong>
             </li>
             <li id="readiness-ide" data-state="pending">
-              <span class="step-index">03</span>
-              <span>IDE 接入</span>
+              <div class="step-header">
+                <span class="step-index">03</span>
+                <span class="step-badge"></span>
+              </div>
+              <span class="step-title">IDE 接入</span>
               <strong id="readiness-ide-value">检查中</strong>
             </li>
           </ol>
@@ -87,7 +98,7 @@
         <section class="status-grid" aria-label="运行状态">
           <article class="panel status-card">
             <div class="panel-heading">
-              <div>
+              <div class="card-title-group">
                 <h2>本地代理</h2>
               </div>
               <div class="status-pill-wrapper">
@@ -95,41 +106,67 @@
                 <span id="proxy-state" class="status-pill neutral">检查中</span>
               </div>
             </div>
-            <div class="status-body">
-              <span class="detail-label">监听地址</span>
-              <code id="proxy-address">127.0.0.1:51234</code>
-              <p class="muted compact">模型配置保存后立即生效，无需重启代理。</p>
+
+            <div class="status-card-content">
+              <div class="address-card-block">
+                <div class="address-block-header">
+                  <span class="detail-label">监听地址</span>
+                  <span class="address-protocol-tag">HTTP / REST</span>
+                </div>
+                <div class="address-box">
+                  <code id="proxy-address">127.0.0.1:51234</code>
+                  <button id="copy-proxy-address" class="copy-icon-btn" type="button" title="复制监听地址" aria-label="复制监听地址">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="proxy-hints">
+                <div class="hint-item">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hint-icon"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  <span>模型配置保存后立即生效，无需重启代理。</span>
+                </div>
+              </div>
             </div>
+
             <div class="card-actions">
-              <button id="start-proxy" class="primary" type="button">启动代理</button>
               <button id="stop-proxy" class="secondary" type="button">停止代理</button>
             </div>
           </article>
 
           <article class="panel status-card">
             <div class="panel-heading">
-              <div>
+              <div class="card-title-group">
                 <h2>Antigravity IDE</h2>
               </div>
-              <span id="ide-state" class="status-pill neutral">检查中</span>
+              <span id="ide-state" class="status-pill neutral" hidden>检查中</span>
             </div>
-            <p id="ide-detail" class="muted status-description">正在检测厂商原版…</p>
-            <div class="ide-integration-summary">
-              <div class="ide-integration-heading">
-                <strong>原生配置接入</strong>
-                <span id="ide-integration-state" class="status-pill neutral">检查中</span>
+
+            <div class="status-card-content">
+              <p id="ide-detail" class="status-description" hidden>正在检测厂商原版…</p>
+
+              <div class="ide-integration-summary">
+                <div class="ide-integration-heading">
+                  <span class="detail-label">模型注入</span>
+                  <span id="ide-integration-state" class="status-pill neutral">检查中</span>
+                </div>
+                <p id="ide-integration-detail" class="muted compact" hidden>正在检测 jetski.cloudCodeUrl…</p>
               </div>
-              <p id="ide-integration-detail" class="muted compact">正在检测 jetski.cloudCodeUrl…</p>
+
+              <details class="technical-details" hidden>
+                <summary>
+                  <span>配置详情</span>
+                  <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </summary>
+                <code id="ide-settings-path">正在读取 settings 路径…</code>
+              </details>
             </div>
-            <details class="technical-details">
-              <summary>配置详情</summary>
-              <code id="ide-settings-path">正在读取 settings 路径…</code>
-            </details>
+
             <div class="card-actions host-actions">
-              <button id="enable-ide-integration" class="primary" type="button" disabled>启用 IDE 接入</button>
+              <button id="enable-ide-integration" class="primary" type="button" disabled>启用模型注入</button>
               <button id="launch-ide" class="primary" type="button" disabled>启动原版 IDE</button>
-              <button id="disable-ide-integration" class="secondary" type="button" disabled>停用 IDE 接入</button>
-              <button id="refresh-ide" class="quiet" type="button">刷新状态</button>
+              <button id="disable-ide-integration" class="secondary" type="button" disabled>停用模型注入</button>
+              <button id="refresh-ide" class="secondary quiet-compact-btn" type="button">刷新状态</button>
             </div>
           </article>
         </section>
@@ -173,23 +210,62 @@
             </header>
 
             <form id="provider-form">
-              <p id="provider-form-description" class="form-intro">填写连接信息并获取模型目录，再测试并选择要接入的模型。</p>
+              <p id="provider-form-description" class="form-intro">填写连接信息并获取模型列表，再测试并选择要接入的模型。</p>
+
+              <div class="provider-presets-wrapper">
+                <p class="section-label">快捷预设</p>
+                <div class="provider-presets" id="provider-presets">
+                  <button type="button" class="preset-btn" data-preset="claude">Claude 官方</button>
+                  <button type="button" class="preset-btn" data-preset="openai">OpenAI 官方</button>
+                  <button type="button" class="preset-btn" data-preset="gemini">Gemini 官方</button>
+                  <button type="button" class="preset-btn" data-preset="cpa">CPA</button>
+                  <button type="button" class="preset-btn" data-preset="sub2api">Sub2API</button>
+                  <button type="button" class="preset-btn" data-preset="deepseek">DeepSeek</button>
+                  <button type="button" class="preset-btn" data-preset="ollama">Ollama (Local)</button>
+                  <button type="button" class="preset-btn" data-preset="openrouter">OpenRouter</button>
+                  <button type="button" class="preset-btn" data-preset="modelgate">ModelGate</button>
+                  <button type="button" class="preset-btn" data-preset="groq">Groq</button>
+                  <button type="button" class="preset-btn" data-preset="github">GitHub Models</button>
+                  <button type="button" class="preset-btn" data-preset="siliconflow">硅基流动</button>
+                  <button type="button" class="preset-btn" data-preset="dashscope">阿里云百炼</button>
+                  <button type="button" class="preset-btn" data-preset="moonshot">Kimi (Moonshot)</button>
+                  <button type="button" class="preset-btn" data-preset="mistral">Mistral</button>
+                  <button type="button" class="preset-btn" data-preset="xai">xAI</button>
+                  <button type="button" class="preset-btn" data-preset="perplexity">Perplexity</button>
+                  <button type="button" class="preset-btn" data-preset="together">Together AI</button>
+                  <button type="button" class="preset-btn" data-preset="fireworks">Fireworks AI</button>
+                  <button type="button" class="preset-btn" data-preset="cerebras">Cerebras</button>
+                  <button type="button" class="preset-btn" data-preset="sambanova">SambaNova</button>
+                  <button type="button" class="preset-btn" data-preset="deepinfra">DeepInfra</button>
+                  <button type="button" class="preset-btn" data-preset="huggingface">Hugging Face</button>
+                  <button type="button" class="preset-btn" data-preset="novita">Novita AI</button>
+                  <button type="button" class="preset-btn" data-preset="zhipu">智谱 AI</button>
+                  <button type="button" class="preset-btn" data-preset="minimax">MiniMax</button>
+                  <button type="button" class="preset-btn" data-preset="hunyuan">腾讯混元</button>
+                  <button type="button" class="preset-btn" data-preset="volcengine">火山方舟</button>
+                  <button type="button" class="preset-btn" data-preset="qianfan">百度千帆</button>
+                  <button type="button" class="preset-btn" data-preset="baichuan">百川智能</button>
+                  <button type="button" class="preset-btn" data-preset="yi">零一万物</button>
+                  <button type="button" class="preset-btn" data-preset="xunfei">讯飞星火</button>
+                  <button type="button" class="preset-btn" data-preset="stepfun">阶跃星辰</button>
+                  <button type="button" class="preset-btn" data-preset="custom">自定义</button>
+                </div>
+              </div>
               <div class="form-grid">
                 <label>
                   <span>上游服务名称</span>
                   <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" />
                 </label>
 
-                <label>
+                <label class="protocol-field">
                   <span>协议</span>
                   <select id="protocol" name="protocol">
-                    <option value="auto">自动识别（推荐）</option>
                     <option value="openai_chat_completions">OpenAI · Chat Completions</option>
                     <option value="openai_responses">OpenAI · Responses API</option>
                     <option value="anthropic_messages">Anthropic · Messages API</option>
                     <option value="gemini_generate_content">Google · Gemini generateContent</option>
                   </select>
-                  <p id="protocol-help" class="field-hint protocol-help">推荐：根据 API 地址和模型目录自动判断；无法区分时默认使用 OpenAI Chat Completions。</p>
+                  <p id="protocol-help" class="field-hint protocol-help">适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。</p>
                 </label>
 
                 <div class="wide endpoint-group">
@@ -228,7 +304,7 @@
 
               <div class="form-actions">
                 <button id="cancel-provider" class="secondary" type="button">取消</button>
-                <button id="fetch-provider-models" class="primary" type="button">获取模型目录</button>
+                <button id="fetch-provider-models" class="primary" type="button">获取模型列表</button>
               </div>
 
               <section id="catalog-results" class="catalog-results" aria-labelledby="catalog-title" hidden>
@@ -243,17 +319,8 @@
                   <label class="check-label"><input id="select-all-models" type="checkbox" /> 选择当前结果</label>
                 </div>
 
-                <fieldset class="global-reasoning-settings">
-                  <legend>思考档位模板</legend>
-                  <div class="reasoning-template-row">
-                    <div id="global-reasoning-options" class="global-reasoning-options"></div>
-                    <button id="apply-reasoning-template" class="secondary compact-button" type="button">应用到已开启模型</button>
-                  </div>
-                </fieldset>
-                <p class="catalog-help">模板不会自动覆盖已有模型；点击“应用到已开启模型”后，才会应用于已开启“思考档位”的模型。</p>
-
                 <div id="catalog-model-list" class="catalog-model-list"></div>
-                <p class="catalog-help catalog-capability-help">图片和工具默认开启；“思考档位”表示上游 API 支持可调 reasoning/thinking 参数，新模型默认关闭，确认支持后再开启。</p>
+                <p class="catalog-help catalog-capability-help">图片和工具默认开启；每个模型可单独开启“推理强度”，再选择要暴露给 Antigravity IDE 的等级。</p>
 
                 <div id="provider-change-summary" class="provider-change-summary" role="status" aria-live="polite" hidden></div>
                 <div class="catalog-save-row">
@@ -262,6 +329,37 @@
                 </div>
               </section>
             </form>
+          </section>
+        </div>
+
+        <div id="reasoning-modal" class="provider-modal" hidden>
+          <div id="reasoning-modal-backdrop" class="provider-modal-backdrop"></div>
+          <section
+            class="provider-modal-dialog reasoning-modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reasoning-modal-title"
+          >
+            <header class="provider-modal-header">
+              <div class="form-summary-copy">
+                <div class="form-summary-title">
+                  <strong id="reasoning-modal-title">推理强度配置</strong>
+                </div>
+              </div>
+              <button id="close-reasoning-modal" class="provider-modal-close" type="button" aria-label="关闭推理强度配置" title="关闭（Esc）">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </header>
+
+            <div class="reasoning-modal-body">
+              <p id="reasoning-modal-subtitle" class="form-intro">勾选需要暴露给 Antigravity IDE 的推理档位，并可针对每个档位独立测试上游响应。</p>
+              <div id="reasoning-modal-levels" class="reasoning-modal-levels"></div>
+            </div>
+
+            <div class="reasoning-modal-footer">
+              <button id="cancel-reasoning-modal" class="secondary" type="button">取消</button>
+              <button id="confirm-reasoning-modal" class="primary" type="button">确定</button>
+            </div>
           </section>
         </div>
       </div>
