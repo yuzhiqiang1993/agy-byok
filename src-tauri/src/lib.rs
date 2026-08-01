@@ -316,6 +316,7 @@ async fn start_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, Stri
         state.activity_log.clone(),
     ));
     let options = HttpServerOptions {
+        require_auth: false,
         official_cloud_code_endpoint: Some(OFFICIAL_CLOUD_CODE_ENDPOINT.to_string()),
         fallback_to_random_port_on_bind_error: true,
         ..HttpServerOptions::default()
@@ -354,7 +355,7 @@ async fn stop_proxy(state: State<'_, DesktopState>) -> Result<ProxyStatus, Strin
 async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
+    let endpoint = get_active_proxy_endpoint(&state).await;
     tauri::async_runtime::spawn_blocking(move || {
         discover_ide_sync(&settings_path, &integration_root, &endpoint)
     })
@@ -366,7 +367,7 @@ async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, Strin
 async fn enable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
+    let endpoint = get_active_proxy_endpoint(&state).await;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
@@ -404,7 +405,7 @@ async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
     }
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
+    let endpoint = get_active_proxy_endpoint(&state).await;
     tauri::async_runtime::spawn_blocking(move || {
         let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
         if !current.compatible {
@@ -423,7 +424,7 @@ async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
 async fn disable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = local_proxy_endpoint(state.config_store.get_config().proxy_port);
+    let endpoint = get_active_proxy_endpoint(&state).await;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current = discover_ide_sync(&settings_path, &integration_root, &endpoint)?;
@@ -453,6 +454,54 @@ async fn disable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeSt
     })
     .await
     .map_err(|error| format!("IDE integration deactivation task failed: {error}"))?
+}
+
+async fn get_active_proxy_endpoint(state: &DesktopState) -> String {
+    let handle = state.proxy_handle.lock().await;
+    let port = handle
+        .as_ref()
+        .map(|h| h.local_addr().port())
+        .unwrap_or_else(|| state.config_store.get_config().proxy_port);
+    local_proxy_endpoint(port)
+}
+
+#[tauri::command]
+async fn open_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    let target = if p.exists() {
+        p
+    } else if let Some(parent) = p.parent() {
+        if parent.exists() {
+            parent
+        } else {
+            return Err(format!("文件及目录均不存在: {}", path));
+        }
+    } else {
+        return Err(format!("路径不存在: {}", path));
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("无法打开路径: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("无法打开路径: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("无法打开路径: {e}"))?;
+    }
+    Ok(())
 }
 
 fn local_proxy_endpoint(port: u16) -> String {
@@ -640,6 +689,7 @@ fn stop_ide_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool, St
     }
 
     wait_for_app_state(app_path, label, false)?;
+    std::thread::sleep(Duration::from_millis(800));
     Ok(true)
 }
 
@@ -722,6 +772,12 @@ fn create_state() -> Result<DesktopState, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .try_init();
     let state = create_state().expect("failed to initialize AGY BYOK desktop state");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -740,7 +796,8 @@ pub fn run() {
             discover_ide,
             enable_ide_integration,
             launch_ide,
-            disable_ide_integration
+            disable_ide_integration,
+            open_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running AGY BYOK");

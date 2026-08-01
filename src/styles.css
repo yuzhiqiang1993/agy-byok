@@ -599,6 +599,80 @@ code {
 }
 .ide-integration-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* IDE Config Card Block */
+.ide-config-card-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-inner);
+}
+.config-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.open-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+  min-height: auto;
+}
+.open-file-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.config-path-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.config-path-box code {
+  color: var(--text-code);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.config-setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px 0;
+}
+.setting-key-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.setting-url-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
 .technical-details { margin: 0; color: var(--text-muted); font-size: 12px; }
 .technical-details summary {
   display: inline-flex;
@@ -1679,11 +1753,13 @@ footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center
   }
   html[data-theme="dark"] .readiness-steps li,
   html[data-theme="dark"] .address-card-block,
-  html[data-theme="dark"] .ide-integration-summary {
+  html[data-theme="dark"] .ide-integration-summary,
+  html[data-theme="dark"] .ide-config-card-block {
     border-color: var(--surface-border);
     background: var(--surface-inner);
   }
-  html[data-theme="dark"] .address-box {
+  html[data-theme="dark"] .address-box,
+  html[data-theme="dark"] .config-path-box {
     border-color: var(--surface-border);
     background: var(--surface);
   }

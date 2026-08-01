@@ -153,6 +153,28 @@
                 <p id="ide-integration-detail" class="muted compact" hidden>正在检测 jetski.cloudCodeUrl…</p>
               </div>
 
+              <div class="ide-config-card-block">
+                <div class="config-block-header">
+                  <span class="detail-label">IDE 配置文件</span>
+                  <button id="open-ide-settings" class="open-file-btn" type="button" title="直接打开配置文件" aria-label="直接打开配置文件">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <span>打开配置文件</span>
+                  </button>
+                </div>
+
+                <div class="config-path-box">
+                  <code id="ide-settings-path-display">正在读取 settings 路径…</code>
+                  <button id="copy-ide-settings-path" class="copy-icon-btn" type="button" title="复制配置文件路径" aria-label="复制配置文件路径">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </button>
+                </div>
+
+                <div class="config-setting-item">
+                  <span class="setting-key-tag">jetski.cloudCodeUrl</span>
+                  <code id="ide-settings-url-display" class="setting-url-val">127.0.0.1:56066</code>
+                </div>
+              </div>
+
               <details class="technical-details" hidden>
                 <summary>
                   <span>配置详情</span>

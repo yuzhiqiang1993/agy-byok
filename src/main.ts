@@ -527,7 +527,26 @@ function renderIde(status: IdeStatus): void {
   integrationState.textContent = integrationLabels[status.integrationState];
   integrationState.className = `status-pill ${status.integrationState === "enabled" ? "accent" : "neutral"}`;
   integrationDetail.textContent = status.integrationMessage;
-  element<HTMLElement>("#ide-settings-path").textContent = status.settingsPath;
+  const legacyPath = document.querySelector("#ide-settings-path");
+  if (legacyPath) legacyPath.textContent = status.settingsPath;
+
+  const pathDisplay = document.querySelector<HTMLElement>("#ide-settings-path-display");
+  if (pathDisplay) {
+    pathDisplay.textContent = status.settingsPath;
+    pathDisplay.title = status.settingsPath;
+  }
+
+  const urlDisplay = document.querySelector<HTMLElement>("#ide-settings-url-display");
+  if (urlDisplay) {
+    if (status.integrationState === "enabled") {
+      const address = latestProxyStatus?.address ?? `127.0.0.1:${config.proxy_port}`;
+      urlDisplay.textContent = address.startsWith("http") ? address : `http://${address}`;
+    } else if (status.integrationState === "external") {
+      urlDisplay.textContent = "外部配置";
+    } else {
+      urlDisplay.textContent = "未设置";
+    }
+  }
 
   const integrationReady = status.integrationState !== "disabled";
   enableIdeIntegrationButton.hidden = status.integrationState !== "disabled";
@@ -2491,6 +2510,37 @@ if (copyProxyAddressBtn) {
     const fullUrl = address.startsWith("http") ? address : `http://${address}`;
     navigator.clipboard.writeText(fullUrl).then(() => {
       showNotice(`已复制代理地址 ${fullUrl}`);
+    }).catch((err) => {
+      showNotice(`复制失败：${errorMessage(err)}`, "error");
+    });
+  });
+}
+
+const openIdeSettingsBtn = document.querySelector("#open-ide-settings");
+if (openIdeSettingsBtn) {
+  openIdeSettingsBtn.addEventListener("click", () => {
+    const path = latestIdeStatus?.settingsPath || document.querySelector("#ide-settings-path-display")?.textContent?.trim();
+    if (!path) {
+      showNotice("配置文件路径未知", "error");
+      return;
+    }
+    invoke<void>("open_path", { path })
+      .then(() => {
+        showNotice("已在系统默认编辑器中打开配置文件");
+      })
+      .catch((err) => {
+        showNotice(`打开配置文件失败：${errorMessage(err)}`, "error");
+      });
+  });
+}
+
+const copyIdeSettingsPathBtn = document.querySelector("#copy-ide-settings-path");
+if (copyIdeSettingsPathBtn) {
+  copyIdeSettingsPathBtn.addEventListener("click", () => {
+    const path = latestIdeStatus?.settingsPath || document.querySelector("#ide-settings-path-display")?.textContent?.trim();
+    if (!path) return;
+    navigator.clipboard.writeText(path).then(() => {
+      showNotice(`已复制配置文件路径`);
     }).catch((err) => {
       showNotice(`复制失败：${errorMessage(err)}`, "error");
     });
