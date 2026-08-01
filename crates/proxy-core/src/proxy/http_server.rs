@@ -1,6 +1,7 @@
 use super::server::{EncodedFrameSink, ProxyServer};
 use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
 use crate::domain::{ErrorCategory, ProxyError};
+use crate::upstream_body::read_limited_response_body;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
@@ -260,6 +261,13 @@ impl LoopbackHttpServer {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct NativeForwardOptions {
+    stream: bool,
+    max_response_body_bytes: usize,
+    stream_buffer_capacity: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
 enum RouteKind {
     Health,
     Models,
@@ -482,8 +490,11 @@ async fn handle_passthrough_request(
         proxy,
         endpoint,
         permit,
-        false,
-        options.stream_buffer_capacity,
+        NativeForwardOptions {
+            stream: false,
+            max_response_body_bytes: options.max_body_bytes,
+            stream_buffer_capacity: options.stream_buffer_capacity,
+        },
     )
     .await
 }
@@ -514,19 +525,10 @@ async fn handle_fetch_models_request(
         );
         return model_list_response(&proxy);
     }
-    if response
-        .content_length()
-        .is_some_and(|length| length > options.max_body_bytes as u64)
-    {
-        return model_list_response(&proxy);
-    }
-    let body = match response.bytes().await {
-        Ok(body) => body,
-        Err(_) => return model_list_response(&proxy),
+    let body = match read_limited_response_body(response, options.max_body_bytes).await {
+        Ok(body) if !body.is_truncated() => body.into_bytes(),
+        Ok(_) | Err(_) => return model_list_response(&proxy),
     };
-    if body.len() > options.max_body_bytes {
-        return model_list_response(&proxy);
-    }
     let upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(models) => models,
         Err(_) => return model_list_response(&proxy),
@@ -541,8 +543,7 @@ async fn forward_native_request(
     proxy: Arc<ProxyServer>,
     endpoint: &str,
     permit: OwnedSemaphorePermit,
-    stream: bool,
-    stream_buffer_capacity: usize,
+    options: NativeForwardOptions,
 ) -> HttpResponse {
     let response = match send_forward_request(parts, body, &proxy, endpoint).await {
         Ok(response) => response,
@@ -551,10 +552,17 @@ async fn forward_native_request(
     let status = response.status();
     tracing::info!("NATIVE FORWARD STATUS: {}", status);
     let headers = response.headers().clone();
-    if !stream {
+    if !options.stream {
         let _permit = permit;
-        return match response.bytes().await {
-            Ok(body) => bytes_response(status, &headers, body),
+        return match read_limited_response_body(response, options.max_response_body_bytes).await {
+            Ok(body) if !body.is_truncated() => {
+                bytes_response(status, &headers, Bytes::from(body.into_bytes()))
+            }
+            Ok(_) => error_response(
+                StatusCode::BAD_GATEWAY,
+                "Official response body exceeds the buffered response limit",
+                "native_forwarding_failed",
+            ),
             Err(error) => error_response(
                 StatusCode::BAD_GATEWAY,
                 &format!("Failed to read official response: {error}"),
@@ -563,7 +571,7 @@ async fn forward_native_request(
         };
     }
 
-    let (sender, receiver) = mpsc::channel(stream_buffer_capacity);
+    let (sender, receiver) = mpsc::channel(options.stream_buffer_capacity);
     tokio::spawn(async move {
         let _permit = permit;
         let mut upstream = response.bytes_stream();
@@ -588,7 +596,7 @@ async fn forward_native_request(
 
     let mut builder = Response::builder().status(status);
     for (name, value) in &headers {
-        if !is_hop_by_hop_header(name.as_str()) {
+        if !is_hop_by_hop_header(name.as_str()) && !is_cors_header(name.as_str()) {
             builder = builder.header(name, value);
         }
     }
@@ -633,6 +641,10 @@ async fn send_forward_request(
     })
 }
 
+fn is_cors_header(name: &str) -> bool {
+    name.to_ascii_lowercase().starts_with("access-control-")
+}
+
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -656,7 +668,7 @@ fn bytes_response(
 ) -> HttpResponse {
     let mut builder = Response::builder().status(status);
     for (name, value) in headers {
-        if !is_hop_by_hop_header(name.as_str()) {
+        if !is_hop_by_hop_header(name.as_str()) && !is_cors_header(name.as_str()) {
             builder = builder.header(name, value);
         }
     }
@@ -707,8 +719,11 @@ async fn handle_generate_request(
             proxy.clone(),
             endpoint,
             permit,
-            stream,
-            options.stream_buffer_capacity,
+            NativeForwardOptions {
+                stream,
+                max_response_body_bytes: options.max_body_bytes,
+                stream_buffer_capacity: options.stream_buffer_capacity,
+            },
         )
         .await;
         proxy.record_official_generation(
@@ -919,5 +934,37 @@ mod tests {
             .expect("the second send task should complete")
             .expect("the second frame should be sent successfully");
         receiver.recv().await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn forwarded_responses_drop_upstream_cors_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "access-control-allow-origin",
+            reqwest::header::HeaderValue::from_static("*"),
+        );
+        headers.insert(
+            "access-control-allow-credentials",
+            reqwest::header::HeaderValue::from_static("true"),
+        );
+        headers.insert(
+            CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+
+        let response = bytes_response(StatusCode::OK, &headers, Bytes::new());
+
+        assert!(response
+            .headers()
+            .get("access-control-allow-origin")
+            .is_none());
+        assert!(response
+            .headers()
+            .get("access-control-allow-credentials")
+            .is_none());
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
     }
 }

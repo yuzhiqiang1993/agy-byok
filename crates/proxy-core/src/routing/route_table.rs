@@ -136,24 +136,18 @@ impl RouteTable {
     pub fn resolve_fallback(
         config: &AppConfig,
         failed_route: &ResolvedRoute,
+        request: &NeutralChatRequest,
     ) -> Result<Option<ResolvedRoute>, ProxyError> {
         let fallback_id = match &failed_route.virtual_model.fallback_virtual_model_id {
             Some(id) if !id.is_empty() => id,
             _ => return Ok(None),
         };
 
-        let dummy_request = NeutralChatRequest {
-            virtual_model_id: fallback_id.clone(),
-            messages: vec![],
-            system_instruction: None,
-            tools: vec![],
-            reasoning_level: failed_route.final_reasoning_level,
-            stream: false,
-            generation_parameters: ParameterOverrides::default(),
-            extra_body: HashMap::new(),
-        };
+        let mut fallback_request = request.clone();
+        fallback_request.virtual_model_id = fallback_id.clone();
+        fallback_request.reasoning_level = failed_route.final_reasoning_level;
 
-        let fallback_route = Self::resolve(config, &dummy_request)?;
+        let fallback_route = Self::resolve(config, &fallback_request)?;
 
         // 校验能力降级规则：备用模型的能力不得低于主模型
         let main_cap = &failed_route.upstream_model.capabilities;

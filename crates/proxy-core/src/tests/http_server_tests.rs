@@ -351,6 +351,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oversized_official_catalog_falls_back_to_custom_models() {
+        let oversized_catalog = "x".repeat(513);
+        let (official_url, _official_handle) =
+            MockProviderServer::start(200, &oversized_catalog).await;
+        let (proxy, token) =
+            create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
+        let mut options = test_options();
+        options.max_body_bytes = 512;
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:fetchAvailableModels",
+                handle.local_addr()
+            ))
+            .header("x-agy-byok-token", token)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let catalog: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(catalog["models"].as_array().unwrap().len(), 1);
+        assert_eq!(catalog["models"][0]["id"], "virtual-1");
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn native_generation_is_forwarded_without_byok_envelope() {
         let official_response = json!({
             "response": { "candidates": [{ "native": true }] },
@@ -394,6 +427,73 @@ mod tests {
         assert_eq!(activities[0].provider_id, "antigravity-official");
         assert_eq!(activities[0].provider_protocol.as_deref(), Some("native"));
         assert_eq!(activities[0].status_code, 200);
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_non_streaming_response_enforces_buffer_limit() {
+        let oversized_response = "x".repeat(513);
+        let (official_url, _official_handle) =
+            MockProviderServer::start(200, &oversized_response).await;
+        let (proxy, token) =
+            create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
+        let mut options = test_options();
+        options.max_body_bytes = 512;
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:generateContent",
+                handle.local_addr()
+            ))
+            .header("x-agy-byok-token", token)
+            .json(&json!({
+                "model": "MODEL_NATIVE",
+                "request": { "contents": [] }
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_GATEWAY);
+        let error: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["category"], "native_forwarding_failed");
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn custom_model_namespace_is_rejected_locally_when_unavailable() {
+        let mut config = model_config("http://127.0.0.1/unused".to_string());
+        config.virtual_models[0].enabled = false;
+        let (proxy, token) = create_proxy(config, 0).await;
+        let handle = LoopbackHttpServer::start(proxy, test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        for model_id in ["virtual-1", "custom-stale-model", "MODEL_PLACEHOLDER_M499"] {
+            let response = client
+                .post(format!(
+                    "http://{}/v1internal:generateContent",
+                    handle.local_addr()
+                ))
+                .header("x-agy-byok-token", &token)
+                .json(&json!({
+                    "model": model_id,
+                    "request": { "contents": [] }
+                }))
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        }
 
         drop(client);
         handle.shutdown().await.unwrap();

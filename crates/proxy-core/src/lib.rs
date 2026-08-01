@@ -5,5 +5,7 @@ pub mod proxy;
 pub mod routing;
 pub mod storage;
 
+mod upstream_body;
+
 #[cfg(test)]
 pub mod tests;

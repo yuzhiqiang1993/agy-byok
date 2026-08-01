@@ -1,6 +1,7 @@
 use crate::domain::{ErrorCategory, Provider, ProviderProtocol, ProxyError};
 use crate::providers::get_adapter;
 use crate::storage::AppConfig;
+use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -79,13 +80,26 @@ pub async fn fetch_provider_models(
             status,
         ));
     }
-    let body = response.text().await.map_err(|error| {
-        ProxyError::new(
-            ErrorCategory::Internal,
-            format!("读取模型目录响应失败：{error}"),
-            500,
-        )
-    })?;
+    let body = read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES)
+        .await
+        .map_err(|error| {
+            ProxyError::new(
+                ErrorCategory::Internal,
+                format!("读取模型目录响应失败：{error}"),
+                500,
+            )
+        })?;
+    if body.is_truncated() {
+        return Err(ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            format!(
+                "模型目录响应超过 {} 字节",
+                DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES
+            ),
+            502,
+        ));
+    }
+    let body = body.into_text();
     let payload: Value = serde_json::from_str(&body).map_err(|error| {
         ProxyError::new(
             ErrorCategory::Internal,

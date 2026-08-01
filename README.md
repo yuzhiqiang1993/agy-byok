@@ -42,9 +42,9 @@ AGY BYOK 只解决四个核心问题：
 | 配置持久化与启动校验 | 已实现；配置写入 `config.v1.json`，Provider API Key 当前仍为本地明文存储 |
 | Antigravity 请求/响应转换 | 已实现文本、内联图片、工具调用、Thinking、非流响应和 SSE 事件转换 |
 | 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models`；思考模型显示为 `模型 等级(供应商)`，普通模型显示为 `模型(供应商)` |
-| OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现 |
+| OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现；生成请求应用 Provider 连接超时与整体请求超时 |
 | 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
-| Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
+| Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、聚合型上游响应体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
 | CLI 入口 | `cargo run -p agy-byok` 固定绑定 `127.0.0.1:51234`；端口占用时启动失败 |
 | Tauri 2 桌面控制面 | 已实现最小窗口、模型配置、代理显式启停、状态查询、IDE 检测与原生配置接入 |
 | 桌面动态端口 | 优先使用配置端口，默认 `51234`；占用时选择随机空闲回环端口并持久化实际端口 |
@@ -60,9 +60,7 @@ CLI 与桌面端口策略不同：CLI 当前固定使用 `51234`，不会读取 
 当前仍未完成或需要继续收口的能力包括：
 
 - 宿主 Tool Result 与 OpenAI/Anthropic Tool Call ID 的真实多轮关联 Fixture。
-- 配置层 `extra_body` 受控字段校验，以及 fallback 对单次请求参数的完整继承。
-- Provider disabled、目录条目和实际可路由状态的一致性校验。
-- 流式 usage 到活动日志的贯通，以及响应体统一大小限制。
+- 配置层 `extra_body` 的完整受控字段校验。
 - Host 路由认证与浏览器跨 Origin 访问策略收紧。
 - API Key 的系统钥匙串或独立 Secret Store。
 - Antigravity App 接入、完整桌面设置、发布签名、Notarization 和自动更新。
@@ -192,7 +190,9 @@ HTTP Server 只绑定 IPv4 Loopback，并拒绝非 Loopback peer，但这不等�
 - IDE 使用的 `/v1internal:*` 宿主路由默认不要求 AGY BYOK Token，因为 Electron Main 和插件 Language Server 没有可用的 Token 注入通道。
 - 当前所有已识别路由返回开放 CORS，预检允许任意 Origin、Header，以及 GET、POST、OPTIONS。
 
-因此当前安全边界是 **LoopbackOnly + 本机调用方可信假设**，不是浏览器 Origin 隔离。其他本地进程，以及能够访问本机回环地址的浏览器页面，都可能调用未认证的宿主路由；在收紧 Host 认证或 CORS 前，不应把代理暴露到非回环地址，也不适合作为多用户共享服务。透明转发会剥离 `x-agy-byok-token`，但会保留厂商 `Authorization`；如果把本地 Token 放在 `Authorization` 中访问透明转发路由，该 Header 也会被转发，因此管理调用应使用专用的 `x-agy-byok-token`。
+因此当前安全边界是 **LoopbackOnly + 本机调用方可信假设**，不是浏览器 Origin 隔离。其他本地进程，以及能够访问本机回环地址的浏览器页面，都可能调用未认证的宿主路由；在收紧 Host 认证或 CORS 前，不应把代理暴露到非回环地址，也不适合作为多用户共享服务。透明转发会剥离 `x-agy-byok-token`，但会保留厂商 `Authorization`；如果把本地 Token 放在 `Authorization` 中访问透明转发路由，该 Header 也会被转发，因此管理调用应使用专用的 `x-agy-byok-token`。官方上游返回的 `Access-Control-*` Header 会被过滤，由本地代理统一生成当前兼容 IDE 所需的 CORS Header。
+
+需要完整聚合到内存的 Provider 非流响应、流式请求 HTTP 错误体、Provider/官方模型目录和官方非流转发响应均受 4 MiB 上限约束；正常 Provider SSE 与官方流式转发继续使用有界流处理，不受聚合型响应体上限截断。
 
 当前 IDE settings 接入采用目标键 ownership，而不是整文件 Receipt/快照恢复：
 

@@ -134,6 +134,45 @@ mod tests {
     }
 
     #[test]
+    fn fallback_inherits_request_parameters_and_extra_body() {
+        let mut config = fallback_config(
+            "http://localhost/primary".to_string(),
+            "http://localhost/fallback".to_string(),
+        );
+        config.providers[1].default_parameters = ParameterOverrides {
+            temperature: Some(0.1),
+            extra_body: Some(HashMap::from([("provider_flag".to_string(), json!(true))])),
+            ..ParameterOverrides::default()
+        };
+        config.upstream_models[1].parameter_overrides.top_p = Some(0.7);
+
+        let mut request = chat_request("vm-primary");
+        request.generation_parameters.temperature = Some(0.8);
+        request.generation_parameters.max_tokens = Some(321);
+        request.extra_body = HashMap::from([
+            (
+                "response_format".to_string(),
+                json!({ "type": "json_object" }),
+            ),
+            ("model".to_string(), json!("must-not-override-route")),
+        ]);
+        let primary_route = RouteTable::resolve(&config, &request).unwrap();
+
+        let fallback_route = RouteTable::resolve_fallback(&config, &primary_route, &request)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(fallback_route.virtual_model.id, "vm-fallback");
+        assert_eq!(fallback_route.final_parameters.temperature, Some(0.8));
+        assert_eq!(fallback_route.final_parameters.max_tokens, Some(321));
+        assert_eq!(fallback_route.final_parameters.top_p, Some(0.7));
+        let extra_body = fallback_route.final_parameters.extra_body.unwrap();
+        assert_eq!(extra_body["provider_flag"], true);
+        assert_eq!(extra_body["response_format"]["type"], "json_object");
+        assert!(!extra_body.contains_key("model"));
+    }
+
+    #[test]
     fn model_catalog_without_reasoning_uses_provider_only_name() {
         let config = connection_test_config("http://localhost/chat".to_string());
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
@@ -148,6 +187,17 @@ mod tests {
         assert_eq!(model["supportsThinking"], false);
         assert!(model.get("reasoningEffort").is_none());
         assert!(model.get("thinkingBudget").is_none());
+    }
+
+    #[test]
+    fn model_catalog_excludes_models_from_disabled_providers() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.providers[0].enabled = false;
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let catalog = server.handle_model_list(json!({ "models": {} }));
+
+        assert!(catalog["models"].as_object().unwrap().is_empty());
     }
 
     #[test]
@@ -312,6 +362,26 @@ mod tests {
 
         assert_eq!(error.category, ErrorCategory::Authentication);
         assert_eq!(error.status_code, 401);
+    }
+
+    #[tokio::test]
+    async fn non_streaming_provider_response_enforces_buffer_limit() {
+        let oversized_body =
+            "x".repeat(crate::upstream_body::DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES + 1);
+        let (mock_url, _handle) = MockProviderServer::start(200, &oversized_body).await;
+        let server = ProxyServer::new(
+            ConfigStore::in_memory(connection_test_config(format!("{mock_url}/v1/chat"))),
+            0,
+        );
+
+        let error = server
+            .handle_chat_request(&chat_request("vm-connection"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::UpstreamServerError);
+        assert_eq!(error.status_code, 502);
+        assert!(error.message.contains("exceeds"));
     }
 
     #[tokio::test]
@@ -658,7 +728,20 @@ mod tests {
     fn model_list_injection_reports_reasoning_capability() {
         let config = AppConfig {
             proxy_port: 51234,
-            providers: vec![],
+            providers: vec![Provider {
+                id: "p-1".to_string(),
+                name: "Anthropic".to_string(),
+                protocol: ProviderProtocol::Anthropic,
+                models_endpoint: String::new(),
+                generate_endpoint: "http://localhost/messages".to_string(),
+                api_key: String::new(),
+                headers: HashMap::new(),
+                default_parameters: ParameterOverrides::default(),
+                connect_timeout_ms: 3000,
+                request_timeout_ms: 5000,
+                stream_idle_timeout_ms: 5000,
+                enabled: true,
+            }],
             upstream_models: vec![UpstreamModel {
                 id: "um-1".to_string(),
                 provider_id: "p-1".to_string(),

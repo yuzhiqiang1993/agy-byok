@@ -12,12 +12,17 @@ use crate::domain::{
 use crate::providers::{get_adapter, ProviderAdapter};
 use crate::routing::{ResolvedRoute, RouteTable};
 use crate::storage::ConfigStore;
+use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
 use async_trait::async_trait;
 use reqwest::{Client, Response};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CONNECTION_TEST_TIMEOUT_MS: u64 = 15_000;
+const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 60_000;
+const MAX_PROVIDER_HTTP_CLIENTS: usize = 8;
 
 struct ActivityOutcome<'a> {
     status_code: u16,
@@ -109,6 +114,7 @@ pub struct ProxyServer {
     activity_log: Arc<ActivityLog>,
     auth_manager: AuthManager,
     http_client: Client,
+    provider_http_clients: Mutex<HashMap<u64, Client>>,
     port: u16,
 }
 
@@ -132,6 +138,7 @@ impl ProxyServer {
             activity_log,
             auth_manager: AuthManager::new(),
             http_client,
+            provider_http_clients: Mutex::new(HashMap::new()),
             port,
         }
     }
@@ -186,11 +193,46 @@ impl ProxyServer {
             .get_config()
             .virtual_models
             .iter()
-            .any(|model| model.enabled && model.matches_id(model_id))
+            .any(|model| model.matches_id(model_id))
+            || model_id.starts_with("custom-")
+            || model_id
+                .strip_prefix("MODEL_PLACEHOLDER_M")
+                .and_then(|value| value.parse::<u16>().ok())
+                .is_some_and(|value| (400..600).contains(&value))
     }
 
     pub(crate) fn http_client(&self) -> &Client {
         &self.http_client
+    }
+
+    fn provider_http_client(&self, connect_timeout_ms: u64) -> Result<Client, ProxyError> {
+        let mut clients = self.provider_http_clients.lock().map_err(|_| {
+            ProxyError::new(
+                ErrorCategory::Internal,
+                "Provider HTTP client cache lock is poisoned",
+                500,
+            )
+        })?;
+        if let Some(client) = clients.get(&connect_timeout_ms) {
+            return Ok(client.clone());
+        }
+        if clients.len() >= MAX_PROVIDER_HTTP_CLIENTS {
+            clients.clear();
+        }
+
+        let client = Client::builder()
+            .connect_timeout(Duration::from_millis(connect_timeout_ms))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|error| {
+                ProxyError::new(
+                    ErrorCategory::Internal,
+                    format!("Failed to create Provider HTTP client: {error}"),
+                    500,
+                )
+            })?;
+        clients.insert(connect_timeout_ms, client.clone());
+        Ok(client)
     }
 
     /// 发送最小非流式请求，验证指定模型的路由、鉴权和响应解析。
@@ -271,7 +313,7 @@ impl ProxyServer {
             }
             Err(primary_error) => {
                 if primary_error.is_retryable_for_fallback() {
-                    match RouteTable::resolve_fallback(&config, &route) {
+                    match RouteTable::resolve_fallback(&config, &route, request) {
                         Ok(Some(fallback_route)) => {
                             tracing::info!(
                                 "Primary route {} failed with {:?}, attempting fallback to {}",
@@ -399,7 +441,7 @@ impl ProxyServer {
             }
             Err(primary_error) => {
                 if !emitted_frame && primary_error.is_retryable_for_fallback() {
-                    match RouteTable::resolve_fallback(&config, &route) {
+                    match RouteTable::resolve_fallback(&config, &route, request) {
                         Ok(Some(fallback_route)) => {
                             tracing::info!(
                                 "Primary stream route {} failed with {:?}, attempting fallback to {}",
@@ -480,13 +522,26 @@ impl ProxyServer {
     ) -> Result<(String, Option<UsageInfo>), ProxyError> {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
-        let body = response.text().await.map_err(|error| {
-            ProxyError::new(
-                ErrorCategory::Internal,
-                format!("Failed to read upstream response body: {error}"),
-                500,
-            )
-        })?;
+        let buffered =
+            read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES)
+                .await
+                .map_err(|error| {
+                    ProxyError::new(
+                        ErrorCategory::Internal,
+                        format!("Failed to read upstream response body: {error}"),
+                        500,
+                    )
+                })?;
+        let truncated = buffered.is_truncated();
+        let body = buffered.into_text();
+        if truncated && status < 400 {
+            return Err(upstream_body_too_large_error());
+        }
+        let body = if truncated {
+            format!("{body}\n[upstream error body exceeded the buffered response limit]")
+        } else {
+            body
+        };
         let neutral_response = adapter.parse_response(status, &body, &route.upstream_model)?;
         let usage = neutral_response.usage.clone();
         Ok((
@@ -505,13 +560,23 @@ impl ProxyServer {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         if status >= 400 {
-            let body = response.text().await.map_err(|error| {
-                ProxyError::new(
-                    ErrorCategory::Internal,
-                    format!("Failed to read upstream error body: {error}"),
-                    500,
-                )
-            })?;
+            let buffered =
+                read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES)
+                    .await
+                    .map_err(|error| {
+                        ProxyError::new(
+                            ErrorCategory::Internal,
+                            format!("Failed to read upstream error body: {error}"),
+                            500,
+                        )
+                    })?;
+            let truncated = buffered.is_truncated();
+            let body = buffered.into_text();
+            let body = if truncated {
+                format!("{body}\n[upstream error body exceeded the buffered response limit]")
+            } else {
+                body
+            };
             return match adapter.parse_response(status, &body, &route.upstream_model) {
                 Err(error) => Err(error),
                 Ok(_) => Err(ProxyError::new(
@@ -554,19 +619,21 @@ impl ProxyServer {
             .provider
             .generate_endpoint
             .replace("{model}", &route.upstream_model.upstream_model_id);
+        let request_timeout_ms =
+            effective_provider_request_timeout_ms(route.provider.request_timeout_ms);
+        let connect_timeout_ms = effective_provider_connect_timeout_ms(
+            route.provider.connect_timeout_ms,
+            request_timeout_ms,
+        );
+        let client = self.provider_http_client(connect_timeout_ms)?;
 
-        let mut request_builder = self.http_client.post(generate_endpoint).json(&payload);
+        let mut request_builder = client.post(generate_endpoint).json(&payload);
         for (name, value) in headers {
             request_builder = request_builder.header(name, value);
         }
 
-        let timeout_ms = if route.provider.request_timeout_ms > 0 {
-            route.provider.request_timeout_ms
-        } else {
-            60000
-        };
         let response = request_builder
-            .timeout(Duration::from_millis(timeout_ms))
+            .timeout(Duration::from_millis(request_timeout_ms))
             .send()
             .await
             .map_err(|error| {
@@ -707,6 +774,22 @@ impl ProxyServer {
         let catalog_virtual_models = config
             .virtual_models
             .iter()
+            .filter(|virtual_model| {
+                if !virtual_model.enabled {
+                    return false;
+                }
+                let Some(upstream_model) = config
+                    .upstream_models
+                    .iter()
+                    .find(|upstream| upstream.id == virtual_model.upstream_model_id)
+                else {
+                    return false;
+                };
+                upstream_model.enabled
+                    && config.providers.iter().any(|provider| {
+                        provider.id == upstream_model.provider_id && provider.enabled
+                    })
+            })
             .cloned()
             .map(|mut virtual_model| {
                 let upstream_model = config
@@ -737,6 +820,35 @@ impl ProxyServer {
         );
         base_json
     }
+}
+
+fn effective_provider_request_timeout_ms(configured_timeout_ms: u64) -> u64 {
+    match configured_timeout_ms {
+        0 => DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS,
+        configured => configured,
+    }
+}
+
+fn effective_provider_connect_timeout_ms(
+    configured_timeout_ms: u64,
+    request_timeout_ms: u64,
+) -> u64 {
+    match configured_timeout_ms {
+        0 => DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS,
+        configured => configured,
+    }
+    .min(request_timeout_ms)
+}
+
+fn upstream_body_too_large_error() -> ProxyError {
+    ProxyError::new(
+        ErrorCategory::UpstreamServerError,
+        format!(
+            "Upstream response body exceeds {} bytes",
+            DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES
+        ),
+        502,
+    )
 }
 
 fn configured_model_display_name(
@@ -837,5 +949,37 @@ mod tests {
         assert!(!detail.contains("sk-secret-value"));
         assert!(!detail.contains("secret-token"));
         assert!(detail.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn provider_timeouts_use_defaults_and_cap_connect_timeout() {
+        assert_eq!(
+            effective_provider_request_timeout_ms(0),
+            DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS
+        );
+        assert_eq!(effective_provider_request_timeout_ms(12_000), 12_000);
+        assert_eq!(
+            effective_provider_connect_timeout_ms(0, 60_000),
+            DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
+        );
+        assert_eq!(
+            effective_provider_connect_timeout_ms(15_000, 10_000),
+            10_000
+        );
+    }
+
+    #[test]
+    fn provider_clients_are_cached_and_bounded_by_effective_connect_timeout() {
+        let server = ProxyServer::new(ConfigStore::in_memory(Default::default()), 0);
+
+        server.provider_http_client(1_000).unwrap();
+        server.provider_http_client(1_000).unwrap();
+        server.provider_http_client(2_000).unwrap();
+        assert_eq!(server.provider_http_clients.lock().unwrap().len(), 2);
+
+        for timeout_ms in (3_000..=12_000).step_by(1_000) {
+            server.provider_http_client(timeout_ms).unwrap();
+        }
+        assert!(server.provider_http_clients.lock().unwrap().len() <= MAX_PROVIDER_HTTP_CLIENTS);
     }
 }
