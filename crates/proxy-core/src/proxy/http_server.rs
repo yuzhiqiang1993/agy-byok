@@ -66,7 +66,7 @@ pub struct HttpServerOptions {
 impl Default for HttpServerOptions {
     fn default() -> Self {
         Self {
-            require_auth: true,
+            require_auth: false,
             require_host_auth: false,
             fallback_to_random_port_on_bind_error: false,
             max_body_bytes: 4 * 1024 * 1024,
@@ -117,6 +117,39 @@ impl Drop for HttpServerHandle {
 pub struct LoopbackHttpServer;
 
 impl LoopbackHttpServer {
+    pub fn normalize_path(path: &str) -> String {
+        let mut p = path;
+        if let Some(idx) = p.find("/dummy_path_padding") {
+            p = &p[idx + "/dummy_path_padding".len()..];
+        }
+        if p.starts_with("/v1internal/") {
+            let rest = &p["/v1internal/".len()..];
+            if let Some(slash_idx) = rest.find('/') {
+                let seg = &rest[..slash_idx];
+                if !seg.is_empty()
+                    && seg
+                        .chars()
+                        .all(|c| c == 'x' || c.is_alphanumeric() || c == '_' || c == '-')
+                {
+                    p = &rest[slash_idx..];
+                }
+            }
+        }
+        if p.is_empty() {
+            "/".to_string()
+        } else {
+            p.to_string()
+        }
+    }
+
+    pub fn normalize_path_and_query(uri: &hyper::Uri) -> String {
+        let norm_path = Self::normalize_path(uri.path());
+        if let Some(query) = uri.query() {
+            format!("{norm_path}?{query}")
+        } else {
+            norm_path
+        }
+    }
     pub async fn start(
         proxy: Arc<ProxyServer>,
         options: HttpServerOptions,
@@ -283,7 +316,11 @@ async fn handle_request(
     options: HttpServerOptions,
     semaphore: Arc<Semaphore>,
 ) -> Result<HttpResponse, Infallible> {
-    tracing::info!("INCOMING PATH: {}", request.uri().path());
+    tracing::info!(
+        method = %request.method(),
+        path = %request.uri().path(),
+        "Incoming proxy request"
+    );
     let route = route_kind(request.uri().path());
     let Some(route) = route else {
         return Ok(error_response(
@@ -381,17 +418,24 @@ fn with_cors(mut response: HttpResponse) -> HttpResponse {
 }
 
 fn route_kind(path: &str) -> Option<RouteKind> {
-    match path {
-        "/health" | "/healthz" => Some(RouteKind::Health),
-        "/v1/models" | "/v1beta/models" => Some(RouteKind::Models),
-        "/v1internal:fetchAvailableModels" => Some(RouteKind::FetchModels),
-        "/v1internal:generateContent" => Some(RouteKind::Generate),
-        "/v1internal:streamGenerateContent" => Some(RouteKind::StreamGenerate),
-        _ if path.starts_with("/v1internal:") || path.starts_with("/v1internal/") => {
-            Some(RouteKind::Passthrough)
-        }
-        _ => None,
+    let norm = LoopbackHttpServer::normalize_path(path);
+    let p = norm.as_str();
+    if p == "/health" || p == "/healthz" {
+        return Some(RouteKind::Health);
     }
+    if p == "/v1/models" || p == "/v1beta/models" {
+        return Some(RouteKind::Models);
+    }
+    if p.contains("fetchAvailableModels") || p.contains("GetAvailableModels") {
+        return Some(RouteKind::FetchModels);
+    }
+    if p.contains("streamGenerateContent") {
+        return Some(RouteKind::StreamGenerate);
+    }
+    if p.contains("generateContent") {
+        return Some(RouteKind::Generate);
+    }
+    Some(RouteKind::Passthrough)
 }
 
 async fn probe_health(local_addr: SocketAddr) -> Result<(), ProxyError> {
@@ -507,15 +551,15 @@ async fn handle_fetch_models_request(
 ) -> HttpResponse {
     let _permit = permit;
     let Some(endpoint) = options.official_cloud_code_endpoint.as_deref() else {
-        return model_list_response(&proxy);
+        return fetch_models_fallback_response(&proxy);
     };
     let (parts, body) = match read_request(request, options.max_body_bytes).await {
         Ok(request) => request,
         Err(response) => return response,
     };
-    let response = match send_forward_request(parts, body, &proxy, endpoint).await {
+    let response = match send_forward_request(&parts, body, &proxy, endpoint).await {
         Ok(response) => response,
-        Err(_) => return model_list_response(&proxy),
+        Err(_) => return fetch_models_fallback_response(&proxy),
     };
     let status = response.status();
     if !status.is_success() {
@@ -523,18 +567,24 @@ async fn handle_fetch_models_request(
             "Official model catalog returned status {}, falling back to custom models",
             status
         );
-        return model_list_response(&proxy);
+        return fetch_models_fallback_response(&proxy);
     }
     let body = match read_limited_response_body(response, options.max_body_bytes).await {
         Ok(body) if !body.is_truncated() => body.into_bytes(),
-        Ok(_) | Err(_) => return model_list_response(&proxy),
+        Ok(_) | Err(_) => return fetch_models_fallback_response(&proxy),
     };
-    let upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
+    let mut upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(models) => models,
-        Err(_) => return model_list_response(&proxy),
+        Err(_) => return fetch_models_fallback_response(&proxy),
     };
+    if let Some(obj) = upstream_models.as_object_mut() {
+        obj.remove("error");
+    }
     let models = proxy.handle_model_list(upstream_models);
-    full_response(StatusCode::OK, "application/json", models.to_string())
+    let models_str = models.to_string();
+    let proxy_target = get_proxy_target_host(&parts, &proxy);
+    let rewritten_models_str = rewrite_official_urls_str(&models_str, &proxy_target);
+    full_response(StatusCode::OK, "application/json", rewritten_models_str)
 }
 
 async fn forward_native_request(
@@ -545,7 +595,7 @@ async fn forward_native_request(
     permit: OwnedSemaphorePermit,
     options: NativeForwardOptions,
 ) -> HttpResponse {
-    let response = match send_forward_request(parts, body, &proxy, endpoint).await {
+    let response = match send_forward_request(&parts, body, &proxy, endpoint).await {
         Ok(response) => response,
         Err(response) => return response,
     };
@@ -556,7 +606,8 @@ async fn forward_native_request(
         let _permit = permit;
         return match read_limited_response_body(response, options.max_response_body_bytes).await {
             Ok(body) if !body.is_truncated() => {
-                bytes_response(status, &headers, Bytes::from(body.into_bytes()))
+                let bytes = rewrite_official_urls(Bytes::from(body.into_bytes()), &parts, &proxy);
+                bytes_response(status, &headers, bytes)
             }
             Ok(_) => error_response(
                 StatusCode::BAD_GATEWAY,
@@ -608,20 +659,16 @@ async fn forward_native_request(
 }
 
 async fn send_forward_request(
-    parts: hyper::http::request::Parts,
+    parts: &hyper::http::request::Parts,
     body: Bytes,
     proxy: &ProxyServer,
     endpoint: &str,
 ) -> Result<reqwest::Response, HttpResponse> {
-    let path_and_query = parts
-        .uri
-        .path_and_query()
-        .map(|value| value.as_str())
-        .unwrap_or(parts.uri.path());
+    let path_and_query = LoopbackHttpServer::normalize_path_and_query(&parts.uri);
     let target = format!("{}{}", endpoint.trim_end_matches('/'), path_and_query);
     let mut request = proxy
         .http_client()
-        .request(parts.method, target)
+        .request(parts.method.clone(), target)
         .header(ACCEPT_ENCODING, "identity")
         .body(body);
     for (name, value) in &parts.headers {
@@ -645,6 +692,60 @@ fn is_cors_header(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("access-control-")
 }
 
+fn get_proxy_target_host(parts: &hyper::http::request::Parts, proxy: &ProxyServer) -> String {
+    if let Some(host_val) = parts.headers.get(hyper::header::HOST) {
+        if let Ok(host_str) = host_val.to_str() {
+            let host_str = host_str.trim();
+            if !host_str.is_empty() {
+                if host_str.ends_with(".googleapis.com") {
+                    return format!("https://{host_str}");
+                } else {
+                    return format!("http://{host_str}");
+                }
+            }
+        }
+    }
+    format!("http://127.0.0.1:{}", proxy.port())
+}
+
+fn rewrite_official_urls(
+    bytes: Bytes,
+    parts: &hyper::http::request::Parts,
+    proxy: &ProxyServer,
+) -> Bytes {
+    let proxy_target = get_proxy_target_host(parts, proxy);
+    let slice = bytes.as_ref();
+    if !slice
+        .windows(b"googleapis.com".len())
+        .any(|w| w == b"googleapis.com")
+    {
+        return bytes;
+    }
+
+    if let Ok(body_str) = std::str::from_utf8(&bytes) {
+        let modified = rewrite_official_urls_str(body_str, &proxy_target);
+        Bytes::from(modified.into_bytes())
+    } else {
+        bytes
+    }
+}
+
+fn rewrite_official_urls_str(text: &str, proxy_target: &str) -> String {
+    text.replace("https://daily-cloudcode-pa.googleapis.com", proxy_target)
+        .replace("https://cloudcode-pa.googleapis.com", proxy_target)
+        .replace(
+            "https://daily-cloudaicompanion-pa.googleapis.com",
+            proxy_target,
+        )
+        .replace("https://cloudaicompanion-pa.googleapis.com", proxy_target)
+        .replace(
+            "https://daily-cloudcode-pa.sandbox.googleapis.com",
+            proxy_target,
+        )
+        .replace("https://cloudcode-pa.sandbox.googleapis.com", proxy_target)
+        .replace("https://generativelanguage.googleapis.com", proxy_target)
+}
+
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -658,6 +759,7 @@ fn is_hop_by_hop_header(name: &str) -> bool {
             | "upgrade"
             | "host"
             | "content-length"
+            | "content-encoding"
     )
 }
 
@@ -871,6 +973,11 @@ fn health_response() -> HttpResponse {
 
 fn model_list_response(proxy: &ProxyServer) -> HttpResponse {
     let models = proxy.handle_model_list(json!({ "models": [] }));
+    full_response(StatusCode::OK, "application/json", models.to_string())
+}
+
+fn fetch_models_fallback_response(proxy: &ProxyServer) -> HttpResponse {
+    let models = proxy.handle_model_list(json!({ "models": {} }));
     full_response(StatusCode::OK, "application/json", models.to_string())
 }
 

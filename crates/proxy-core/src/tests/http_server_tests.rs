@@ -11,6 +11,7 @@ mod tests {
 
     fn test_options() -> HttpServerOptions {
         HttpServerOptions {
+            require_auth: true,
             graceful_shutdown_timeout: Duration::from_secs(1),
             ..HttpServerOptions::default()
         }
@@ -376,8 +377,8 @@ mod tests {
 
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let catalog: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(catalog["models"].as_array().unwrap().len(), 1);
-        assert_eq!(catalog["models"][0]["id"], "virtual-1");
+        assert_eq!(catalog["models"].as_object().unwrap().len(), 1);
+        assert!(catalog["models"]["custom-virtual-1"].is_object());
 
         drop(client);
         handle.shutdown().await.unwrap();
@@ -542,6 +543,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn forwarded_native_responses_rewrite_official_cloud_code_urls_to_proxy_address() {
+        let official_response = json!({
+            "codeAssistEndpoint": "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+            "userInfoEndpoint": "https://cloudcode-pa.googleapis.com/v1internal:fetchUserInfo",
+            "generativeEndpoint": "https://generativelanguage.googleapis.com/v1beta/models"
+        })
+        .to_string();
+        let (official_url, _official_handle) =
+            MockProviderServer::start(200, &official_response).await;
+        let (proxy, local_token) = create_proxy(AppConfig::default(), 0).await;
+        let mut options = test_options();
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal:loadCodeAssist",
+                handle.local_addr()
+            ))
+            .header("authorization", "Bearer vendor-token")
+            .header("x-agy-byok-token", local_token)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        let expected_host = format!("http://{}", handle.local_addr());
+        assert_eq!(
+            body["codeAssistEndpoint"],
+            format!("{expected_host}/v1internal:loadCodeAssist")
+        );
+        assert_eq!(
+            body["userInfoEndpoint"],
+            format!("{expected_host}/v1internal:fetchUserInfo")
+        );
+        assert_eq!(
+            body["generativeEndpoint"],
+            format!("{expected_host}/v1beta/models")
+        );
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn host_model_id_routes_to_the_custom_provider() {
         let upstream_body = json!({
             "choices": [{
@@ -582,6 +630,52 @@ mod tests {
             body["response"]["candidates"][0]["content"]["parts"][0]["text"],
             "host id routed"
         );
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn binary_patched_paths_and_padding_are_normalized_and_routed_correctly() {
+        assert_eq!(
+            LoopbackHttpServer::normalize_path(
+                "/v1internal/xxxxxxx/v1internal:fetchAvailableModels"
+            ),
+            "/v1internal:fetchAvailableModels"
+        );
+        assert_eq!(
+            LoopbackHttpServer::normalize_path(
+                "/dummy_path_padding/v1internal:streamGenerateContent"
+            ),
+            "/v1internal:streamGenerateContent"
+        );
+
+        let official_response = json!({
+            "codeAssistEndpoint": "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+        })
+        .to_string();
+        let (official_url, _official_handle, recorded_request) =
+            MockProviderServer::start_recording(200, &official_response).await;
+        let (proxy, local_token) = create_proxy(AppConfig::default(), 0).await;
+        let mut options = test_options();
+        options.official_cloud_code_endpoint = Some(official_url);
+        let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!(
+                "http://{}/v1internal/xxxxxxx/v1internal:loadCodeAssist",
+                handle.local_addr()
+            ))
+            .header("authorization", "Bearer vendor-token")
+            .header("x-agy-byok-token", local_token)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let recorded = recorded_request.await.unwrap();
+        assert_eq!(recorded.path_and_query, "/v1internal:loadCodeAssist");
 
         drop(client);
         handle.shutdown().await.unwrap();

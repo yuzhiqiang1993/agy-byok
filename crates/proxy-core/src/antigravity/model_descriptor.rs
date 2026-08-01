@@ -127,25 +127,6 @@ fn apply_reasoning_metadata(
             "reasoningEffort".to_string(),
             Value::String("auto".to_string()),
         );
-        if upstream_model
-            .capabilities
-            .reasoning
-            .levels
-            .values()
-            .any(|mapping| {
-                matches!(
-                    mapping,
-                    ReasoningMapping::BudgetTokens(_)
-                        | ReasoningMapping::Adaptive
-                        | ReasoningMapping::Disabled
-                )
-            })
-        {
-            descriptor.insert(
-                "thinkingBudget".to_string(),
-                Value::String("auto".to_string()),
-            );
-        }
         return;
     };
     let Some(mapping) = upstream_model.capabilities.reasoning.mapping_for(level) else {
@@ -161,25 +142,15 @@ fn apply_reasoning_metadata(
     descriptor.insert("reasoningEffort".to_string(), reasoning_effort);
 
     match mapping {
-        ReasoningMapping::BudgetTokens(_) => {
-            descriptor.insert(
-                "thinkingBudget".to_string(),
-                Value::String("enabled".to_string()),
-            );
-        }
-        ReasoningMapping::Adaptive => {
-            descriptor.insert(
-                "thinkingBudget".to_string(),
-                Value::String("auto".to_string()),
-            );
+        ReasoningMapping::BudgetTokens(tokens) => {
+            descriptor.insert("thinkingBudget".to_string(), json!(tokens));
         }
         ReasoningMapping::Disabled => {
-            descriptor.insert(
-                "thinkingBudget".to_string(),
-                Value::String("disabled".to_string()),
-            );
+            descriptor.insert("thinkingBudget".to_string(), json!(0));
         }
-        ReasoningMapping::Effort(_) | ReasoningMapping::NativeLevel(_) => {}
+        ReasoningMapping::Adaptive
+        | ReasoningMapping::Effort(_)
+        | ReasoningMapping::NativeLevel(_) => {}
     }
 }
 

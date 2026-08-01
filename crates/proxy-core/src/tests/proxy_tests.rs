@@ -277,14 +277,15 @@ mod tests {
             .handle_model_list(json!({ "models": {} }));
         let default_model = &default_catalog["models"]["custom-vm-connection"];
         assert_eq!(default_model["reasoningEffort"], "auto");
-        assert_eq!(default_model["thinkingBudget"], "auto");
+        assert!(default_model.get("thinkingBudget").is_none());
 
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
         let high_catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
             .handle_model_list(json!({ "models": {} }));
         let high_model = &high_catalog["models"]["custom-vm-connection"];
         assert_eq!(high_model["reasoningEffort"], "high");
-        assert_eq!(high_model["thinkingBudget"], "enabled");
+        assert_eq!(high_model["thinkingBudget"], 8192);
+        assert!(high_model["thinkingBudget"].is_number());
     }
 
     #[tokio::test]

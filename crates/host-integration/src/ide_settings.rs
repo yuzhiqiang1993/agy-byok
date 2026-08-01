@@ -304,20 +304,30 @@ fn configure_setting_value(
             encoded_value,
             &source[property.value_end..]
         )
-    } else {
-        let insertion = if object.properties.is_empty() || object.trailing_comma {
+    } else if let Some(last_prop) = object.properties.last() {
+        if let Some(comma_after) = last_prop.comma_after {
             format!(
-                "\n  {}: {}\n",
+                "{}\n  {}: {}{}",
+                &source[..=comma_after],
                 serde_json::to_string(IDE_CLOUD_CODE_SETTING).unwrap(),
-                encoded_value
+                encoded_value,
+                &source[comma_after + 1..]
             )
         } else {
             format!(
-                ",\n  {}: {}\n",
+                "{},\n  {}: {}{}",
+                &source[..last_prop.value_end],
                 serde_json::to_string(IDE_CLOUD_CODE_SETTING).unwrap(),
-                encoded_value
+                encoded_value,
+                &source[last_prop.value_end..]
             )
-        };
+        }
+    } else {
+        let insertion = format!(
+            "\n  {}: {}\n",
+            serde_json::to_string(IDE_CLOUD_CODE_SETTING).unwrap(),
+            encoded_value
+        );
         format!(
             "{}{}{}",
             &source[..object.close_brace],

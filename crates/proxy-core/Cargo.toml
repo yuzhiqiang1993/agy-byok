@@ -13,7 +13,7 @@ tokio-stream = "0.1"
 hyper = { version = "1.4", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "gzip"] }
 
 # Serialization & Data
 serde = { version = "1.0", features = ["derive"] }
