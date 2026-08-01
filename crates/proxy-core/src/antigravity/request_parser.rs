@@ -96,11 +96,27 @@ impl AntigravityRequestParser {
                 if let Some(parts) = item["parts"].as_array() {
                     for (part_index, part) in parts.iter().enumerate() {
                         if part["thought"].as_bool().unwrap_or(false) {
-                            if let Some(text) = part["text"].as_str() {
-                                blocks.push(NeutralContentBlock::Thinking {
-                                    text: text.to_string(),
-                                    signature: None,
-                                });
+                            let text = part["text"].as_str().unwrap_or_default();
+                            let signature = part["thoughtSignature"]
+                                .as_str()
+                                .or_else(|| part["thought_signature"].as_str())
+                                .map(str::to_string);
+                            if !text.is_empty() || signature.is_some() {
+                                if let Some(NeutralContentBlock::Thinking {
+                                    text: pending_text,
+                                    signature: pending_signature,
+                                }) = blocks.last_mut()
+                                {
+                                    pending_text.push_str(text);
+                                    if signature.is_some() {
+                                        *pending_signature = signature;
+                                    }
+                                } else {
+                                    blocks.push(NeutralContentBlock::Thinking {
+                                        text: text.to_string(),
+                                        signature,
+                                    });
+                                }
                             }
                         } else if let Some(text) = part["text"].as_str() {
                             blocks.push(NeutralContentBlock::Text(text.to_string()));
@@ -162,6 +178,7 @@ impl AntigravityRequestParser {
                                 role: MessageRole::Tool,
                                 blocks: vec![NeutralContentBlock::ToolResult {
                                     tool_call_id: id,
+                                    name: (!name.is_empty()).then_some(name),
                                     content,
                                 }],
                             });

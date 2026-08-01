@@ -48,6 +48,10 @@ pub enum NeutralStreamEvent {
         choice_index: u32,
         text: String,
     },
+    ThinkingSignature {
+        choice_index: u32,
+        signature: String,
+    },
     ToolCallStart {
         choice_index: u32,
         tool_call_index: u32,

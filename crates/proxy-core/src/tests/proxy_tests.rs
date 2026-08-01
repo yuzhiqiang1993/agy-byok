@@ -18,7 +18,7 @@ mod tests {
             providers: vec![Provider {
                 id: "p-connection".to_string(),
                 name: "Connection Provider".to_string(),
-                protocol: ProviderProtocol::Openai,
+                protocol: ProviderProtocol::OpenaiChatCompletions,
                 models_endpoint: String::new(),
                 generate_endpoint,
                 api_key: "sk-connection".to_string(),
@@ -518,7 +518,7 @@ mod tests {
         let provider = Provider {
             id: "p-test".to_string(),
             name: "Mock Provider".to_string(),
-            protocol: ProviderProtocol::Openai,
+            protocol: ProviderProtocol::OpenaiChatCompletions,
             models_endpoint: format!("{}/v1/models", mock_url),
             generate_endpoint: format!("{}/v1/chat/completions", mock_url),
             api_key: "sk-mock-api-key".to_string(),
@@ -584,7 +584,10 @@ mod tests {
         assert_eq!(activities[0].virtual_model_id, "vm-test-1");
         assert_eq!(activities[0].upstream_model_id.as_deref(), Some("gpt-4o"));
         assert_eq!(activities[0].provider_id, "p-test");
-        assert_eq!(activities[0].provider_protocol.as_deref(), Some("openai"));
+        assert_eq!(
+            activities[0].provider_protocol.as_deref(),
+            Some("openai_chat_completions")
+        );
         assert_eq!(activities[0].status_code, 200);
         assert!(!activities[0].stream);
         assert_eq!(activities[0].message_count, 1);
@@ -655,7 +658,7 @@ mod tests {
             providers: vec![Provider {
                 id: "p-stream".to_string(),
                 name: "Mock Stream Provider".to_string(),
-                protocol: ProviderProtocol::Openai,
+                protocol: ProviderProtocol::OpenaiChatCompletions,
                 models_endpoint: format!("{mock_url}/v1/models"),
                 generate_endpoint: format!("{mock_url}/v1/chat/completions"),
                 api_key: "sk-stream".to_string(),
@@ -731,7 +734,7 @@ mod tests {
             providers: vec![Provider {
                 id: "p-1".to_string(),
                 name: "Anthropic".to_string(),
-                protocol: ProviderProtocol::Anthropic,
+                protocol: ProviderProtocol::AnthropicMessages,
                 models_endpoint: String::new(),
                 generate_endpoint: "http://localhost/messages".to_string(),
                 api_key: String::new(),
@@ -986,7 +989,11 @@ mod tests {
             "contents": [{
                 "role": "model",
                 "parts": [
-                    { "thought": true, "text": "internal reasoning" },
+                    {
+                        "thought": true,
+                        "text": "internal reasoning",
+                        "thoughtSignature": "signed-reasoning"
+                    },
                     { "functionCall": { "name": "lookup", "args": { "id": 1 } } },
                     { "functionCall": { "name": "lookup", "args": { "id": 2 } } }
                 ]
@@ -1001,7 +1008,7 @@ mod tests {
             request.messages[0].blocks[0],
             NeutralContentBlock::Thinking {
                 text: "internal reasoning".to_string(),
-                signature: None,
+                signature: Some("signed-reasoning".to_string()),
             }
         );
         let first_id = match &request.messages[0].blocks[1] {
@@ -1014,6 +1021,35 @@ mod tests {
         };
         assert_eq!(first_id, "call_0_1");
         assert_eq!(second_id, "call_0_2");
+    }
+
+    #[test]
+    fn antigravity_request_parser_merges_streamed_thinking_signature_parts() {
+        let body = json!({
+            "model": "vm-1",
+            "contents": [{
+                "role": "model",
+                "parts": [
+                    { "thought": true, "text": "reason " },
+                    {
+                        "thought": true,
+                        "text": "summary",
+                        "thoughtSignature": "signed-thinking"
+                    }
+                ]
+            }]
+        })
+        .to_string();
+
+        let request = AntigravityRequestParser::parse(&body).unwrap();
+
+        assert_eq!(
+            request.messages[0].blocks,
+            vec![NeutralContentBlock::Thinking {
+                text: "reason summary".to_string(),
+                signature: Some("signed-thinking".to_string()),
+            }]
+        );
     }
 
     #[test]
@@ -1062,6 +1098,7 @@ mod tests {
             request.messages[1].blocks[0],
             NeutralContentBlock::ToolResult {
                 tool_call_id: "call-explicit".to_string(),
+                name: Some("view_file".to_string()),
                 content: "file contents".to_string(),
             }
         );
@@ -1119,14 +1156,18 @@ mod tests {
                     index: 7,
                     blocks: vec![NeutralContentBlock::Thinking {
                         text: "thinking".to_string(),
-                        signature: None,
+                        signature: Some("signed-thinking".to_string()),
                     }],
                     finish_reason: Some(FinishReason::MaxTokens),
                     raw_finish_reason: Some("length".to_string()),
                 },
                 NeutralChoice {
                     index: 9,
-                    blocks: vec![],
+                    blocks: vec![NeutralContentBlock::ToolCall {
+                        id: "call-9".to_string(),
+                        name: "lookup".to_string(),
+                        arguments_json: r#"{"id":9}"#.to_string(),
+                    }],
                     finish_reason: Some(FinishReason::ToolCall),
                     raw_finish_reason: Some("tool_calls".to_string()),
                 },
@@ -1149,9 +1190,32 @@ mod tests {
         assert_eq!(encoded["candidates"][2]["index"], 9);
         assert_eq!(encoded["candidates"][2]["finishReason"], "TOOL_CALL");
         assert_eq!(
+            encoded["candidates"][2]["content"]["parts"][0]["functionCall"]["id"],
+            "call-9"
+        );
+        assert_eq!(
             encoded["candidates"][1]["content"]["parts"][0]["thought"],
             true
         );
+        assert_eq!(
+            encoded["candidates"][1]["content"]["parts"][0]["thoughtSignature"],
+            "signed-thinking"
+        );
+    }
+
+    #[test]
+    fn antigravity_stream_encoder_emits_thinking_signature() {
+        let mut encoder = AntigravityStreamEncoder::new();
+
+        let frames = encoder
+            .encode_event(&NeutralStreamEvent::ThinkingSignature {
+                choice_index: 2,
+                signature: "signed-thinking".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(frames.len(), 1);
+        assert!(frames[0].contains("\"thoughtSignature\":\"signed-thinking\""));
     }
 
     #[test]

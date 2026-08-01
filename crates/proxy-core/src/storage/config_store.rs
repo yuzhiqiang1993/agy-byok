@@ -270,7 +270,7 @@ mod tests {
             providers: vec![Provider {
                 id: "provider-1".to_string(),
                 name: "Provider".to_string(),
-                protocol: ProviderProtocol::Openai,
+                protocol: ProviderProtocol::OpenaiChatCompletions,
                 models_endpoint: "https://api.example.com/v1/models".to_string(),
                 generate_endpoint: "https://api.example.com/v1/chat/completions".to_string(),
                 api_key: "sk-test".to_string(),

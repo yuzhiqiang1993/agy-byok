@@ -27,6 +27,7 @@ struct AnthropicStreamDecoder {
     response_ended: bool,
     usage: UsageInfo,
     open_blocks: BTreeMap<u32, AnthropicContentBlockKind>,
+    thinking_signatures: BTreeMap<u32, String>,
 }
 
 impl AnthropicStreamDecoder {
@@ -38,6 +39,7 @@ impl AnthropicStreamDecoder {
             response_ended: false,
             usage: UsageInfo::default(),
             open_blocks: BTreeMap::new(),
+            thinking_signatures: BTreeMap::new(),
         }
     }
 
@@ -282,6 +284,12 @@ impl AnthropicStreamDecoder {
             "thinking" => {
                 self.open_blocks
                     .insert(index, AnthropicContentBlockKind::Thinking);
+                let signature = content_block
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                self.thinking_signatures.insert(index, signature);
                 Ok(Vec::new())
             }
             _ => {
@@ -330,6 +338,24 @@ impl AnthropicStreamDecoder {
                     text: text.to_string(),
                 }])
             }
+            "signature_delta" => {
+                let index = Self::required_index(value, "content_block_delta")?;
+                self.require_block_kind(index, AnthropicContentBlockKind::Thinking, delta_type)?;
+                let signature =
+                    delta
+                        .get("signature")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            Self::stream_error(
+                                "Anthropic signature_delta is missing string field signature",
+                            )
+                        })?;
+                self.thinking_signatures
+                    .entry(index)
+                    .or_default()
+                    .push_str(signature);
+                Ok(Vec::new())
+            }
             "input_json_delta" => {
                 let index = Self::required_index(value, "content_block_delta")?;
                 self.require_block_kind(index, AnthropicContentBlockKind::ToolUse, delta_type)?;
@@ -368,6 +394,16 @@ impl AnthropicStreamDecoder {
                 choice_index: 0,
                 tool_call_index: index,
             }])
+        } else if block_kind == AnthropicContentBlockKind::Thinking {
+            let signature = self.thinking_signatures.remove(&index).unwrap_or_default();
+            if signature.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![NeutralStreamEvent::ThinkingSignature {
+                    choice_index: 0,
+                    signature,
+                }])
+            }
         } else {
             Ok(Vec::new())
         }
@@ -425,6 +461,15 @@ impl AnthropicStreamDecoder {
                 )
             })
             .collect::<Vec<_>>();
+        events.extend(
+            std::mem::take(&mut self.thinking_signatures)
+                .into_values()
+                .filter(|signature| !signature.is_empty())
+                .map(|signature| NeutralStreamEvent::ThinkingSignature {
+                    choice_index: 0,
+                    signature,
+                }),
+        );
         self.open_blocks.clear();
         self.response_ended = true;
         events.push(NeutralStreamEvent::ResponseEnd);
@@ -524,6 +569,7 @@ impl AnthropicAdapter {
                 NeutralContentBlock::ToolResult {
                     tool_call_id,
                     content,
+                    ..
                 } => {
                     out.push(json!({
                         "type": "tool_result",

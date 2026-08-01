@@ -25,6 +25,8 @@ pub enum NeutralContentBlock {
     },
     ToolResult {
         tool_call_id: String,
+        #[serde(default)]
+        name: Option<String>,
         content: String,
     },
     Thinking {

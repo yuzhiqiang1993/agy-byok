@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
-type ProviderProtocol = "openai" | "anthropic" | "gemini";
+type ProviderProtocol =
+  | "openai_chat_completions"
+  | "openai_responses"
+  | "anthropic_messages"
+  | "gemini_generate_content";
+type ProtocolSelection = ProviderProtocol | "auto";
 type ReasoningLevel = "off" | "low" | "medium" | "high" | "x_high" | "max" | "auto";
 type ConfigurableReasoningLevel = "low" | "medium" | "high" | "x_high" | "max";
 type ReasoningVariant = "default" | ConfigurableReasoningLevel;
@@ -216,6 +221,7 @@ const providerFormPanel = element<HTMLElement>("#provider-form-panel");
 const openProviderFormButton = element<HTMLButtonElement>("#open-provider-form");
 const catalogResults = element<HTMLElement>("#catalog-results");
 const catalogModelList = element<HTMLDivElement>("#catalog-model-list");
+const cancelProviderButton = element<HTMLButtonElement>("#cancel-provider");
 const saveProviderButton = element<HTMLButtonElement>("#save-provider");
 const startProxyButton = element<HTMLButtonElement>("#start-proxy");
 const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
@@ -386,12 +392,12 @@ function setProviderEditorDirty(dirty: boolean): void {
 function refreshProviderEditorControls(): void {
   const hasSelection = selectedCatalogModelIds.size > 0;
   saveProviderButton.disabled = providerEditorBusy || !providerEditorDirty || !hasSelection;
+  cancelProviderButton.disabled = providerEditorBusy;
   if (!providerEditorBusy) {
     saveProviderButton.textContent = pendingProviderSavePlan
       ? `确认保存并移除 ${pendingProviderSavePlan.summary.removedVirtualModels.length} 个 IDE 入口`
       : "保存上游服务";
   }
-  openProviderFormButton.disabled = providerEditorBusy;
 }
 
 function setProviderEditorBusy(busy: boolean): void {
@@ -516,7 +522,25 @@ function renderIde(status: IdeStatus): void {
 }
 
 function protocolName(protocol: ProviderProtocol): string {
-  return { openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini" }[protocol];
+  return {
+    openai_chat_completions: "OpenAI · Chat Completions",
+    openai_responses: "OpenAI · Responses API",
+    anthropic_messages: "Anthropic · Messages API",
+    gemini_generate_content: "Google · Gemini generateContent",
+  }[protocol];
+}
+
+function providerProtocolLabel(protocol: string | null): string {
+  const normalized = protocol === "openai" ? "openai_chat_completions"
+    : protocol === "anthropic" ? "anthropic_messages"
+      : protocol === "gemini" ? "gemini_generate_content"
+        : protocol;
+  if (normalized === null) return "未知";
+  if (normalized === "openai_chat_completions" || normalized === "openai_responses"
+    || normalized === "anthropic_messages" || normalized === "gemini_generate_content") {
+    return protocolName(normalized);
+  }
+  return protocol ?? "未知";
 }
 
 function renderProviders(): void {
@@ -1020,7 +1044,7 @@ function reasoningVariantLabel(variant: ReasoningVariant): string {
 }
 
 function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableReasoningLevel[] {
-  return protocol === "gemini"
+  return protocol === "gemini_generate_content"
     ? ["low", "medium", "high"]
     : ["low", "medium", "high", "x_high", "max"];
 }
@@ -1040,7 +1064,7 @@ function reasoningVariantsFor(
 }
 
 function reasoningLevels(protocol: ProviderProtocol): Partial<Record<ReasoningLevel, ReasoningMapping>> {
-  if (protocol === "anthropic") {
+  if (protocol === "anthropic_messages") {
     return {
       low: { kind: "budget_tokens", value: 1024 },
       medium: { kind: "budget_tokens", value: 4096 },
@@ -1049,7 +1073,7 @@ function reasoningLevels(protocol: ProviderProtocol): Partial<Record<ReasoningLe
       max: { kind: "budget_tokens", value: 32768 },
     };
   }
-  if (protocol === "gemini") {
+  if (protocol === "gemini_generate_content") {
     return {
       low: { kind: "native_level", value: "low" },
       medium: { kind: "native_level", value: "medium" },
@@ -1117,7 +1141,7 @@ function suggestedEndpoints(
 ): { modelsEndpoint: string; generateEndpoint: string } {
   const base = baseUrl.trim().replace(/\/+$/, "");
   if (!base) return { modelsEndpoint: "", generateEndpoint: "" };
-  if (protocol === "gemini") {
+  if (protocol === "gemini_generate_content") {
     const apiBase = base.endsWith("/v1beta") ? base : `${base}/v1beta`;
     return {
       modelsEndpoint: `${apiBase}/models`,
@@ -1127,15 +1151,18 @@ function suggestedEndpoints(
   const apiBase = base.endsWith("/v1") ? base : `${base}/v1`;
   return {
     modelsEndpoint: `${apiBase}/models`,
-    generateEndpoint: protocol === "anthropic"
+    generateEndpoint: protocol === "anthropic_messages"
       ? `${apiBase}/messages`
-      : `${apiBase}/chat/completions`,
+      : protocol === "openai_responses"
+        ? `${apiBase}/responses`
+        : `${apiBase}/chat/completions`,
   };
 }
 
 function inferProviderBase(provider: Provider): string {
   const suffixes = [
     "/v1/chat/completions",
+    "/v1/responses",
     "/v1/messages",
     "/v1beta/models/{model}:generateContent",
   ];
@@ -1148,17 +1175,71 @@ function inferProviderBase(provider: Provider): string {
   }
 }
 
+function protocolDescription(protocol: ProtocolSelection): string {
+  if (protocol === "auto") {
+    return "推荐：根据 API 地址和模型目录自动判断；无法区分时默认使用 OpenAI Chat Completions。";
+  }
+  return {
+    openai_chat_completions: "适用于 /v1/chat/completions；绝大多数 OpenAI 兼容网关、DeepSeek、OpenRouter、Ollama 使用此协议。",
+    openai_responses: "适用于明确提供 /v1/responses 的 OpenAI Responses API 兼容服务；它不是 Chat Completions 的别名。",
+    anthropic_messages: "适用于 /v1/messages；Anthropic 原生 API 及明确声明兼容 Messages API 的服务。",
+    gemini_generate_content: "适用于 Google Gemini generateContent；典型地址包含 /v1beta/models 或 :generateContent。",
+  }[protocol];
+}
+
+function updateProtocolHelp(): void {
+  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
+  element<HTMLElement>("#protocol-help").textContent = protocolDescription(selection);
+}
+
+function inferProtocolFromAddress(value: string): ProviderProtocol | null {
+  const address = value.trim().toLowerCase();
+  if (!address) return null;
+  if (address.includes("generatecontent") || address.includes("/v1beta")
+    || address.includes("generativelanguage.googleapis.com") || address.includes("gemini")) {
+    return "gemini_generate_content";
+  }
+  if (address.includes("/messages") || address.includes("anthropic") || address.includes("claude")) {
+    return "anthropic_messages";
+  }
+  if (address.includes("/responses")) return "openai_responses";
+  if (address.includes("/chat/completions")) return "openai_chat_completions";
+  return null;
+}
+
+function inferProtocolFromCatalog(
+  provider: Provider,
+  models: ProviderCatalogModel[],
+): ProviderProtocol {
+  const modelIds = models.map((model) => model.id.toLowerCase());
+  if (modelIds.some((id) => id.startsWith("gemini-") || id.startsWith("models/gemini-"))) {
+    return "gemini_generate_content";
+  }
+  if (modelIds.some((id) => id.startsWith("claude-"))) return "anthropic_messages";
+  return inferProtocolFromAddress(provider.models_endpoint)
+    ?? inferProtocolFromAddress(provider.generate_endpoint)
+    ?? "openai_chat_completions";
+}
+
+function selectedProtocol(): ProviderProtocol {
+  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
+  if (selection !== "auto") return selection;
+  return inferProtocolFromAddress(element<HTMLInputElement>("#provider-base-url").value)
+    ?? "openai_chat_completions";
+}
+
 function updateSuggestedEndpoints(): void {
-  const protocol = element<HTMLSelectElement>("#protocol").value as ProviderProtocol;
+  const protocol = selectedProtocol();
   const baseUrl = element<HTMLInputElement>("#provider-base-url").value;
   const endpoints = suggestedEndpoints(baseUrl, protocol);
   element<HTMLInputElement>("#models-endpoint").value = endpoints.modelsEndpoint;
   element<HTMLInputElement>("#generate-endpoint").value = endpoints.generateEndpoint;
+  updateProtocolHelp();
   resetCatalogResults();
 }
 
 function providerFromForm(): Provider {
-  const protocol = element<HTMLSelectElement>("#protocol").value as ProviderProtocol;
+  const protocol = selectedProtocol();
   const name = element<HTMLInputElement>("#provider-name").value.trim();
   const generateEndpoint = element<HTMLInputElement>("#generate-endpoint").value.trim();
   const modelsEndpoint = element<HTMLInputElement>("#models-endpoint").value.trim();
@@ -1212,6 +1293,8 @@ function resetProviderEditor(): void {
   element<HTMLInputElement>("#api-key").type = "password";
   element<HTMLElement>("#provider-form-title").textContent = "添加上游服务";
   element<HTMLElement>("#provider-form-kicker").textContent = "ADD UPSTREAM";
+  element<HTMLSelectElement>("#protocol").value = "auto";
+  updateProtocolHelp();
   resetCatalogResults();
   providerEditorDirty = false;
   providerDirtyBadge.hidden = true;
@@ -1254,6 +1337,7 @@ function openProviderEditor(providerId: string | null = null): void {
     element<HTMLInputElement>("#api-key").value = provider.api_key;
     element<HTMLInputElement>("#models-endpoint").value = provider.models_endpoint;
     element<HTMLInputElement>("#generate-endpoint").value = provider.generate_endpoint;
+    updateProtocolHelp();
   }
   providerFormPanel.hidden = false;
   document.body.classList.add("modal-open");
@@ -1264,8 +1348,18 @@ async function fetchProviderCatalog(): Promise<void> {
   if (!providerForm.reportValidity()) return;
   invalidatePendingProviderSave();
   refreshProviderEditorControls();
-  const provider = providerFromForm();
+  let provider = providerFromForm();
+  const selection = element<HTMLSelectElement>("#protocol").value as ProtocolSelection;
   const fetched = await invoke<ProviderCatalogModel[]>("fetch_provider_catalog", { provider });
+  if (selection === "auto") {
+    const detected = inferProtocolFromCatalog(provider, fetched);
+    if (detected !== provider.protocol) {
+      element<HTMLSelectElement>("#protocol").value = detected;
+      updateSuggestedEndpoints();
+      provider = providerFromForm();
+      showNotice(`已根据地址和模型目录选择 ${protocolName(detected)}`);
+    }
+  }
   const fetchedIds = new Set(fetched.map((model) => model.id));
   const byId = new Map(fetched.map((model) => [model.id, model]));
   const existingUpstreams = editingProviderId
@@ -1953,7 +2047,7 @@ function renderActivityLog(): void {
       ["IDE 模型入口", context.requestedName, item.requestedVirtualModelId ?? item.virtualModelId],
       ["实际路由", context.actualRouteName, item.virtualModelId],
       ["实际上游", context.upstreamName, item.upstreamModelId ?? ""],
-      ["上游服务 / 协议", `${context.providerName} / ${item.providerProtocol ?? "未知"}`, item.providerId],
+      ["上游服务 / 协议", `${context.providerName} / ${providerProtocolLabel(item.providerProtocol)}`, item.providerId],
     ]) {
       const entry = document.createElement("div");
       const entryLabel = document.createElement("span");
@@ -2171,7 +2265,7 @@ armDestructiveButton(
 
 openProviderFormButton.addEventListener("click", () => openProviderEditor());
 
-element<HTMLButtonElement>("#cancel-provider").addEventListener("click", () => {
+cancelProviderButton.addEventListener("click", () => {
   closeProviderEditor();
 });
 

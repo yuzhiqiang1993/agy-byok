@@ -14,6 +14,17 @@ pub trait ProviderStreamDecoder: Send {
 
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
+    fn build_generate_endpoint(
+        &self,
+        provider: &Provider,
+        upstream_model: &UpstreamModel,
+        _stream: bool,
+    ) -> Result<String, ProxyError> {
+        Ok(provider
+            .generate_endpoint
+            .replace("{model}", &upstream_model.upstream_model_id))
+    }
+
     /// 将 NeutralChatRequest 编码为对应 Provider 的 JSON Payload
     fn build_request_payload(
         &self,

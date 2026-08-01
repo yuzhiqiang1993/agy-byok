@@ -615,10 +615,11 @@ impl ProxyServer {
         let adapter = get_adapter(&route.provider.protocol);
         let payload = adapter.build_request_payload(route, request)?;
         let headers = adapter.build_headers(&route.provider)?;
-        let generate_endpoint = route
-            .provider
-            .generate_endpoint
-            .replace("{model}", &route.upstream_model.upstream_model_id);
+        let generate_endpoint = adapter.build_generate_endpoint(
+            &route.provider,
+            &route.upstream_model,
+            request.stream,
+        )?;
         let request_timeout_ms =
             effective_provider_request_timeout_ms(route.provider.request_timeout_ms);
         let connect_timeout_ms = effective_provider_connect_timeout_ms(
@@ -668,9 +669,14 @@ impl ProxyServer {
                 Some(route.upstream_model.upstream_model_id.clone()),
                 route.provider.id.clone(),
                 Some(match route.provider.protocol {
-                    ProviderProtocol::Openai => "openai".to_string(),
-                    ProviderProtocol::Anthropic => "anthropic".to_string(),
-                    ProviderProtocol::Gemini => "gemini".to_string(),
+                    ProviderProtocol::OpenaiChatCompletions => {
+                        "openai_chat_completions".to_string()
+                    }
+                    ProviderProtocol::AnthropicMessages => "anthropic_messages".to_string(),
+                    ProviderProtocol::GeminiGenerateContent => {
+                        "gemini_generate_content".to_string()
+                    }
+                    ProviderProtocol::OpenaiResponses => "openai_responses".to_string(),
                 }),
             ),
             None => (

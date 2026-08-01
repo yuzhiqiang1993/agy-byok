@@ -4,9 +4,30 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderProtocol {
-    Openai,
-    Anthropic,
-    Gemini,
+    #[serde(alias = "openai")]
+    OpenaiChatCompletions,
+    #[serde(alias = "anthropic")]
+    AnthropicMessages,
+    #[serde(alias = "gemini")]
+    GeminiGenerateContent,
+    OpenaiResponses,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProviderProtocol;
+
+    #[test]
+    fn legacy_protocol_names_deserialize_and_new_names_serialize() {
+        assert_eq!(
+            serde_json::from_str::<ProviderProtocol>(r#""openai""#).unwrap(),
+            ProviderProtocol::OpenaiChatCompletions
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderProtocol::OpenaiChatCompletions).unwrap(),
+            r#""openai_chat_completions""#
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

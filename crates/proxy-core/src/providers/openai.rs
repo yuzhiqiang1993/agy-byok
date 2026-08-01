@@ -150,6 +150,7 @@ impl OpenAIAdapter {
                 NeutralContentBlock::ToolResult {
                     tool_call_id: id,
                     content,
+                    ..
                 } => {
                     tool_call_id = Some(id.clone());
                     contents.push(json!({

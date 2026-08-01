@@ -22,13 +22,14 @@ AGY BYOK 只解决四个核心问题：
 
 ## 目标能力
 
-- **多 Provider**：支持 OpenAI-compatible、Anthropic Messages 和 Google Gemini 三种线协议。
+- **多 Provider**：支持 OpenAI Chat Completions、OpenAI Responses API、Anthropic Messages API 和 Google Gemini `generateContent` 四种线协议。
 - **虚拟模型**：将 Provider、真实上游模型和宿主虚拟模型分层管理，使用稳定模型 ID。
 - **思考档位**：上游服务编辑页统一配置英文档位模板；OpenAI-compatible 和 Anthropic 提供 `Default`、`Low`、`Medium`、`High`、`Extra High`、`Max`，Gemini 提供 `Default`、`Low`、`Medium`、`High`。只有在模型行显式勾选“思考档位”的上游模型才按模板展开虚拟变体，并由 Adapter 映射为 Provider 原生参数；新模型默认关闭该能力，确认上游 API 支持后再开启。
 - **中立协议**：先将 Antigravity/Gemini 请求转换为 Canonical Protocol，再适配目标 Provider。
 - **多模态与工具**：保留文本、图片顺序、Function Calling、流式 Tool Call 和公开的 Thinking Summary。
 - **本地直接配置**：Provider 地址、API Key 和自定义 Header 统一保存在本地配置中，空 API Key 可连接无鉴权上游。
 - **透明路由**：原生模型继续转发到官方 Cloud Code，自定义 VirtualModel 才进入 Provider Adapter；默认不跨模型切换，只有显式配置 fallback 时才尝试一次安全降级。
+- **协议选择**：上游服务编辑器默认自动识别；Gemini 和 Anthropic 通常可由 API 地址、模型目录特征判断。OpenAI Chat Completions 与 Responses 都可能共用 `/v1/models`，目录本身无法可靠区分；没有明确 `/v1/responses` 时应选择 Chat Completions。
 - **安全宿主边界**：厂商 App Bundle 始终只读；IDE settings 只管理 `jetski.cloudCodeUrl`，其他配置变化不参与接入状态判断。
 
 ## 当前状态
@@ -42,7 +43,7 @@ AGY BYOK 只解决四个核心问题：
 | 配置持久化与启动校验 | 已实现；配置写入 `config.v1.json`，Provider API Key 当前仍为本地明文存储 |
 | Antigravity 请求/响应转换 | 已实现文本、内联图片、工具调用、Thinking、非流响应和 SSE 事件转换 |
 | 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models`；思考模型显示为 `模型 等级(供应商)`，普通模型显示为 `模型(供应商)` |
-| OpenAI、Anthropic、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现；生成请求应用 Provider 连接超时与整体请求超时 |
+| OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现；生成请求应用 Provider 连接超时与整体请求超时 |
 | 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
 | Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、聚合型上游响应体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
 | CLI 入口 | `cargo run -p agy-byok` 固定绑定 `127.0.0.1:51234`；端口占用时启动失败 |

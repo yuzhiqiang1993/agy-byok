@@ -98,6 +98,33 @@ mod tests {
     }
 
     #[test]
+    fn gemini_resolves_stream_and_non_stream_endpoints() {
+        let adapter = GeminiAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut provider = create_provider(ProviderProtocol::GeminiGenerateContent);
+        provider.generate_endpoint =
+            "https://example.com/v1beta/models/{model}:generateContent?alt=json&custom=1"
+                .to_string();
+
+        assert_eq!(
+            adapter
+                .build_generate_endpoint(&provider, &upstream, true)
+                .unwrap(),
+            "https://example.com/v1beta/models/test-model:streamGenerateContent?alt=sse&custom=1"
+        );
+
+        provider.generate_endpoint =
+            "https://example.com/v1beta/models/{model}:streamGenerateContent?alt=sse&custom=1"
+                .to_string();
+        assert_eq!(
+            adapter
+                .build_generate_endpoint(&provider, &upstream, false)
+                .unwrap(),
+            "https://example.com/v1beta/models/test-model:generateContent?custom=1"
+        );
+    }
+
+    #[test]
     fn reasoning_level_uses_snake_case_serde_names() {
         assert_eq!(
             serde_json::to_string(&ReasoningLevel::XHigh).unwrap(),
@@ -148,7 +175,7 @@ mod tests {
 
     #[test]
     fn resolve_sanitizes_controlled_fields_from_all_config_layers() {
-        let mut provider = create_provider(ProviderProtocol::Openai);
+        let mut provider = create_provider(ProviderProtocol::OpenaiChatCompletions);
         provider.default_parameters.extra_body = Some(HashMap::from([
             ("model".to_string(), json!("provider-model")),
             ("messages".to_string(), json!("provider-messages")),
@@ -207,7 +234,7 @@ mod tests {
     fn request_reasoning_level_overrides_virtual_model_default() {
         let config = AppConfig {
             proxy_port: 51234,
-            providers: vec![create_provider(ProviderProtocol::Openai)],
+            providers: vec![create_provider(ProviderProtocol::OpenaiChatCompletions)],
             upstream_models: vec![create_upstream_model(reasoning_capability([
                 (
                     ReasoningLevel::Low,
@@ -232,7 +259,7 @@ mod tests {
     fn unsupported_reasoning_level_fails_during_routing() {
         let config = AppConfig {
             proxy_port: 51234,
-            providers: vec![create_provider(ProviderProtocol::Openai)],
+            providers: vec![create_provider(ProviderProtocol::OpenaiChatCompletions)],
             upstream_models: vec![create_upstream_model(reasoning_capability([(
                 ReasoningLevel::High,
                 ReasoningMapping::Effort("high".to_string()),
@@ -251,7 +278,7 @@ mod tests {
     fn openai_reasoning_payload_overrides_extra_body() {
         let adapter = OpenAIAdapter::new();
         let mut route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::Effort("high".to_string()),
         );
         route.final_parameters.extra_body = Some(HashMap::from([(
@@ -270,7 +297,7 @@ mod tests {
     fn openai_stream_requests_usage_chunk() {
         let adapter = OpenAIAdapter::new();
         let mut route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::Effort("high".to_string()),
         );
         route.final_parameters.extra_body = Some(HashMap::from([(
@@ -290,7 +317,7 @@ mod tests {
     fn openai_preserves_tool_call_and_result_pairing() {
         let adapter = OpenAIAdapter::new();
         let route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::Effort("high".to_string()),
         );
         let request = AntigravityRequestParser::parse(
@@ -339,7 +366,7 @@ mod tests {
     fn openai_normalizes_gemini_tool_schema_types() {
         let adapter = OpenAIAdapter::new();
         let route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::Effort("high".to_string()),
         );
         let mut request = basic_request();
@@ -385,7 +412,7 @@ mod tests {
     fn openai_keeps_thinking_separate_from_visible_content() {
         let adapter = OpenAIAdapter::new();
         let route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::Effort("high".to_string()),
         );
         let mut request = basic_request();
@@ -417,7 +444,7 @@ mod tests {
     fn anthropic_reasoning_payload_uses_budget_tokens() {
         let adapter = AnthropicAdapter::new();
         let mut route = create_dummy_route(
-            ProviderProtocol::Anthropic,
+            ProviderProtocol::AnthropicMessages,
             ReasoningMapping::BudgetTokens(4096),
         );
         route.final_parameters.max_tokens = None;
@@ -439,7 +466,7 @@ mod tests {
     fn anthropic_rejects_explicit_max_tokens_not_above_thinking_budget() {
         let adapter = AnthropicAdapter::new();
         let route = create_dummy_route(
-            ProviderProtocol::Anthropic,
+            ProviderProtocol::AnthropicMessages,
             ReasoningMapping::BudgetTokens(4096),
         );
 
@@ -457,7 +484,7 @@ mod tests {
     fn gemini_reasoning_payload_preserves_generation_config() {
         let adapter = GeminiAdapter::new();
         let mut route = create_dummy_route(
-            ProviderProtocol::Gemini,
+            ProviderProtocol::GeminiGenerateContent,
             ReasoningMapping::NativeLevel("HIGH".to_string()),
         );
         route.final_parameters.extra_body = Some(HashMap::from([(
@@ -494,7 +521,7 @@ mod tests {
     fn adapter_rejects_protocol_incompatible_reasoning_mapping() {
         let adapter = OpenAIAdapter::new();
         let route = create_dummy_route(
-            ProviderProtocol::Openai,
+            ProviderProtocol::OpenaiChatCompletions,
             ReasoningMapping::BudgetTokens(2048),
         );
 
@@ -558,8 +585,18 @@ mod tests {
                 {
                     "index": 4,
                     "content": { "parts": [
-                        { "thought": true, "text": "thinking" },
-                        { "functionCall": { "name": "lookup", "args": { "id": 1 } } }
+                        {
+                            "thought": true,
+                            "text": "thinking",
+                            "thoughtSignature": "gemini-signature"
+                        },
+                        {
+                            "functionCall": {
+                                "id": "native-call",
+                                "name": "lookup",
+                                "args": { "id": 1 }
+                            }
+                        }
                     ] },
                     "finishReason": "STOP"
                 },
@@ -598,7 +635,15 @@ mod tests {
             NeutralContentBlock::ToolCall { id, .. } => id,
             block => panic!("expected tool call, got {block:?}"),
         };
+        assert_eq!(first_id, "native-call");
         assert_ne!(first_id, second_id);
+        assert_eq!(
+            response.choices[0].blocks[0],
+            NeutralContentBlock::Thinking {
+                text: "thinking".to_string(),
+                signature: Some("gemini-signature".to_string()),
+            }
+        );
     }
 
     #[test]
@@ -878,6 +923,64 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_stream_preserves_thinking_signature() {
+        let adapter = AnthropicAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        let mut events = Vec::new();
+
+        for data in [
+            json!({
+                "type": "message_start",
+                "message": { "id": "message-1", "model": "claude-stream" }
+            }),
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "thinking", "thinking": "" }
+            }),
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "thinking_delta", "thinking": "summary" }
+            }),
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "signature_delta", "signature": "signed-" }
+            }),
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "signature_delta", "signature": "thought" }
+            }),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({ "type": "message_stop" }),
+        ] {
+            events.extend(decoder.decode_data(&data.to_string()).unwrap());
+        }
+
+        assert_eq!(
+            events,
+            vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: Some("message-1".to_string()),
+                    model: "claude-stream".to_string(),
+                },
+                NeutralStreamEvent::ThinkingDelta {
+                    choice_index: 0,
+                    text: "summary".to_string(),
+                },
+                NeutralStreamEvent::ThinkingSignature {
+                    choice_index: 0,
+                    signature: "signed-thought".to_string(),
+                },
+                NeutralStreamEvent::ResponseEnd,
+            ]
+        );
+    }
+
+    #[test]
     fn anthropic_stream_rejects_delta_for_unopened_block() {
         let adapter = AnthropicAdapter::new();
         let upstream = create_upstream_model(ReasoningCapability::default());
@@ -916,8 +1019,19 @@ mod tests {
             "candidates": [{
                 "index": 5,
                 "content": { "parts": [
+                    {
+                        "thought": true,
+                        "text": "reason",
+                        "thoughtSignature": "stream-signature"
+                    },
                     { "text": "hello" },
-                    { "functionCall": { "name": "lookup", "args": { "id": 1 } } }
+                    {
+                        "functionCall": {
+                            "id": "stream-call",
+                            "name": "lookup",
+                            "args": { "id": 1 }
+                        }
+                    }
                 ] },
                 "finishReason": "STOP"
             }],
@@ -939,24 +1053,32 @@ mod tests {
                     response_id: Some("gemini-stream".to_string()),
                     model: "test-model".to_string(),
                 },
+                NeutralStreamEvent::ThinkingDelta {
+                    choice_index: 5,
+                    text: "reason".to_string(),
+                },
+                NeutralStreamEvent::ThinkingSignature {
+                    choice_index: 5,
+                    signature: "stream-signature".to_string(),
+                },
                 NeutralStreamEvent::TextDelta {
                     choice_index: 5,
                     text: "hello".to_string(),
                 },
                 NeutralStreamEvent::ToolCallStart {
                     choice_index: 5,
-                    tool_call_index: 1,
-                    id: "call_5_1".to_string(),
+                    tool_call_index: 2,
+                    id: "stream-call".to_string(),
                     name: "lookup".to_string(),
                 },
                 NeutralStreamEvent::ToolCallArgumentsDelta {
                     choice_index: 5,
-                    tool_call_index: 1,
+                    tool_call_index: 2,
                     arguments_delta: "{\"id\":1}".to_string(),
                 },
                 NeutralStreamEvent::ToolCallEnd {
                     choice_index: 5,
-                    tool_call_index: 1,
+                    tool_call_index: 2,
                 },
                 NeutralStreamEvent::UsageUpdate(UsageInfo {
                     prompt_tokens: 2,

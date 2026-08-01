@@ -25,17 +25,22 @@ impl AntigravityResponseEncoder {
                 NeutralContentBlock::Text(text) => {
                     parts.push(json!({ "text": text }));
                 }
-                NeutralContentBlock::Thinking { text, .. } => {
-                    parts.push(json!({ "thought": true, "text": text }));
+                NeutralContentBlock::Thinking { text, signature } => {
+                    let mut part = json!({ "thought": true, "text": text });
+                    if let Some(signature) = signature {
+                        part["thoughtSignature"] = json!(signature);
+                    }
+                    parts.push(part);
                 }
                 NeutralContentBlock::ToolCall {
+                    id,
                     name,
                     arguments_json,
-                    ..
                 } => {
                     let args = serde_json::from_str(arguments_json).unwrap_or(json!({}));
                     parts.push(json!({
                         "functionCall": {
+                            "id": id,
                             "name": name,
                             "args": args
                         }
@@ -130,6 +135,18 @@ impl AntigravityStreamEncoder {
                     }]
                 }))])
             }
+            NeutralStreamEvent::ThinkingSignature {
+                choice_index,
+                signature,
+            } => Ok(vec![Self::sse(json!({
+                "candidates": [{
+                    "index": choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{ "thought": true, "thoughtSignature": signature }]
+                    }
+                }]
+            }))]),
             NeutralStreamEvent::ToolCallStart {
                 choice_index,
                 tool_call_index,

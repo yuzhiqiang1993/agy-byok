@@ -162,7 +162,7 @@ fn parse_catalog_models(payload: &Value, protocol: &ProviderProtocol) -> Vec<Pro
 
 fn normalize_model_id(value: &str, protocol: &ProviderProtocol) -> String {
     let value = value.trim();
-    if matches!(protocol, ProviderProtocol::Gemini) {
+    if matches!(protocol, ProviderProtocol::GeminiGenerateContent) {
         value.strip_prefix("models/").unwrap_or(value).to_string()
     } else {
         value.to_string()
@@ -181,7 +181,7 @@ mod tests {
         Provider {
             id: "provider-catalog".to_string(),
             name: "Catalog Provider".to_string(),
-            protocol: ProviderProtocol::Openai,
+            protocol: ProviderProtocol::OpenaiChatCompletions,
             models_endpoint,
             generate_endpoint: "http://127.0.0.1:50998/v1/chat/completions".to_string(),
             api_key: "sk-catalog".to_string(),
@@ -204,7 +204,7 @@ mod tests {
                     {"id": "gpt-4.1", "display_name": "GPT 4.1"}
                 ]
             }),
-            &ProviderProtocol::Openai,
+            &ProviderProtocol::OpenaiChatCompletions,
         );
         assert_eq!(
             openai,
@@ -226,7 +226,7 @@ mod tests {
                     {"name": "models/gemini-2.5-pro", "displayName": "Gemini 2.5 Pro"}
                 ]
             }),
-            &ProviderProtocol::Gemini,
+            &ProviderProtocol::GeminiGenerateContent,
         );
         assert_eq!(
             gemini,

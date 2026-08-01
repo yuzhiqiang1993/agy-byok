@@ -7,6 +7,7 @@ use crate::domain::{
 };
 use crate::routing::ResolvedRoute;
 use async_trait::async_trait;
+use reqwest::Url;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -16,6 +17,61 @@ pub struct GeminiAdapter;
 impl GeminiAdapter {
     pub fn new() -> Self {
         Self
+    }
+
+    fn generation_endpoint(
+        provider: &Provider,
+        upstream_model: &UpstreamModel,
+        stream: bool,
+    ) -> Result<String, ProxyError> {
+        let expanded = provider
+            .generate_endpoint
+            .replace("{model}", &upstream_model.upstream_model_id);
+        let mut url = Url::parse(&expanded).map_err(|error| {
+            ProxyError::new(
+                ErrorCategory::InvalidRequest,
+                format!("Invalid Gemini generate endpoint: {error}"),
+                400,
+            )
+        })?;
+
+        let path = url.path().to_string();
+        let resolved_path = if stream {
+            path.strip_suffix(":generateContent")
+                .map(|prefix| format!("{prefix}:streamGenerateContent"))
+                .unwrap_or(path)
+        } else {
+            path.strip_suffix(":streamGenerateContent")
+                .map(|prefix| format!("{prefix}:generateContent"))
+                .unwrap_or(path)
+        };
+        url.set_path(&resolved_path);
+
+        let mut query_pairs = url.query_pairs().into_owned().collect::<Vec<_>>();
+        if stream {
+            let mut has_alt = false;
+            for (name, value) in &mut query_pairs {
+                if name == "alt" {
+                    *value = "sse".to_string();
+                    has_alt = true;
+                }
+            }
+            if !has_alt {
+                query_pairs.push(("alt".to_string(), "sse".to_string()));
+            }
+        } else {
+            query_pairs.retain(|(name, value)| !(name == "alt" && value == "sse"));
+        }
+        url.set_query(None);
+        if !query_pairs.is_empty() {
+            url.query_pairs_mut().extend_pairs(
+                query_pairs
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            );
+        }
+
+        Ok(url.to_string())
     }
 
     fn convert_message(msg: &NeutralMessage) -> Value {
@@ -43,13 +99,14 @@ impl GeminiAdapter {
                     }));
                 }
                 NeutralContentBlock::ToolCall {
+                    id,
                     name,
                     arguments_json,
-                    ..
                 } => {
                     let args: Value = serde_json::from_str(arguments_json).unwrap_or(json!({}));
                     parts.push(json!({
                         "functionCall": {
+                            "id": id,
                             "name": name,
                             "args": args
                         }
@@ -57,22 +114,28 @@ impl GeminiAdapter {
                 }
                 NeutralContentBlock::ToolResult {
                     tool_call_id,
+                    name,
                     content,
                 } => {
                     let response_val: Value = serde_json::from_str(content)
                         .unwrap_or_else(|_| json!({ "result": content }));
                     parts.push(json!({
                         "functionResponse": {
-                            "name": tool_call_id,
+                            "id": tool_call_id,
+                            "name": name.as_deref().unwrap_or(tool_call_id),
                             "response": response_val
                         }
                     }));
                 }
-                NeutralContentBlock::Thinking { text, .. } => {
-                    parts.push(json!({
+                NeutralContentBlock::Thinking { text, signature } => {
+                    let mut part = json!({
                         "thought": true,
                         "text": text
-                    }));
+                    });
+                    if let Some(signature) = signature {
+                        part["thoughtSignature"] = json!(signature);
+                    }
+                    parts.push(part);
                 }
             }
         }
@@ -168,6 +231,7 @@ struct GeminiStreamDecoder {
     response_started: bool,
     response_ended: bool,
     emitted_tool_calls: HashSet<(u32, u32)>,
+    emitted_thinking_signatures: HashSet<(u32, u32)>,
     finished_choices: HashSet<u32>,
 }
 
@@ -178,6 +242,7 @@ impl GeminiStreamDecoder {
             response_started: false,
             response_ended: false,
             emitted_tool_calls: HashSet::new(),
+            emitted_thinking_signatures: HashSet::new(),
             finished_choices: HashSet::new(),
         }
     }
@@ -248,6 +313,21 @@ impl ProviderStreamDecoder for GeminiStreamDecoder {
                                     text: text.to_string(),
                                 });
                             }
+                            if let Some(signature) = part
+                                .get("thoughtSignature")
+                                .and_then(Value::as_str)
+                                .filter(|signature| !signature.is_empty())
+                            {
+                                if self
+                                    .emitted_thinking_signatures
+                                    .insert((choice_index, part_index))
+                                {
+                                    events.push(NeutralStreamEvent::ThinkingSignature {
+                                        choice_index,
+                                        signature: signature.to_string(),
+                                    });
+                                }
+                            }
                         } else if let Some(text) = part.get("text").and_then(Value::as_str) {
                             events.push(NeutralStreamEvent::TextDelta {
                                 choice_index,
@@ -265,10 +345,16 @@ impl ProviderStreamDecoder for GeminiStreamDecoder {
                                     .cloned()
                                     .unwrap_or(Value::Null)
                                     .to_string();
+                                let id = function_call
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .filter(|id| !id.is_empty())
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| format!("call_{choice_index}_{part_index}"));
                                 events.push(NeutralStreamEvent::ToolCallStart {
                                     choice_index,
                                     tool_call_index: part_index,
-                                    id: format!("call_{choice_index}_{part_index}"),
+                                    id,
                                     name,
                                 });
                                 events.push(NeutralStreamEvent::ToolCallArgumentsDelta {
@@ -325,6 +411,15 @@ impl ProviderStreamDecoder for GeminiStreamDecoder {
 
 #[async_trait]
 impl ProviderAdapter for GeminiAdapter {
+    fn build_generate_endpoint(
+        &self,
+        provider: &Provider,
+        upstream_model: &UpstreamModel,
+        stream: bool,
+    ) -> Result<String, ProxyError> {
+        Self::generation_endpoint(provider, upstream_model, stream)
+    }
+
     fn build_request_payload(
         &self,
         route: &ResolvedRoute,
@@ -457,10 +552,12 @@ impl ProviderAdapter for GeminiAdapter {
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false)
                         {
-                            if let Some(t) = part["text"].as_str() {
+                            let text = part["text"].as_str().unwrap_or_default();
+                            let signature = part["thoughtSignature"].as_str().map(str::to_string);
+                            if !text.is_empty() || signature.is_some() {
                                 blocks.push(NeutralContentBlock::Thinking {
-                                    text: t.to_string(),
-                                    signature: None,
+                                    text: text.to_string(),
+                                    signature,
                                 });
                             }
                         } else if let Some(t) = part["text"].as_str() {
@@ -468,8 +565,15 @@ impl ProviderAdapter for GeminiAdapter {
                         } else if let Some(fc) = part.get("functionCall") {
                             let name = fc["name"].as_str().unwrap_or_default().to_string();
                             let args = fc["args"].to_string();
+                            let id = fc["id"]
+                                .as_str()
+                                .filter(|id| !id.is_empty())
+                                .map(str::to_string)
+                                .unwrap_or_else(|| {
+                                    format!("call_{}_{}", candidate_position, part_position)
+                                });
                             blocks.push(NeutralContentBlock::ToolCall {
-                                id: format!("call_{}_{}", candidate_position, part_position),
+                                id,
                                 name,
                                 arguments_json: args,
                             });
@@ -528,7 +632,8 @@ mod tests {
         let message = NeutralMessage {
             role: MessageRole::Tool,
             blocks: vec![NeutralContentBlock::ToolResult {
-                tool_call_id: "lookup".to_string(),
+                tool_call_id: "call-lookup".to_string(),
+                name: Some("lookup".to_string()),
                 content: r#"{"result":"ok"}"#.to_string(),
             }],
         };
@@ -536,6 +641,44 @@ mod tests {
         let converted = GeminiAdapter::convert_message(&message);
 
         assert_eq!(converted["role"], "user");
+        assert_eq!(
+            converted["parts"][0]["functionResponse"]["id"],
+            "call-lookup"
+        );
+        assert_eq!(converted["parts"][0]["functionResponse"]["name"], "lookup");
+    }
+
+    #[test]
+    fn assistant_tool_call_ids_are_encoded() {
+        let message = NeutralMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![NeutralContentBlock::ToolCall {
+                id: "call-lookup".to_string(),
+                name: "lookup".to_string(),
+                arguments_json: r#"{"query":"rust"}"#.to_string(),
+            }],
+        };
+
+        let converted = GeminiAdapter::convert_message(&message);
+
+        assert_eq!(converted["parts"][0]["functionCall"]["id"], "call-lookup");
+        assert_eq!(converted["parts"][0]["functionCall"]["name"], "lookup");
+    }
+
+    #[test]
+    fn thinking_signatures_are_encoded() {
+        let message = NeutralMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![NeutralContentBlock::Thinking {
+                text: "summary".to_string(),
+                signature: Some("signed-thought".to_string()),
+            }],
+        };
+
+        let converted = GeminiAdapter::convert_message(&message);
+
+        assert_eq!(converted["parts"][0]["text"], "summary");
+        assert_eq!(converted["parts"][0]["thoughtSignature"], "signed-thought");
     }
 
     #[test]
