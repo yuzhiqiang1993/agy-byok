@@ -436,6 +436,28 @@ function renderProxy(status: ProxyStatus): void {
   state.textContent = running ? "运行中" : "已停止";
   state.className = `status-pill ${running ? "success" : "neutral"}`;
   address.textContent = status.address ?? `127.0.0.1:${config.proxy_port}`;
+
+  // 1. 代理状态微光脉冲呼吸灯
+  const glowDot = document.querySelector("#proxy-glow-dot");
+  if (glowDot) {
+    if (running) {
+      glowDot.classList.add("running");
+    } else {
+      glowDot.classList.remove("running");
+    }
+  }
+
+  // 2. 顶部端口同步呈现
+  const topPortBadge = document.querySelector("#top-port-badge");
+  if (topPortBadge) {
+    if (running) {
+      topPortBadge.textContent = `PORT ${config.proxy_port}`;
+      topPortBadge.removeAttribute("hidden");
+    } else {
+      topPortBadge.setAttribute("hidden", "true");
+    }
+  }
+
   startProxyButton.hidden = running;
   stopProxyButton.hidden = !running;
   setButtonUnavailable(startProxyButton, running);
@@ -525,7 +547,7 @@ function renderProviders(): void {
     const endpointText = document.createElement("span");
     endpointText.className = "provider-endpoint-text";
     endpointText.textContent = provider.models_endpoint;
-    
+
     const copyButton = document.createElement("button");
     copyButton.type = "button";
     copyButton.className = "copy-endpoint-btn";
@@ -1943,13 +1965,30 @@ function renderActivityLog(): void {
       route.append(entry);
     }
 
+    const durationMetric = activityMetric("耗时", formatDuration(item.durationMs));
+    const durationDd = durationMetric.querySelector("dd");
+    if (durationDd) {
+      const badge = document.createElement("span");
+      if (item.durationMs < 800) {
+        badge.className = "latency-badge latency-fast";
+        badge.textContent = " 极速";
+      } else if (item.durationMs < 2000) {
+        badge.className = "latency-badge latency-medium";
+        badge.textContent = " 正常";
+      } else {
+        badge.className = "latency-badge latency-slow";
+        badge.textContent = " 较高";
+      }
+      durationDd.append(" ", badge);
+    }
+
     const metrics = document.createElement("dl");
     metrics.className = "activity-metrics";
     metrics.append(
       activityMetric("请求", item.stream ? "流式" : "非流式"),
       activityMetric("消息", String(item.messageCount)),
       activityMetric("工具", String(item.toolCount)),
-      activityMetric("耗时", formatDuration(item.durationMs)),
+      durationMetric,
       activityMetric("HTTP", item.statusCode > 0 ? String(item.statusCode) : "无响应"),
       activityMetric(
         "路由",
@@ -2279,7 +2318,7 @@ document.addEventListener("visibilitychange", () => {
 
 const tabTriggers = [...document.querySelectorAll<HTMLButtonElement>(".tab-trigger")];
 const tabPanes = [...document.querySelectorAll<HTMLElement>(".tab-pane")];
-const pageTitle = element<HTMLHeadingElement>("#page-title");
+const pageTitle = element<HTMLSpanElement>("#page-title-text");
 const pageDescription = element<HTMLParagraphElement>("#page-description");
 const tabCopy: Record<string, { title: string; description: string }> = {
   "tab-status": {
@@ -2295,6 +2334,41 @@ const tabCopy: Record<string, { title: string; description: string }> = {
     description: "查看请求路由、Token 用量与失败详情。",
   },
 };
+
+// ==========================================================================
+// Theme Manager & Enhancements Initialization
+// ==========================================================================
+function initThemeManager(): void {
+  const savedTheme = localStorage.getItem("agy_theme") || "light";
+  applyTheme(savedTheme);
+
+  const toggleBtn = document.querySelector("#minimal-theme-toggle");
+
+  toggleBtn?.addEventListener("click", () => {
+    const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
+    const nextTheme = currentTheme === "dark" ? "light" : "dark";
+    localStorage.setItem("agy_theme", nextTheme);
+    applyTheme(nextTheme);
+  });
+}
+
+function applyTheme(theme: string): void {
+  let effectiveTheme = theme;
+  if (theme === "system") {
+    effectiveTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  document.documentElement.setAttribute("data-theme", effectiveTheme);
+
+  const toggleBtn = document.querySelector("#minimal-theme-toggle");
+  if (toggleBtn) {
+    const sunIcon = toggleBtn.querySelector(".icon-sun");
+    const moonIcon = toggleBtn.querySelector(".icon-moon");
+    if (sunIcon) sunIcon.toggleAttribute("hidden", effectiveTheme === "dark");
+    if (moonIcon) moonIcon.toggleAttribute("hidden", effectiveTheme !== "dark");
+  }
+}
+
+initThemeManager();
 
 function switchTab(targetId: string): void {
   const currentPane = tabPanes.find((pane) => pane.classList.contains("active"));
