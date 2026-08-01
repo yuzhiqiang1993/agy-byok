@@ -639,7 +639,7 @@ fn create_state() -> Result<DesktopState, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = create_state().expect("failed to initialize AGY BYOK desktop state");
-    tauri::Builder::default()
+    tauri::Builder::default().plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             get_config,

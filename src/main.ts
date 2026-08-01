@@ -1,3 +1,5 @@
+import { confirm } from "@tauri-apps/plugin-dialog";
+
 import { invoke } from "@tauri-apps/api/core";
 
 type ProviderProtocol =
@@ -423,12 +425,18 @@ async function withProviderEditorBusy(
   }
 }
 
-function confirmDiscardProviderChanges(): boolean {
+async function confirmDiscardProviderChanges(): Promise<boolean> {
   if (providerEditorBusy) {
     showNotice("上游服务配置正在处理中，请稍候", "error");
     return false;
   }
-  return !providerEditorDirty || window.confirm("当前有未保存的上游服务修改，确定放弃吗？");
+  if (!providerEditorDirty) return true;
+  try {
+    return await confirm("当前有未保存的上游服务修改，确定放弃吗？", { kind: 'warning' });
+  } catch (error) {
+    console.error("Native confirm dialog failed:", error);
+    return window.confirm("当前有未保存的上游服务修改，确定放弃吗？");
+  }
 }
 
 function renderProxy(status: ProxyStatus): void {
@@ -1302,8 +1310,8 @@ function resetProviderEditor(): void {
   refreshProviderEditorControls();
 }
 
-function closeProviderEditor(force = false): boolean {
-  if (!force && !confirmDiscardProviderChanges()) return false;
+async function closeProviderEditor(force = false): Promise<boolean> {
+  if (!force && !(await confirmDiscardProviderChanges())) return false;
   const returnFocus = providerEditorReturnFocus;
   providerEditorReturnFocus = null;
   providerFormPanel.hidden = true;
@@ -1313,12 +1321,12 @@ function closeProviderEditor(force = false): boolean {
   return true;
 }
 
-function openProviderEditor(providerId: string | null = null): void {
+async function openProviderEditor(providerId: string | null = null): Promise<void> {
   if (!providerFormPanel.hidden && editingProviderId === providerId) {
     element<HTMLInputElement>("#provider-name").focus();
     return;
   }
-  if (!confirmDiscardProviderChanges()) return;
+  if (!(await confirmDiscardProviderChanges())) return;
   providerEditorReturnFocus = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -1695,7 +1703,7 @@ async function executeProviderSave(plan: ProviderSavePlan): Promise<void> {
     return upstream?.provider_id === plan.provider.id;
   }).length;
   setProviderEditorDirty(false);
-  closeProviderEditor(true);
+  void closeProviderEditor(true);
   showNotice(`${plan.wasEditing ? "已更新" : "已添加"}上游服务 ${plan.provider.name}：当前 ${currentCount} 个 IDE 入口`);
 }
 
@@ -2266,7 +2274,7 @@ armDestructiveButton(
 openProviderFormButton.addEventListener("click", () => openProviderEditor());
 
 cancelProviderButton.addEventListener("click", () => {
-  closeProviderEditor();
+  void closeProviderEditor();
 });
 
 enableIdeIntegrationButton.addEventListener("click", () => {
@@ -2349,18 +2357,18 @@ applyReasoningTemplateButton.addEventListener("click", () => {
 });
 
 element<HTMLButtonElement>("#close-provider-modal").addEventListener("click", () => {
-  closeProviderEditor();
+  void closeProviderEditor();
 });
 
 element<HTMLElement>("#provider-modal-backdrop").addEventListener("click", () => {
-  closeProviderEditor();
+  void closeProviderEditor();
 });
 
 document.addEventListener("keydown", (event) => {
   if (providerFormPanel.hidden) return;
   if (event.key === "Escape") {
     event.preventDefault();
-    closeProviderEditor();
+    void closeProviderEditor();
     return;
   }
   if (event.key !== "Tab") return;
@@ -2464,12 +2472,12 @@ function applyTheme(theme: string): void {
 
 initThemeManager();
 
-function switchTab(targetId: string): void {
+async function switchTab(targetId: string): Promise<void> {
   const currentPane = tabPanes.find((pane) => pane.classList.contains("active"));
   if (currentPane?.id === targetId) return;
   if (!providerFormPanel.hidden) {
-    if (!confirmDiscardProviderChanges()) return;
-    closeProviderEditor(true);
+    if (!(await confirmDiscardProviderChanges())) return;
+    void closeProviderEditor(true);
   }
 
   for (const trigger of tabTriggers) {
