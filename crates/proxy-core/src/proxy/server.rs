@@ -892,7 +892,7 @@ fn configured_model_display_name(
         Some(ReasoningLevel::High) => "high",
         Some(ReasoningLevel::XHigh) => "xhigh",
         Some(ReasoningLevel::Max) => "max",
-        Some(ReasoningLevel::Auto) => "auto",
+        Some(ReasoningLevel::Auto) => "custom",
     };
     format!("{base_name} {reasoning}({provider_name})")
 }

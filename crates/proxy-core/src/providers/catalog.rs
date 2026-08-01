@@ -1,4 +1,4 @@
-use crate::domain::{ErrorCategory, Provider, ProviderProtocol, ProxyError};
+use crate::domain::{ErrorCategory, Provider, ProviderProtocol, ProxyError, ReasoningLevel};
 use crate::providers::get_adapter;
 use crate::storage::AppConfig;
 use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
@@ -12,9 +12,20 @@ const CATALOG_TIMEOUT_MS: u64 = 15_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogReasoning {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supported: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub levels: Vec<ReasoningLevel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderCatalogModel {
     pub id: String,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ProviderCatalogReasoning>,
 }
 
 /// 使用供应商草稿直接拉取模型目录，允许用户在保存配置前验证连接。
@@ -155,9 +166,166 @@ fn parse_catalog_models(payload: &Value, protocol: &ProviderProtocol) -> Vec<Pro
                 .or_else(|| item.get("displayName").and_then(Value::as_str))
                 .unwrap_or(&id)
                 .to_string();
-            Some(ProviderCatalogModel { id, display_name })
+            Some(ProviderCatalogModel {
+                id,
+                display_name,
+                reasoning: parse_reasoning_metadata(item),
+            })
         })
         .collect()
+}
+
+fn parse_reasoning_metadata(item: &Value) -> Option<ProviderCatalogReasoning> {
+    let object = item.as_object()?;
+    let mut supported = None;
+    let mut levels = Vec::new();
+
+    for key in [
+        "reasoning",
+        "thinking",
+        "reasoning_capability",
+        "reasoningCapability",
+        "supports_reasoning",
+        "supportsReasoning",
+        "reasoning_levels",
+        "reasoningLevels",
+        "supported_reasoning_levels",
+        "supportedReasoningLevels",
+    ] {
+        if let Some(value) = object.get(key) {
+            collect_reasoning_metadata(value, &mut supported, &mut levels);
+        }
+    }
+
+    for key in ["type", "model_type", "modelType"] {
+        if let Some(value) = object.get(key).and_then(Value::as_str) {
+            let value = value.to_ascii_lowercase();
+            if value.contains("reasoning") || value.contains("thinking") {
+                supported = Some(true);
+            }
+        }
+    }
+
+    if let Some(capabilities) = object.get("capabilities") {
+        if let Some(capabilities) = capabilities.as_object() {
+            for key in [
+                "reasoning",
+                "thinking",
+                "reasoning_levels",
+                "reasoningLevels",
+            ] {
+                if let Some(value) = capabilities.get(key) {
+                    collect_reasoning_metadata(value, &mut supported, &mut levels);
+                }
+            }
+        } else if let Some(capabilities) = capabilities.as_array() {
+            if capabilities.iter().filter_map(Value::as_str).any(|value| {
+                let value = value.to_ascii_lowercase();
+                value.contains("reasoning") || value.contains("thinking")
+            }) {
+                supported = Some(true);
+            }
+        }
+    }
+
+    if let Some(parameters) = object.get("supported_parameters").and_then(Value::as_array) {
+        if parameters
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|parameter| {
+                let parameter = parameter.to_ascii_lowercase();
+                parameter.contains("reasoning") || parameter.contains("thinking")
+            })
+        {
+            supported = Some(true);
+        }
+    }
+
+    levels.sort();
+    levels.dedup();
+    if !levels.is_empty() {
+        supported = Some(true);
+    }
+    if supported.is_none() && levels.is_empty() {
+        return None;
+    }
+    Some(ProviderCatalogReasoning { supported, levels })
+}
+
+fn collect_reasoning_metadata(
+    value: &Value,
+    supported: &mut Option<bool>,
+    levels: &mut Vec<ReasoningLevel>,
+) {
+    match value {
+        Value::Bool(value) => *supported = Some(*value),
+        Value::String(value) => match value.to_ascii_lowercase().as_str() {
+            "enabled" | "supported" | "adaptive" => *supported = Some(true),
+            "disabled" | "unsupported" | "none" => *supported = Some(false),
+            _ => add_reasoning_level(value, levels),
+        },
+        Value::Array(values) => {
+            for value in values {
+                if let Some(value) = value.as_str() {
+                    add_reasoning_level(value, levels);
+                } else {
+                    collect_reasoning_metadata(value, supported, levels);
+                }
+            }
+        }
+        Value::Object(object) => {
+            for key in [
+                "levels",
+                "supported_levels",
+                "supportedLevels",
+                "reasoning_levels",
+                "reasoningLevels",
+            ] {
+                if let Some(value) = object.get(key) {
+                    collect_reasoning_metadata(value, supported, levels);
+                }
+            }
+            for key in [
+                "supported",
+                "enabled",
+                "supports_reasoning",
+                "supportsReasoning",
+            ] {
+                if let Some(value) = object.get(key).and_then(Value::as_bool) {
+                    *supported = Some(value);
+                }
+            }
+            if let Some(value) = object.get("type").and_then(Value::as_str) {
+                match value.to_ascii_lowercase().as_str() {
+                    "enabled" | "adaptive" => *supported = Some(true),
+                    "disabled" | "none" => *supported = Some(false),
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn add_reasoning_level(value: &str, levels: &mut Vec<ReasoningLevel>) {
+    let normalized = value
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    let level = match normalized.as_str() {
+        "off" | "none" => ReasoningLevel::Off,
+        "low" => ReasoningLevel::Low,
+        "medium" | "med" => ReasoningLevel::Medium,
+        "high" => ReasoningLevel::High,
+        "xhigh" | "extrahigh" => ReasoningLevel::XHigh,
+        "max" | "maximum" => ReasoningLevel::Max,
+        "auto" | "adaptive" => ReasoningLevel::Auto,
+        _ => return,
+    };
+    if !levels.contains(&level) {
+        levels.push(level);
+    }
 }
 
 fn normalize_model_id(value: &str, protocol: &ProviderProtocol) -> String {
@@ -212,10 +380,12 @@ mod tests {
                 ProviderCatalogModel {
                     id: "gpt-5".to_string(),
                     display_name: "gpt-5".to_string(),
+                    reasoning: None,
                 },
                 ProviderCatalogModel {
                     id: "gpt-4.1".to_string(),
                     display_name: "GPT 4.1".to_string(),
+                    reasoning: None,
                 },
             ]
         );
@@ -233,7 +403,61 @@ mod tests {
             vec![ProviderCatalogModel {
                 id: "gemini-2.5-pro".to_string(),
                 display_name: "Gemini 2.5 Pro".to_string(),
+                reasoning: None,
             }]
+        );
+    }
+
+    #[test]
+    fn parses_reasoning_metadata_without_assuming_missing_capability() {
+        let models = parse_catalog_models(
+            &json!({
+                "data": [
+                    {
+                        "id": "claude-opus",
+                        "thinking": {"supported": true, "levels": ["low", "high", "xhigh"]}
+                    },
+                    {"id": "plain-model"},
+                    {"id": "no-thinking", "capabilities": {"reasoning": false}},
+                    {"id": "router-model", "supported_parameters": ["reasoning_effort"]},
+                    {"id": "modelgate-reasoning", "type": "Reasoning"}
+                ]
+            }),
+            &ProviderProtocol::OpenaiChatCompletions,
+        );
+
+        assert_eq!(
+            models[0].reasoning,
+            Some(ProviderCatalogReasoning {
+                supported: Some(true),
+                levels: vec![
+                    ReasoningLevel::Low,
+                    ReasoningLevel::High,
+                    ReasoningLevel::XHigh
+                ],
+            })
+        );
+        assert_eq!(models[1].reasoning, None);
+        assert_eq!(
+            models[2].reasoning,
+            Some(ProviderCatalogReasoning {
+                supported: Some(false),
+                levels: Vec::new(),
+            })
+        );
+        assert_eq!(
+            models[3].reasoning,
+            Some(ProviderCatalogReasoning {
+                supported: Some(true),
+                levels: Vec::new(),
+            })
+        );
+        assert_eq!(
+            models[4].reasoning,
+            Some(ProviderCatalogReasoning {
+                supported: Some(true),
+                levels: Vec::new(),
+            })
         );
     }
 
