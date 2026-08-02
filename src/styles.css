@@ -245,17 +245,13 @@ code {
 }
 .brand-lockup { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
-  display: grid;
+  display: block;
   width: 44px;
   height: 44px;
-  place-items: center;
+  flex-shrink: 0;
   border-radius: 13px;
-  background: linear-gradient(145deg, #2168ee, #05a6a4);
+  object-fit: cover;
   box-shadow: 0 9px 22px rgba(33, 104, 238, 0.24);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: -0.03em;
 }
 .topbar h1 {
   margin: 0;
@@ -417,7 +413,7 @@ code {
 }
 .readiness-steps {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
@@ -1954,7 +1950,7 @@ footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center
 }
 @media (max-width: 1200px) {
   .status-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-  .readiness-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .readiness-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 940px) {
   .workspace-shell { display: block; }

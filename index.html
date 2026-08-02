@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="为 Antigravity IDE 与 Antigravity App 配置和运行自定义模型" />
+    <meta name="description" content="按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI" />
     <title>AGY BYOK</title>
     <link rel="stylesheet" href="/src/styles.css" />
     <script type="module" src="/src/main.ts" defer></script>
@@ -12,7 +12,7 @@
     <div class="workspace-shell">
       <aside class="sidebar">
         <div class="sidebar-brand">
-          <span class="brand-mark" aria-hidden="true">AGY</span>
+          <img class="brand-mark" src="/app-icon.png" alt="" aria-hidden="true" />
           <strong>AGY BYOK</strong>
         </div>
         <div class="sidebar-divider"></div>
@@ -37,7 +37,7 @@
           <header class="topbar">
             <div class="page-heading">
               <h1 id="page-title"><span id="page-title-text">运行概览</span></h1>
-              <p id="page-description">查看代理服务、IDE 和 App 的运行状态。</p>
+              <p id="page-description">按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。</p>
             </div>
             <div class="topbar-actions">
               <nav class="app-tabs" aria-label="功能导航">
@@ -99,13 +99,13 @@
           </div>
 
           <div class="hero-bottom-row">
-            <ol class="readiness-steps" aria-label="使用准备进度">
+            <ol class="readiness-steps" aria-label="四步使用流程">
               <li id="readiness-models" data-state="pending">
                 <div class="step-header">
                   <span class="step-index">01</span>
                   <span class="step-badge"></span>
                 </div>
-                <span class="step-title">模型</span>
+                <span class="step-title">配置模型</span>
                 <strong id="readiness-models-value">检查中</strong>
               </li>
               <li id="readiness-proxy" data-state="pending">
@@ -113,32 +113,24 @@
                   <span class="step-index">02</span>
                   <span class="step-badge"></span>
                 </div>
-                <span class="step-title">本地服务</span>
+                <span class="step-title">启动代理</span>
                 <strong id="readiness-proxy-value">检查中</strong>
               </li>
-              <li id="readiness-ide" data-state="pending">
+              <li id="readiness-entry" data-state="pending">
                 <div class="step-header">
                   <span class="step-index">03</span>
                   <span class="step-badge"></span>
                 </div>
-                <span class="step-title">IDE 接入</span>
-                <strong id="readiness-ide-value">检查中</strong>
+                <span class="step-title">选择入口</span>
+                <strong id="readiness-entry-value">检查中</strong>
               </li>
-              <li id="readiness-app" data-state="pending">
+              <li id="readiness-restore" data-state="ready">
                 <div class="step-header">
                   <span class="step-index">04</span>
                   <span class="step-badge"></span>
                 </div>
-                <span class="step-title">App 接入</span>
-                <strong id="readiness-app-value">检查中</strong>
-              </li>
-              <li id="readiness-cli" data-state="pending">
-                <div class="step-header">
-                  <span class="step-index">05</span>
-                  <span class="step-badge"></span>
-                </div>
-                <span class="step-title">CLI 接入</span>
-                <strong id="readiness-cli-value">检查中</strong>
+                <span class="step-title">恢复官方</span>
+                <strong id="readiness-restore-value">随时可用</strong>
               </li>
             </ol>
           </div>
@@ -158,7 +150,7 @@
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">模型注入</span>
+                  <span class="detail-label">代理模式</span>
                   <span id="ide-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
                 </div>
                 <p id="ide-integration-detail" class="muted compact">正在检查状态…</p>
@@ -166,8 +158,8 @@
             </div>
 
             <div id="ide-actions" class="card-actions host-actions">
-              <button id="enable-ide-integration" class="primary" type="button" hidden disabled>启用模型</button>
-              <button id="disable-ide-integration" class="secondary" type="button" hidden disabled>停用模型</button>
+              <button id="enable-ide-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
+              <button id="disable-ide-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
               <button id="launch-ide" class="secondary" type="button" hidden disabled>启动 IDE</button>
               <button id="refresh-ide" class="secondary quiet-compact-btn" type="button">刷新</button>
             </div>
@@ -186,7 +178,7 @@
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">模型注入</span>
+                  <span class="detail-label">代理模式</span>
                   <span id="app-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
                 </div>
                 <p id="app-integration-detail" class="muted compact">正在检查状态…</p>
@@ -194,8 +186,8 @@
             </div>
 
             <div id="app-actions" class="card-actions host-actions">
-              <button id="enable-app-integration" class="primary" type="button" hidden disabled>启用模型</button>
-              <button id="disable-app-integration" class="secondary" type="button" hidden disabled>停用模型</button>
+              <button id="enable-app-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
+              <button id="disable-app-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
               <button id="launch-app" class="secondary" type="button" hidden disabled>启动 App</button>
               <button id="refresh-app" class="secondary quiet-compact-btn" type="button">刷新</button>
             </div>
@@ -214,7 +206,7 @@
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">环境变量注入</span>
+                  <span class="detail-label">代理模式</span>
                   <span id="cli-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
                 </div>
                 <p id="cli-integration-detail" class="muted compact">正在检查状态…</p>
@@ -222,8 +214,8 @@
             </div>
 
             <div id="cli-actions" class="card-actions host-actions">
-              <button id="enable-cli-integration" class="primary" type="button" hidden disabled>启用模型</button>
-              <button id="disable-cli-integration" class="secondary" type="button" hidden disabled>停用模型</button>
+              <button id="enable-cli-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
+              <button id="disable-cli-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
               <button id="refresh-cli" class="secondary quiet-compact-btn" type="button">刷新</button>
             </div>
           </article>
@@ -234,7 +226,7 @@
         <section class="panel providers-panel">
           <div class="panel-heading">
             <div>
-              <h2>上游服务</h2>
+              <h2>第 1 步：配置上游和模型</h2>
             </div>
             <div class="heading-actions">
               <span id="provider-count" class="count-badge">0</span>
@@ -267,7 +259,7 @@
             </header>
 
             <form id="provider-form">
-              <p id="provider-form-description" class="form-intro">选择预设或填写 API 连接信息，获取模型列表并配置暴露给 IDE、App 或 CLI 的虚拟模型。</p>
+              <p id="provider-form-description" class="form-intro">第 1 步：添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给后续启用代理模式的 IDE、App 或 CLI。</p>
 
               <div class="provider-presets-wrapper">
                 <p class="section-label">快捷预设</p>
@@ -367,7 +359,7 @@
               <section id="catalog-results" class="catalog-results" aria-labelledby="catalog-title" hidden>
                 <div class="catalog-header">
                   <div class="catalog-title-group">
-                    <h3 id="catalog-title">选择要接入的模型</h3>
+                    <h3 id="catalog-title">选择并保存要使用的模型</h3>
                   </div>
                   <span id="catalog-status" class="status-pill" role="status" aria-live="polite">获取中</span>
                 </div>
@@ -377,7 +369,7 @@
                 </div>
 
                 <div id="catalog-model-list" class="catalog-model-list"></div>
-                <p class="catalog-help catalog-capability-help">图片与工具调用默认开启；按需开启“推理强度”即可配置暴露给 IDE / App 的思考等级。</p>
+                <p class="catalog-help catalog-capability-help">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
 
                 <div id="provider-change-summary" class="provider-change-summary" role="status" aria-live="polite" hidden></div>
                 <div class="catalog-save-row">

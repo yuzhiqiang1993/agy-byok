@@ -1,68 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <defs>
-    <linearGradient id="tile" x1="128" y1="88" x2="900" y2="950" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.62" stop-color="#f8fbff"/>
-      <stop offset="1" stop-color="#e8f0f7"/>
-    </linearGradient>
-    <linearGradient id="badge" x1="312" y1="198" x2="716" y2="826" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2168ee"/>
-      <stop offset="0.55" stop-color="#2581dd"/>
-      <stop offset="1" stop-color="#05a6a4"/>
-    </linearGradient>
-    <linearGradient id="badgeHighlight" x1="374" y1="250" x2="652" y2="732" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.3"/>
-      <stop offset="0.46" stop-color="#ffffff" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="#052d68" stop-opacity="0.12"/>
-    </linearGradient>
-    <linearGradient id="capsule" x1="420" y1="592" x2="604" y2="650" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#d8f5ff"/>
-      <stop offset="1" stop-color="#b9f1e7"/>
-    </linearGradient>
-    <filter id="tileShadow" x="-18%" y="-18%" width="136%" height="144%">
-      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#6f8194" flood-opacity="0.2"/>
-    </filter>
-    <filter id="badgeShadow" x="-18%" y="-18%" width="136%" height="144%">
-      <feDropShadow dx="0" dy="10" stdDeviation="11" flood-color="#174783" flood-opacity="0.2"/>
-    </filter>
-    <clipPath id="tileClip">
-      <rect x="72" y="72" width="880" height="880" rx="214"/>
-    </clipPath>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" width="1254" height="1254">
+  <rect width="1254" height="1254" fill="#fff"/>
+  <rect x="22" y="22" width="1210" height="1210" rx="214" fill="none" stroke="#edf0f2" stroke-width="4"/>
 
-  <!-- Clean macOS-style tile, matching the app's light surface. -->
-  <g filter="url(#tileShadow)">
-    <rect x="72" y="72" width="880" height="880" rx="214" fill="url(#tile)"/>
-    <rect x="73.5" y="73.5" width="877" height="877" rx="212.5" fill="none" stroke="#d7e2ec" stroke-width="3"/>
-  </g>
-  <g clip-path="url(#tileClip)" opacity="0.58">
-    <path d="M72 72H952V322C818 242 668 214 512 214C352 214 202 244 72 328V72Z" fill="#ffffff"/>
-  </g>
+  <g transform="translate(-125.4 -125.4) scale(1.2)">
+    <g fill="none" stroke="#126cf5" stroke-width="38" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M598 476 563 378c-12-32-38-50-70-50-34 0-61 20-73 53L269 818c-14 40 9 71 48 71h67c23 0 39-12 51-33l39-69c10-17 27-25 48-25h166c27 0 47 10 66 31l21 24c19 21 38 30 66 30h7"/>
+    <path d="M611 535h61c34 0 50-12 66-42l21-39c19-38 41-57 86-57h19"/>
+    <path d="M479 681h75c31 0 47-10 62-33l20-27c15-20 30-29 61-29h71c29 0 42-11 58-35l18-26c15-22 32-28 62-28h31"/>
+    <path d="M483 683c-24 0-39 17-39 38 0 20 14 35 36 35h212c28 0 47 11 66 30l20 20c20 20 37 29 67 29h34"/>
+    <path d="M433 798h253c39 0 51 14 76 39 25 25 43 44 85 44h6"/>
+    </g>
 
-  <!-- Blue/teal gateway badge. -->
-  <g filter="url(#badgeShadow)">
-    <path d="M512 166L748 302V592C748 704 664 790 512 858C360 790 276 704 276 592V302L512 166Z" fill="url(#badge)"/>
-    <path d="M512 190L721 310V585C721 677 649 748 512 812C375 748 303 677 303 585V310L512 190Z" fill="none" stroke="#dff8ff" stroke-opacity="0.3" stroke-width="5"/>
-    <path d="M512 190L721 310V585C721 677 649 748 512 812C375 748 303 677 303 585V310L512 190Z" fill="url(#badgeHighlight)"/>
-  </g>
+    <g fill="#126cf5">
+      <circle cx="889" cy="405" r="39"/>
+    <circle cx="964" cy="539" r="39"/>
+    <circle cx="824" cy="657" r="13"/>
+    <circle cx="886" cy="657" r="13"/>
+    <circle cx="948" cy="657" r="13"/>
+    <rect x="914" y="743" width="66" height="66" rx="13"/>
+    <rect x="838" y="855" width="66" height="66" rx="13"/>
+      <path d="m515 509 11 32 33 12-33 11-11 34-11-34-33-11 33-12z"/>
+    </g>
 
-  <!-- White inner face keeps the mark readable at desktop and dock sizes. -->
-  <path d="M512 268L651 348V568C651 634 598 688 512 731C426 688 373 634 373 568V348L512 268Z" fill="#ffffff" fill-opacity="0.98"/>
-  <path d="M512 282L637 354V560C637 615 592 662 512 704C432 662 387 615 387 560V354L512 282Z" fill="#f8fbff"/>
-
-  <!-- Product and purpose: brand above, BYOK as the primary readable cue. -->
-  <text x="512" y="434" text-anchor="middle" fill="#5e83ad" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="750" letter-spacing="10">AGY</text>
-  <text x="512" y="548" text-anchor="middle" fill="#153966" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="84" font-weight="800" letter-spacing="2">BYOK</text>
-
-  <!-- Minimal model-routing cue: three providers behind one local key gateway. -->
-  <g>
-    <rect x="414" y="596" width="196" height="56" rx="28" fill="url(#capsule)" stroke="#ffffff" stroke-opacity="0.82" stroke-width="4"/>
-    <path d="M447 624H577" fill="none" stroke="#4384c4" stroke-opacity="0.66" stroke-width="7" stroke-linecap="round"/>
-    <circle cx="447" cy="624" r="10" fill="#2168ee"/>
-    <rect x="494" y="610" width="36" height="28" rx="14" fill="#244c86"/>
-    <circle cx="512" cy="624" r="5" fill="#ffffff"/>
-    <circle cx="577" cy="624" r="10" fill="#05a6a4"/>
-    <circle cx="447" cy="624" r="4" fill="#ffffff"/>
-    <circle cx="577" cy="624" r="4" fill="#ffffff"/>
+    <g fill="#fff">
+      <circle cx="889" cy="405" r="17"/>
+      <circle cx="964" cy="539" r="17"/>
+    </g>
   </g>
 </svg>
