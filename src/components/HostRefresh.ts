@@ -40,7 +40,7 @@ export let hostRefreshInFlight: Promise<void> | null = null;
 
 export async function refreshHostStatuses(): Promise<void> {
   if (hostRefreshInFlight) return hostRefreshInFlight;
-  const task = Promise.allSettled([refreshIde(), refreshApp()]).then(() => undefined);
+  const task = Promise.allSettled([refreshIde(), refreshApp(), refreshCli()]).then(() => undefined);
   hostRefreshInFlight = task;
   try {
     await task;

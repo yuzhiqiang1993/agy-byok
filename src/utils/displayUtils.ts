@@ -4,9 +4,9 @@ import { errorMessage } from "./domUtils";
 
 export function integrationStateLabel(state: ClientIntegrationState): string {
   return {
-    official: "未启用",
-    managed: "已启用",
-    external: "已启用",
+    official: "官方模式",
+    managed: "代理模式",
+    external: "外部配置",
     mismatch: "需要更新",
     conflict: "无法修改",
     unavailable: "未找到应用",
@@ -33,12 +33,12 @@ export function clientStatusMessage(
   configurationMessage: string,
 ): string {
   if (configurationMessage) return configurationMessage;
-  if (configurationState === "needs_update") return "配置需要更新，请重新启用模型";
-  if (configurationState === "service_stopped") return "模型已启用，请先启动本地服务";
-  if (configurationState === "not_running") return "配置正常，启动应用后生效";
+  if (configurationState === "needs_update") return "代理配置需要更新，请重新设置";
+  if (configurationState === "service_stopped") return "代理模式已配置，请先启动本地代理";
+  if (configurationState === "not_running") return "代理配置正常，启动应用后生效";
   if (configurationState === "checking") return "正在检查配置…";
-  if (configurationState === "not_enabled") return "当前未启用模型";
-  if (configurationState === "matched") return "配置正常";
+  if (configurationState === "not_enabled") return "当前使用官方配置，可随时启用代理模式";
+  if (configurationState === "matched") return "代理配置正常";
   if (integrationState === "conflict") return "暂时无法修改，请关闭应用后刷新再试";
   return "未找到应用";
 }
@@ -60,9 +60,9 @@ export function clientReady(state: ClientIntegrationState): boolean {
 export function clientErrorMessage(error: unknown): string {
   const message = errorMessage(error);
   if (message.includes("请先启动") || message.includes("本地代理")) {
-    return "请先启动本地服务。";
+    return "请先启动本地代理。";
   }
-  if (/App 接入|IDE settings|invalid application bundle|language_server|Wrapper|settings\.json/i.test(message)) {
+  if (/App 代理|IDE settings|invalid application bundle|language_server|Wrapper|settings\.json/i.test(message)) {
     return "暂时无法修改，请关闭应用后刷新再试。";
   }
   return message;

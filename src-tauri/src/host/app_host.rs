@@ -1,5 +1,8 @@
-use crate::host::process::{is_app_running, wait_for_app_state, command_argument};
-use host_integration::{AppIntegrationState};
+use crate::host::process::{
+    command_argument, is_app_running, resolve_host_executable, terminate_process,
+    wait_for_app_state, wait_for_process_state,
+};
+use host_integration::AppIntegrationState;
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
@@ -50,9 +53,9 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
                         AppIntegrationState::Disabled => (
                             "official",
                             if proxy_running {
-                                "官方模式：App 不使用本地代理；可以启用代理接入".to_string()
+                                "官方模式：App 不使用本地代理；可以启用代理模式".to_string()
                             } else {
-                                "官方模式：App 不使用本地代理；请先启动本地代理再启用接入"
+                                "官方模式：App 不使用本地代理；请先启动本地代理再启用代理模式"
                                     .to_string()
                             },
                             proxy_running,
@@ -65,15 +68,13 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
                             } else {
                                 format!("{}；当前本地代理未运行", status.message)
                             },
-                            false,
+                            proxy_running,
                             true,
                         ),
                         AppIntegrationState::Mismatch => {
                             ("mismatch", status.message, proxy_running, true)
                         }
-                        AppIntegrationState::Conflict => {
-                            ("conflict", status.message, false, false)
-                        }
+                        AppIntegrationState::Conflict => ("conflict", status.message, false, false),
                     }
                 }
                 Err(error) => ("conflict", format!("检查失败：{error}"), false, false),
@@ -123,7 +124,10 @@ pub fn stop_app_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool
     }
 
     let script = if label == "Antigravity IDE" {
-        format!("tell application id \"{}\" to quit", crate::host::ide_host::ANTIGRAVITY_IDE_BUNDLE_ID)
+        format!(
+            "tell application id \"{}\" to quit",
+            crate::host::ide_host::ANTIGRAVITY_IDE_BUNDLE_ID
+        )
     } else {
         format!("tell application \"{label}\" to quit")
     };
@@ -135,7 +139,22 @@ pub fn stop_app_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool
         return Err(format!("请求 {label} 退出失败：{status}"));
     }
 
-    wait_for_app_state(app_path, label, false)?;
+    if let Err(error) = wait_for_app_state(app_path, label, false) {
+        terminate_process(&resolve_host_executable(app_path), label)
+            .map_err(|force_error| format!("{error}；强制结束 {label} 失败：{force_error}"))?;
+    }
+    let language_server = app_path.join("Contents/Resources/bin/language_server.real");
+    if language_server.is_file() {
+        if let Err(error) =
+            wait_for_process_state(&language_server, "Antigravity Language Server", false)
+        {
+            terminate_process(&language_server, "Antigravity Language Server").map_err(
+                |force_error| {
+                    format!("{error}；强制结束 Antigravity Language Server 失败：{force_error}")
+                },
+            )?;
+        }
+    }
     std::thread::sleep(Duration::from_millis(800));
     Ok(true)
 }
@@ -166,19 +185,22 @@ pub fn client_configuration_status(
     endpoint: &str,
 ) -> (&'static str, String) {
     match integration_state {
-        "official" => ("not_enabled", "当前未启用模型".to_string()),
-        "mismatch" => ("needs_update", "配置需要更新，请重新启用模型".to_string()),
+        "official" => (
+            "not_enabled",
+            "当前使用官方配置，可随时启用代理模式".to_string(),
+        ),
+        "mismatch" => ("needs_update", "代理配置需要更新，请重新设置".to_string()),
         "conflict" => ("unavailable", "暂时无法检查配置，请刷新状态".to_string()),
         "unavailable" => ("unavailable", "未找到应用".to_string()),
         "managed" | "external" => {
             if !proxy_running {
                 return (
                     "service_stopped",
-                    "模型已启用，请先启动本地服务".to_string(),
+                    "代理模式已配置，请先启动本地代理".to_string(),
                 );
             }
             if !client_running {
-                return ("not_running", "配置正常，启动应用后生效".to_string());
+                return ("not_running", "代理配置正常，启动应用后生效".to_string());
             }
             let endpoints = match running_language_server_endpoints(app_path) {
                 Ok(endpoints) => endpoints,
@@ -222,9 +244,9 @@ pub fn running_language_server_configuration_status(
         .iter()
         .any(|value| value.as_deref() != Some(endpoint))
     {
-        ("needs_update", "配置需要更新，请重新启用模型".to_string())
+        ("needs_update", "代理配置需要更新，请重新设置".to_string())
     } else {
-        ("matched", "配置正常".to_string())
+        ("matched", "代理配置正常".to_string())
     }
 }
 
@@ -241,25 +263,25 @@ mod tests {
         );
         assert_eq!(
             running_language_server_configuration_status(&[Some(endpoint.to_string())], endpoint),
-            ("matched", "配置正常".to_string())
+            ("matched", "代理配置正常".to_string())
         );
         assert_eq!(
             running_language_server_configuration_status(
                 &[Some(endpoint.to_string()), Some(endpoint.to_string())],
                 endpoint,
             ),
-            ("matched", "配置正常".to_string())
+            ("matched", "代理配置正常".to_string())
         );
         assert_eq!(
             running_language_server_configuration_status(
                 &[Some("http://127.0.0.1:56066".to_string())],
                 endpoint,
             ),
-            ("needs_update", "配置需要更新，请重新启用模型".to_string())
+            ("needs_update", "代理配置需要更新，请重新设置".to_string())
         );
         assert_eq!(
             running_language_server_configuration_status(&[None], endpoint),
-            ("needs_update", "配置需要更新，请重新启用模型".to_string())
+            ("needs_update", "代理配置需要更新，请重新设置".to_string())
         );
     }
 }

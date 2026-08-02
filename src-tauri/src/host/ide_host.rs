@@ -1,9 +1,8 @@
-use crate::host::process::{is_app_running, wait_for_app_state};
 use crate::host::app_host::{client_configuration_status, stop_app_for_reconfiguration};
+use crate::host::process::{is_app_running, wait_for_app_state};
 use host_integration::{
-    discover, inspect_ide_settings,
-    CodeSignatureVerifier, IdeSettingsState, InstallationState, MacOsCodeSignatureVerifier,
-    PatchProfile,
+    discover, inspect_ide_settings, CodeSignatureVerifier, IdeSettingsState, InstallationState,
+    MacOsCodeSignatureVerifier, PatchProfile,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -60,7 +59,7 @@ pub fn discover_ide_sync(
                 IdeSettingsState::Managed => (
                     "mismatch",
                     format!(
-                        "jetski.cloudCodeUrl 仍由 AGY BYOK 管理，但尚未指向当前本地代理 {endpoint}；可更新或停用接入"
+                        "jetski.cloudCodeUrl 仍由 AGY BYOK 管理，但尚未指向当前本地代理 {endpoint}；可重新设置或恢复官方模式"
                     ),
                     true,
                     true,
@@ -166,12 +165,12 @@ pub fn discover_ide_sync(
         Ok(InstallationState::PatchedByProfile) => (
             false,
             "patched",
-            "厂商安装仍处于历史补丁状态；请重装原版后再启用配置接入".to_string(),
+            "厂商安装仍处于历史补丁状态；请重装原版后再启用代理模式".to_string(),
         ),
         Ok(InstallationState::Modified) => (
             false,
             "modified",
-            "检测到未知修改，已禁止启用 IDE 配置接入".to_string(),
+            "检测到未知修改，已禁止启用 IDE 代理模式".to_string(),
         ),
         Err(error) => (false, "incompatible", error.to_string()),
     };
@@ -186,9 +185,8 @@ pub fn discover_ide_sync(
     let can_enable_integration = compatible
         && settings_valid
         && proxy_running
-        && (matches!(integration_state, "official" | "mismatch")
-            || (matches!(integration_state, "managed" | "external")
-                && configuration_state == "needs_update"));
+        && (matches!(integration_state, "official" | "mismatch" | "managed")
+            || (integration_state == "external" && configuration_state == "needs_update"));
     let can_launch_ide = compatible
         && !ide_running
         && (integration_state == "official" || (integration_ready && proxy_running));

@@ -41,12 +41,27 @@ export function renderIde(status: IdeStatus): void {
   enableIdeIntegrationButton.hidden = !status.canEnableIntegration;
   launchIdeButton.hidden = !status.canLaunchIde || status.ideRunning;
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
-  enableIdeIntegrationButton.textContent = status.ideRunning ? "接入并重启" : "接入模型";
+  enableIdeIntegrationButton.textContent = "启用代理模式";
   launchIdeButton.textContent = "启动 IDE";
-  disableIdeIntegrationButton.textContent = status.ideRunning ? "断开并重启" : "断开接入";
+  disableIdeIntegrationButton.textContent = "恢复官方模式";
   setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
+  renderReadiness();
+}
+
+export function renderIdeLoadFailure(message: string): void {
+  const state = element<HTMLSpanElement>("#ide-state");
+  const detail = element<HTMLParagraphElement>("#ide-detail");
+  const integrationState = element<HTMLSpanElement>("#ide-integration-state");
+  const integrationDetail = element<HTMLParagraphElement>("#ide-integration-detail");
+
+  state.textContent = "读取失败";
+  state.className = "status-pill error";
+  detail.textContent = `状态读取失败：${message}`;
+  integrationState.textContent = "读取失败";
+  integrationState.className = "status-pill error";
+  integrationDetail.textContent = `状态读取失败：${message}`;
   renderReadiness();
 }
 
@@ -57,22 +72,40 @@ export function setupIdeCard(): void {
 
   enableIdeIntegrationButton.addEventListener("click", () => {
     void (async () => {
+      const current = store.ideStatus;
+      const isRunning = current?.ideRunning ?? false;
+      const needsReconfiguration = current?.integrationState === "mismatch"
+        || current?.configurationState === "needs_update";
+      const alreadyEnabled = current?.integrationState === "managed" && !needsReconfiguration;
       const status = await withClientBusy(enableIdeIntegrationButton, "ide", async () => {
-        const isRunning = store.ideStatus?.ideRunning ?? false;
-        const confirmMsg = isRunning
-          ? "接入模型后，IDE 会自动重启使配置生效。是否继续？"
-          : "接入模型后，IDE 即可调用已配置的自定义模型。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认接入 Antigravity IDE", "确认接入", "取消")) return null;
+        const confirmMsg = needsReconfiguration
+          ? isRunning
+            ? "当前 IDE 的代理配置需要更新，继续后会重新设置配置并重启 IDE。是否继续？"
+            : "当前 IDE 的代理配置需要更新，继续后会重新设置配置；IDE 未运行，启动后生效。是否继续？"
+          : alreadyEnabled
+            ? "当前 IDE 已启用代理模式，无需重复设置。是否继续？"
+            : isRunning
+              ? "启用代理模式后，IDE 会自动重启使配置生效。是否继续？"
+              : "启用代理模式后，IDE 即可使用本地代理。是否继续？";
+        if (!await confirmHostAction(confirmMsg, "确认启用代理模式", "启用代理", "取消")) return null;
   
-        showNotice("正在配置 IDE 接入…");
+        showNotice("正在启用 IDE 代理模式…");
         return invoke<IdeStatus>("enable_ide_integration");
       });
       if (status === null) return;
       if (status) {
         renderIde(status);
-        showNotice(status.ideRunning
-          ? "IDE 已启用模型并完成重启"
-          : "IDE 已启用模型，可以启动 IDE");
+        const stillEnabled = status.integrationState === "managed"
+          && status.configurationState !== "needs_update";
+        showNotice(alreadyEnabled && stillEnabled
+          ? "IDE 当前已经启用代理模式，无需重复设置"
+          : needsReconfiguration
+            ? status.ideRunning
+              ? "IDE 代理配置已更新并完成重启"
+              : "IDE 代理配置已更新，启动 IDE 后生效"
+            : status.ideRunning
+              ? "IDE 已启用代理模式并完成重启"
+              : "IDE 已启用代理模式，可以启动 IDE");
       } else if (store.ideStatus) {
         try {
           await refreshIde();
@@ -96,19 +129,19 @@ export function setupIdeCard(): void {
       const status = await withClientBusy(disableIdeIntegrationButton, "ide", async () => {
         const isRunning = store.ideStatus?.ideRunning ?? false;
         const confirmMsg = isRunning
-          ? "断开接入后，IDE 会自动重启并恢复连通官方 Cloud Code。是否继续？"
-          : "断开接入后，IDE 下次启动时将恢复官方模型。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认断开 Antigravity IDE 接入", "确认断开", "取消")) return null;
+          ? "将移除 AGY BYOK 代理配置，恢复官方模式并重启 IDE。是否继续？"
+          : "将移除 AGY BYOK 代理配置，恢复官方模式；下次启动 IDE 时生效。是否继续？";
+        if (!await confirmHostAction(confirmMsg, "确认恢复官方模式", "恢复官方模式", "取消")) return null;
   
-        showNotice("正在断开 IDE 接入…");
+        showNotice("正在恢复 IDE 官方模式…");
         return invoke<IdeStatus>("disable_ide_integration");
       });
       if (status === null) return;
       if (status) {
         renderIde(status);
         showNotice(status.ideRunning
-          ? "IDE 已停用模型并完成重启"
-          : "IDE 已停用模型");
+          ? "IDE 已恢复官方模式并完成重启"
+          : "IDE 已恢复官方模式");
       } else if (store.ideStatus) {
         try {
           await refreshIde();

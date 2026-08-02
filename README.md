@@ -4,21 +4,30 @@
 [![Status: Prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#当前状态)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#路线图)
 
-> 面向 Antigravity App 和 Antigravity IDE 提供本地、可恢复的 Bring Your Own Key / Model 能力；当前可运行实现以 Antigravity IDE 为主。
+> 面向 Antigravity IDE、Antigravity App 和 Antigravity CLI 提供本地、可恢复的 Bring Your Own Key / Model 能力。
 
 > [!IMPORTANT]
-> AGY BYOK 当前提供可运行的 macOS 桌面原型，可配置模型、启停代理，并通过 Antigravity IDE 原生 `jetski.cloudCodeUrl` 设置启用、启动或停用 IDE 接入。不会复制、修改或重签厂商 App Bundle。
+> AGY BYOK 当前提供可运行的 macOS 桌面原型，可配置模型、启停代理，并分别为 IDE、App 和 CLI 启用或恢复代理模式。不会复制、修改或重签厂商 App Bundle。
+
+## 使用流程
+
+1. 在“模型管理”中添加上游服务，获取模型列表并保存模型。
+2. 在“运行概览”中启动本地代理。
+3. 在 IDE、App 或 CLI 卡片中点击“启用代理模式”。
+4. 任意时候点击对应入口的“恢复官方模式”，恢复该入口原始配置。
+
+恢复官方模式不会删除上游服务和模型配置，也不会自动停止本地代理。
 
 ## 项目目标
 
 AGY BYOK 只解决四个核心问题：
 
-1. 让 Antigravity App 和 Antigravity IDE 能发现并选择自定义模型。
+1. 让 Antigravity IDE、Antigravity App 和 Antigravity CLI 能发现并使用自定义模型。
 2. 让自定义模型请求经过 AGY BYOK 自己的代理和协议转换代码。
 3. 支持文本、图片、工具调用和模型思考档位。
-4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并只恢复接管前的 `jetski.cloudCodeUrl` 值。
+4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并只恢复各入口接管前的原始配置。
 
-项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。Antigravity IDE `2.1.1` 的 Extension 与 Electron Main 都原生读取 `jetski.cloudCodeUrl`；AGY BYOK 只管理这一项用户设置，即可让两条 Cloud Code 路径统一进入本地代理。
+项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。AGY BYOK 分别管理 IDE 的 `jetski.cloudCodeUrl`、App 的语言服务配置和 CLI 的 Shell 环境变量；恢复官方模式时只撤销 AGY BYOK 自己接管的配置。
 
 ## 目标能力
 
@@ -34,7 +43,7 @@ AGY BYOK 只解决四个核心问题：
 
 ## 当前状态
 
-当前代码已经建立 `proxy-core`、`host-integration` 和最小 Tauri 2 桌面控制面。桌面 App 可以管理本地配置、显式启停代理、检测 IDE、启用或停用原生 `jetski.cloudCodeUrl` 接入，并启动厂商原版 IDE；IDE 运行中切换接入时会自动退出、更新 settings 并重新启动。生产代码不提供修改厂商原版 Bundle 的 Apply API。
+当前代码已经建立 `proxy-core`、`host-integration` 和最小 Tauri 2 桌面控制面。桌面 App 可以管理本地配置、显式启停代理、检测 IDE、App 和 CLI，并分别启用或恢复对应入口的代理模式；IDE 或 App 运行中切换配置时会按需重启，CLI 则更新 Shell 环境变量。生产代码不提供修改厂商原版 Bundle 的 Apply API。
 
 | 范围 | 当前状态 |
 | :--- | :--- |
@@ -47,12 +56,13 @@ AGY BYOK 只解决四个核心问题：
 | 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
 | Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、聚合型上游响应体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
 | CLI 入口 | `cargo run -p agy-byok` 固定绑定 `127.0.0.1:51234`；端口占用时启动失败 |
-| Tauri 2 桌面控制面 | 已实现最小窗口、模型配置、代理显式启停、状态查询、IDE 检测与原生配置接入 |
+| Tauri 2 桌面控制面 | 已实现最小窗口、模型配置、代理显式启停、状态查询，以及 IDE、App、CLI 的检测和代理模式切换 |
 | 桌面动态端口 | 优先使用配置端口，默认 `51234`；占用时选择随机空闲回环端口并持久化实际端口 |
 | IDE settings ownership | 只管理 `jetski.cloudCodeUrl`，记录接管前的目标键值，不恢复整个 settings 文件 |
 | 自动测试 | 已覆盖配置、Adapter、SSE、HTTP、模型目录注入、settings 最小编辑和 ownership 语义 |
-| Antigravity IDE 接入 | 原厂 IDE + `jetski.cloudCodeUrl` 已真实显示 6 个自定义模型，厂商 App 保持 Google 公证状态 |
-| Antigravity App 接入 | 尚未进入当前实现 |
+| Antigravity IDE 接入 | 已实现；通过原生 `jetski.cloudCodeUrl` 使用自定义模型，并支持恢复官方配置 |
+| Antigravity App 接入 | 已实现；通过语言服务配置启用代理模式，并支持恢复官方配置 |
+| Antigravity CLI 接入 | 已实现；通过 Shell 环境变量启用代理模式，并支持恢复官方配置 |
 
 当前代理生命周期是最小实现，不是完整 Supervisor：桌面进程只在内存中保存一个 `HttpServerHandle`，通过 `start_proxy`、`stop_proxy` 和 `proxy_status` 显式管理。当前没有自动启动、崩溃拉起、后台守护、持续健康监控、期望状态持久化或异常退出后的自动恢复。
 
@@ -64,7 +74,7 @@ CLI 与桌面端口策略不同：CLI 当前固定使用 `51234`，不会读取 
 - 配置层 `extra_body` 的完整受控字段校验。
 - Host 路由认证与浏览器跨 Origin 访问策略收紧。
 - API Key 的系统钥匙串或独立 Secret Store。
-- Antigravity App 接入、完整桌面设置、发布签名、Notarization 和自动更新。
+- 完整桌面设置、发布签名、Notarization 和自动更新。
 
 ## 当前架构
 
@@ -268,7 +278,8 @@ V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不
 ### M4：macOS 宿主接入
 
 - [x] Antigravity IDE 2.1.1 原生 `jetski.cloudCodeUrl` 接入与目标键 ownership
-- [ ] Antigravity App 分层接入 Profile
+- [x] Antigravity CLI Shell 环境变量接入与官方配置恢复
+- [x] Antigravity App 语言服务配置接入与官方配置恢复
 - [x] 历史 Receipt v2 与完整 Snapshot Restore 测试
 - [x] 真实 IDE Discovery 与只读候选校验
 - [x] V7 Bundle Apply 运行探针（失败并恢复，生产 Apply 已移除）

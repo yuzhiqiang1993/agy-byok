@@ -1,4 +1,4 @@
-use host_integration::{CliIntegrationState};
+use host_integration::CliIntegrationState;
 use serde::Serialize;
 use std::path::Path;
 
@@ -29,32 +29,46 @@ pub fn discover_cli_sync(
         CliIntegrationState::Managed => "managed",
         CliIntegrationState::External => "external",
         CliIntegrationState::Mismatch => "mismatch",
-        CliIntegrationState::Disabled => "disabled",
+        CliIntegrationState::Disabled => "official",
     };
 
     let (configuration_state, configuration_message) = match status.state {
+        CliIntegrationState::Managed if !proxy_running => (
+            "service_stopped",
+            "CLI 已配置代理模式，但本地代理未运行，请先启动本地代理".to_string(),
+        ),
         CliIntegrationState::Managed => (
             "matched",
-            "CLI 客户端配置有效，当前连通本地代理".to_string(),
+            "CLI 代理配置正常，当前已连接本地代理".to_string(),
+        ),
+        CliIntegrationState::External if !proxy_running => (
+            "service_stopped",
+            "CLI 已配置代理模式，但本地代理未运行，请先启动本地代理".to_string(),
         ),
         CliIntegrationState::External => (
             "external",
-            "CLI 客户端通过外部 CLOUD_CODE_URL 连接代理".to_string(),
+            "CLI 通过外部 CLOUD_CODE_URL 连接代理".to_string(),
         ),
         CliIntegrationState::Mismatch => (
             "needs_update",
-            "CLI 客户端配置端口与当前代理端口不匹配".to_string(),
+            "CLI 代理配置与当前代理端口不匹配，请重新设置".to_string(),
         ),
-        CliIntegrationState::Disabled => {
-            ("not_configured", "CLI 客户端未连接本地代理".to_string())
-        }
+        CliIntegrationState::Disabled => (
+            "not_enabled",
+            "CLI 当前使用官方配置，可随时启用代理模式".to_string(),
+        ),
     };
 
-    let can_enable_integration = status.installed
-        && (status.state == CliIntegrationState::Disabled
-            || status.state == CliIntegrationState::Mismatch);
+    let can_enable_integration = proxy_running
+        && status.installed
+        && matches!(
+            status.state,
+            CliIntegrationState::Disabled
+                | CliIntegrationState::Mismatch
+                | CliIntegrationState::Managed
+        );
     let can_disable_integration = status.state == CliIntegrationState::Managed
-        || status.state == CliIntegrationState::Mismatch;
+        || (status.state == CliIntegrationState::Mismatch && status.has_ownership);
 
     Ok(CliStatus {
         installed: status.installed,

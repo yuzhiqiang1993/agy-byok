@@ -5,10 +5,22 @@ use std::time::{Duration, Instant};
 const HOST_RESTART_TIMEOUT: Duration = Duration::from_secs(15);
 const HOST_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-pub fn wait_for_app_state(app_path: &Path, label: &str, expected_running: bool) -> Result<(), String> {
+pub fn wait_for_app_state(
+    app_path: &Path,
+    label: &str,
+    expected_running: bool,
+) -> Result<(), String> {
+    wait_for_process_state(&resolve_host_executable(app_path), label, expected_running)
+}
+
+pub fn wait_for_process_state(
+    executable: &Path,
+    label: &str,
+    expected_running: bool,
+) -> Result<(), String> {
     let started = Instant::now();
     while started.elapsed() < HOST_RESTART_TIMEOUT {
-        if is_app_running(app_path, label)? == expected_running {
+        if is_process_running(executable, label)? == expected_running {
             return Ok(());
         }
         std::thread::sleep(HOST_PROCESS_POLL_INTERVAL);
@@ -22,7 +34,10 @@ pub fn wait_for_app_state(app_path: &Path, label: &str, expected_running: bool) 
 }
 
 pub fn is_app_running(app_path: &Path, label: &str) -> Result<bool, String> {
-    let executable = resolve_host_executable(app_path);
+    is_process_running(&resolve_host_executable(app_path), label)
+}
+
+pub fn is_process_running(executable: &Path, label: &str) -> Result<bool, String> {
     let executable_text = executable.display().to_string();
     let pattern = format!("^{}( |$)", escape_pgrep_pattern(&executable_text));
     let status = Command::new("pgrep")
@@ -34,6 +49,41 @@ pub fn is_app_running(app_path: &Path, label: &str) -> Result<bool, String> {
         Some(0) => Ok(true),
         _ => Err(format!("检查 {label} 进程失败：{status}")),
     }
+}
+
+pub fn terminate_process(executable: &Path, label: &str) -> Result<(), String> {
+    if !is_process_running(executable, label)? {
+        return Ok(());
+    }
+
+    let pattern = format!(
+        "^{}( |$)",
+        escape_pgrep_pattern(&executable.display().to_string())
+    );
+    let status = Command::new("pkill")
+        .args(["-TERM", "-f", &pattern])
+        .status()
+        .map_err(|error| format!("无法请求 {label} 强制退出：{error}"))?;
+    if !matches!(status.code(), Some(0) | Some(1)) {
+        return Err(format!("请求 {label} 退出失败：{status}"));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if !is_process_running(executable, label)? {
+            return Ok(());
+        }
+        std::thread::sleep(HOST_PROCESS_POLL_INTERVAL);
+    }
+
+    let status = Command::new("pkill")
+        .args(["-KILL", "-f", &pattern])
+        .status()
+        .map_err(|error| format!("无法终止 {label}：{error}"))?;
+    if !matches!(status.code(), Some(0) | Some(1)) {
+        return Err(format!("终止 {label} 失败：{status}"));
+    }
+    wait_for_process_state(executable, label, false)
 }
 
 pub fn resolve_host_executable(app_path: &Path) -> PathBuf {

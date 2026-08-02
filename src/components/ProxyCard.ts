@@ -63,7 +63,7 @@ export function setupProxyCard(): void {
       if (results.some((result) => result.status === "rejected")) {
         showNotice("服务已停止，但应用状态刷新失败，请手动刷新", "error");
       } else {
-        showNotice("服务已停止；已接入的模型暂时无法使用");
+        showNotice("本地代理已停止；已启用代理模式的入口暂时无法使用");
       }
     } else {
       await startProxy();

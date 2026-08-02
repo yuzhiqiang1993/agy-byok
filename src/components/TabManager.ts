@@ -4,11 +4,11 @@ import { confirmDiscardProviderChanges, closeProviderEditor } from "./ProviderEd
 const tabCopy: Record<string, { title: string; description: string }> = {
   "tab-status": {
     title: "运行概览",
-    description: "查看代理服务、IDE 和 App 的运行状态。",
+    description: "按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。",
   },
   "tab-models": {
     title: "模型管理",
-    description: "管理 AI 上游服务及其接入 IDE / App 的模型与推理配置。",
+    description: "第 1 步：添加上游服务，获取模型列表并保存需要使用的模型。",
   },
   "tab-activity": {
     title: "调用日志",

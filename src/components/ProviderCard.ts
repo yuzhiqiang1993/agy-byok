@@ -16,6 +16,7 @@ import type { AppConfig } from "../types/config";
 export async function persistConfig(nextConfig: AppConfig): Promise<void> {
   const result = await configService.saveConfig(nextConfig);
   store.setConfig(result);
+  renderProviders();
 }
 
 export async function removeProvider(providerId: string, button: HTMLButtonElement): Promise<void> {
@@ -27,7 +28,7 @@ export async function removeProvider(providerId: string, button: HTMLButtonEleme
     const retainedUpstreamIds = new Set(nextConfig.upstream_models.map((m: any) => m.id));
     nextConfig.virtual_models = nextConfig.virtual_models.filter((m: any) => retainedUpstreamIds.has(m.upstream_model_id));
     await persistConfig(nextConfig);
-    renderProviders();
+    showNotice("上游服务及其关联模型已删除");
   }, "正在删除…");
 }
 
@@ -429,7 +430,7 @@ export function renderSingleProviderCard(provider: Provider): HTMLElement {
   if (modelLinks.length === 0) {
     const empty = document.createElement("p");
     empty.className = "provider-model-empty";
-    empty.textContent = "尚未接入模型入口";
+    empty.textContent = "尚未配置模型";
     models.append(empty);
   } else {
     const modelsHeader = document.createElement("div");

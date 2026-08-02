@@ -6,18 +6,19 @@ import { hostService } from "./services/hostService";
 import { activityService } from "./services/activityService";
 
 import { setupProxyCard, renderProxy } from "./components/ProxyCard";
-import { setupIdeCard, renderIde } from "./components/IdeCard";
-import { setupAppCard, renderApp } from "./components/AppCard";
-import { setupCliCard, renderCli } from "./components/CliCard";
+import { setupIdeCard, renderIde, renderIdeLoadFailure } from "./components/IdeCard";
+import { setupAppCard, renderApp, renderAppLoadFailure } from "./components/AppCard";
+import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliCard";
 import { renderReadiness } from "./components/ReadinessPanel";
 import { renderProviders } from "./components/ProviderList";
 import { setupProviderEditor } from "./components/ProviderEditor";
-import { setActivityItems, setupActivityList } from "./components/ActivityList";
+import { setActivityItems, setActivityLoadFailed, setupActivityList } from "./components/ActivityList";
 import { showNotice, setupNoticeBar } from "./components/NoticeBar";
 import { initThemeManager } from "./components/ThemeManager";
 import { setupTabManager } from "./components/TabManager";
 import { errorMessage } from "./utils/domUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
+import { refreshHostStatuses } from "./components/HostRefresh";
 
 setupNoticeBar();
 setupProxyCard();
@@ -61,8 +62,11 @@ async function initialize(): Promise<void> {
   } else {
     store.setProxyStatusFailed();
     failures.push("代理状态");
-    const proxyState = document.querySelector("#proxy-state");
-    if (proxyState) proxyState.textContent = "读取失败";
+    const proxyState = document.querySelector<HTMLSpanElement>("#proxy-state");
+    if (proxyState) {
+      proxyState.textContent = "读取失败";
+      proxyState.className = "status-pill error";
+    }
   }
 
   if (ideResult.status === "fulfilled") {
@@ -70,8 +74,7 @@ async function initialize(): Promise<void> {
   } else {
     store.setIdeStatusFailed();
     failures.push("IDE 状态");
-    const ideState = document.querySelector("#ide-state");
-    if (ideState) ideState.textContent = "读取失败";
+    renderIdeLoadFailure(errorMessage(ideResult.reason));
   }
 
   if (appResult.status === "fulfilled") {
@@ -79,6 +82,7 @@ async function initialize(): Promise<void> {
   } else {
     store.setAppStatusFailed();
     failures.push("App 状态");
+    renderAppLoadFailure(errorMessage(appResult.reason));
   }
 
   if (cliResult.status === "fulfilled") {
@@ -86,12 +90,14 @@ async function initialize(): Promise<void> {
   } else {
     store.setCliStatusFailed();
     failures.push("CLI 状态");
+    renderCliLoadFailure(errorMessage(cliResult.reason));
   }
 
   if (activityResult.status === "fulfilled") {
     setActivityItems(activityResult.value);
   } else {
     failures.push("调用日志");
+    setActivityLoadFailed(errorMessage(activityResult.reason));
   }
 
   renderReadiness();
@@ -101,3 +107,10 @@ async function initialize(): Promise<void> {
 }
 
 void initialize();
+
+window.addEventListener("focus", () => {
+  void refreshHostStatuses();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void refreshHostStatuses();
+});

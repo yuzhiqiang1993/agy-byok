@@ -1,6 +1,6 @@
 import { element } from "../utils/domUtils";
 import { store } from "../store/appStore";
-import { integrationStateLabel, displayIntegrationState, clientConfigurationReady, clientReady } from "../utils/displayUtils";
+import { clientConfigurationReady, clientReady } from "../utils/displayUtils";
 
 function setReadinessStep(
   selector: string,
@@ -15,7 +15,7 @@ function setReadinessStep(
 export function renderReadiness(): void {
   const modelCountValue = store.config?.virtual_models.length ?? 0;
   const proxyRunning = store.proxyStatus?.state === "running";
-  
+
   const latestProxyStatus = store.proxyStatus;
   const latestIdeStatus = store.ideStatus;
   const latestAppStatus = store.appStatus;
@@ -42,11 +42,19 @@ export function renderReadiness(): void {
       && clientConfigurationReady(latestCliStatus.configurationState, proxyRunning)
     : false;
 
+  const enabledClients = [
+    ideReady ? "IDE" : null,
+    appReady ? "App" : null,
+    cliReady ? "CLI" : null,
+  ].filter((item): item is string => item !== null);
+  const entryStatusesLoadFailed = ideStatusLoadFailed || appStatusLoadFailed || cliStatusLoadFailed;
+  const entryStatusesLoading = latestIdeStatus === null || latestAppStatus === null || latestCliStatus === null;
+
   setReadinessStep(
     "#readiness-models",
     "#readiness-models-value",
     modelCountValue > 0 ? "ready" : "attention",
-    modelCountValue > 0 ? `${modelCountValue} 个入口` : "待添加",
+    modelCountValue > 0 ? `${modelCountValue} 个模型` : "待添加",
   );
   setReadinessStep(
     "#readiness-proxy",
@@ -55,75 +63,49 @@ export function renderReadiness(): void {
     proxyStatusLoadFailed ? "读取失败" : latestProxyStatus === null ? "检查中" : proxyRunning ? "运行中" : "待启动",
   );
   setReadinessStep(
-    "#readiness-ide",
-    "#readiness-ide-value",
-    ideStatusLoadFailed ? "attention" : latestIdeStatus === null ? "pending" : ideReady ? "ready" : "attention",
-    ideStatusLoadFailed
+    "#readiness-entry",
+    "#readiness-entry-value",
+    entryStatusesLoadFailed
+      ? "attention"
+      : entryStatusesLoading
+        ? "pending"
+        : enabledClients.length > 0
+          ? "ready"
+          : "attention",
+    entryStatusesLoadFailed
       ? "读取失败"
-      : latestIdeStatus === null
+      : entryStatusesLoading
         ? "检查中"
-        : !latestIdeStatus.installed
-          ? "未安装"
-          : integrationStateLabel(displayIntegrationState(
-              latestIdeStatus.integrationState,
-              latestIdeStatus.configurationState,
-            )),
+        : enabledClients.length > 0
+          ? `已启用 ${enabledClients.join("、")}`
+          : "选择入口",
   );
   setReadinessStep(
-    "#readiness-app",
-    "#readiness-app-value",
-    appStatusLoadFailed ? "attention" : latestAppStatus === null ? "pending" : appReady ? "ready" : "attention",
-    appStatusLoadFailed
-      ? "读取失败"
-      : latestAppStatus === null
-        ? "检查中"
-        : !latestAppStatus.installed
-          ? "未安装"
-          : integrationStateLabel(displayIntegrationState(
-              latestAppStatus.integrationState,
-              latestAppStatus.configurationState,
-            )),
-  );
-  setReadinessStep(
-    "#readiness-cli",
-    "#readiness-cli-value",
-    cliStatusLoadFailed ? "attention" : latestCliStatus === null ? "pending" : cliReady ? "ready" : "attention",
-    cliStatusLoadFailed
-      ? "读取失败"
-      : latestCliStatus === null
-        ? "检查中"
-        : !latestCliStatus.installed
-          ? "未安装"
-          : integrationStateLabel(displayIntegrationState(
-              latestCliStatus.integrationState,
-              latestCliStatus.configurationState,
-            )),
+    "#readiness-restore",
+    "#readiness-restore-value",
+    "ready",
+    "随时可用",
   );
 
   const title = element<HTMLHeadingElement>("#readiness-title");
   const detail = element<HTMLParagraphElement>("#readiness-detail");
   if (modelCountValue === 0) {
-    title.textContent = "先添加要使用的模型";
-    detail.textContent = "添加模型后，即可在 IDE、App 或 CLI 中接入使用。";
-  } else if (proxyStatusLoadFailed || ideStatusLoadFailed || appStatusLoadFailed || cliStatusLoadFailed) {
+    title.textContent = "第 1 步：先配置上游和模型";
+    detail.textContent = "进入“模型管理”，添加上游服务，获取模型列表并保存需要使用的模型。";
+  } else if (proxyStatusLoadFailed || entryStatusesLoadFailed) {
     title.textContent = "部分运行状态读取失败";
-    detail.textContent = "请使用对应客户端卡片的刷新操作重试。";
-  } else if (latestProxyStatus === null || latestIdeStatus === null || latestAppStatus === null || latestCliStatus === null) {
+    detail.textContent = "请使用对应入口卡片的刷新操作重试。";
+  } else if (latestProxyStatus === null || entryStatusesLoading) {
     title.textContent = "正在确认运行状态…";
-    detail.textContent = `已设置 ${modelCountValue} 个模型。`;
+    detail.textContent = `已配置 ${modelCountValue} 个模型，正在检查代理和入口状态。`;
   } else if (!proxyRunning) {
-    title.textContent = "模型已准备好，请启动代理";
-    detail.textContent = "在右侧卡片点击“启动代理”后，已接入的客户端即可使用自定义模型。";
-  } else if (!ideReady && !appReady && !cliReady) {
-    title.textContent = "选择要接入的客户端";
-    detail.textContent = "在下方卡片中点击“接入模型”即可为对应的 IDE、App 或 CLI 开启自定义模型。";
+    title.textContent = "第 2 步：启动本地代理";
+    detail.textContent = "模型配置已完成。启动代理后，IDE、App 或 CLI 才能使用这些模型。";
+  } else if (enabledClients.length === 0) {
+    title.textContent = "第 3 步：选择要启用的入口";
+    detail.textContent = "在下方选择 IDE、App 或 CLI，点击“启用代理模式”。入口可以单独启用，也可以同时启用多个。";
   } else {
-    const enabledClients = [
-      ideReady ? "IDE" : null,
-      appReady ? "App" : null,
-      cliReady ? "CLI" : null,
-    ].filter((item): item is string => item !== null);
-    title.textContent = `${enabledClients.join("、")} 已接入模型`;
-    detail.textContent = "现在可以直接在已接入的客户端中使用自定义模型。";
+    title.textContent = "代理模式已启用";
+    detail.textContent = "已启用的入口可以使用自定义模型。任何时候都可以恢复对应入口的官方配置。";
   }
 }

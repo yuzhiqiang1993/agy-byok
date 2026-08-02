@@ -275,6 +275,22 @@ export function setActivityItems(items: ActivityItem[]): void {
   renderActivityLog();
 }
 
+export function setActivityLoadFailed(message: string): void {
+  activityItems = [];
+  activitySnapshot = "";
+  const activityCount = element<HTMLSpanElement>("#activity-count");
+  const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
+  const activityList = element<HTMLDivElement>("#activity-list");
+  activityCount.textContent = "读取失败";
+  activityCount.setAttribute("aria-label", "读取失败");
+  setButtonUnavailable(clearActivityButton, true);
+  activityList.replaceChildren();
+  const error = document.createElement("p");
+  error.className = "empty-state error-state";
+  error.textContent = `调用日志读取失败：${message}。可点击刷新重试。`;
+  activityList.append(error);
+}
+
 async function refreshActivityLog(silent = false): Promise<void> {
   if (activityRefreshInFlight) return activityRefreshInFlight;
   const requestVersion = activityRequestVersion;

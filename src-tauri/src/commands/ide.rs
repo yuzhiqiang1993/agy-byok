@@ -1,6 +1,6 @@
 use crate::host::ide_host::{
-    discover_ide_sync, launch_ide_app, restart_ide_app, stop_ide_for_reconfiguration,
-    IdeStatus, ANTIGRAVITY_IDE_PATH,
+    discover_ide_sync, launch_ide_app, restart_ide_app, stop_ide_for_reconfiguration, IdeStatus,
+    ANTIGRAVITY_IDE_PATH,
 };
 use crate::state::{get_active_proxy_endpoint, is_proxy_running, DesktopState};
 use host_integration::{disable_ide_settings, enable_ide_settings};
@@ -21,13 +21,15 @@ pub(crate) async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeSt
 }
 
 #[tauri::command]
-pub(crate) async fn enable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
+pub(crate) async fn enable_ide_integration(
+    state: State<'_, DesktopState>,
+) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
     let endpoint = get_active_proxy_endpoint(&state).await;
     let proxy_running = is_proxy_running(&state).await;
     if !proxy_running {
-        return Err("请先启动 AGY BYOK 本地代理，再启用模型接入".to_string());
+        return Err("请先启动 AGY BYOK 本地代理，再启用代理模式".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
@@ -54,7 +56,7 @@ pub(crate) async fn enable_ide_integration(state: State<'_, DesktopState>) -> Re
         }
         if restart_ide {
             restart_ide_app(app_path, "Antigravity IDE")
-                .map_err(|error| format!("IDE 接入已启用，但自动重启失败：{error}"))?;
+                .map_err(|error| format!("IDE 代理模式已启用，但自动重启失败：{error}"))?;
         }
         discover_ide_sync(&settings_path, &integration_root, &endpoint, proxy_running)
     })
@@ -80,7 +82,7 @@ pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), Str
             );
         }
         if current.integration_state != "disabled" && !proxy_running {
-            return Err("当前 IDE 已接入本地代理，请先启动 AGY BYOK 本地代理".to_string());
+            return Err("当前 IDE 已启用代理模式，请先启动 AGY BYOK 本地代理".to_string());
         }
         launch_ide_app()
     })
@@ -89,7 +91,9 @@ pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), Str
 }
 
 #[tauri::command]
-pub(crate) async fn disable_ide_integration(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
+pub(crate) async fn disable_ide_integration(
+    state: State<'_, DesktopState>,
+) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
     let endpoint = get_active_proxy_endpoint(&state).await;
@@ -118,7 +122,7 @@ pub(crate) async fn disable_ide_integration(state: State<'_, DesktopState>) -> R
         }
         if restart_ide {
             restart_ide_app(app_path, "Antigravity IDE")
-                .map_err(|error| format!("IDE 接入已停用，但自动重启失败：{error}"))?;
+                .map_err(|error| format!("IDE 已恢复官方模式，但自动重启失败：{error}"))?;
         }
         discover_ide_sync(&settings_path, &integration_root, &endpoint, proxy_running)
     })

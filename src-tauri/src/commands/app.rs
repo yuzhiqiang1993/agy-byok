@@ -1,6 +1,6 @@
 use crate::host::app_host::{
-    discover_app_sync, launch_app_app, restart_app_app, stop_app_for_reconfiguration,
-    AppStatus, ANTIGRAVITY_APP_PATH,
+    discover_app_sync, launch_app_app, restart_app_app, stop_app_for_reconfiguration, AppStatus,
+    ANTIGRAVITY_APP_PATH,
 };
 use crate::state::{get_active_proxy_endpoint, is_proxy_running, DesktopState};
 use std::path::Path;
@@ -14,11 +14,13 @@ pub(crate) async fn discover_app(state: State<'_, DesktopState>) -> Result<AppSt
 }
 
 #[tauri::command]
-pub(crate) async fn enable_app_integration(state: State<'_, DesktopState>) -> Result<AppStatus, String> {
+pub(crate) async fn enable_app_integration(
+    state: State<'_, DesktopState>,
+) -> Result<AppStatus, String> {
     let endpoint = get_active_proxy_endpoint(&state).await;
     let proxy_running = is_proxy_running(&state).await;
     if !proxy_running {
-        return Err("请先启动 AGY BYOK 本地代理，再启用 App 接入".to_string());
+        return Err("请先启动 AGY BYOK 本地代理，再启用 App 代理模式".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_APP_PATH);
@@ -42,7 +44,7 @@ pub(crate) async fn enable_app_integration(state: State<'_, DesktopState>) -> Re
         }
         if restart_app {
             restart_app_app(app_path)
-                .map_err(|error| format!("App 接入已启用，但自动重启失败：{error}"))?;
+                .map_err(|error| format!("App 代理模式已启用，但自动重启失败：{error}"))?;
         }
         discover_app_sync(&endpoint, proxy_running)
     })
@@ -67,7 +69,9 @@ pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), Str
 }
 
 #[tauri::command]
-pub(crate) async fn disable_app_integration(state: State<'_, DesktopState>) -> Result<AppStatus, String> {
+pub(crate) async fn disable_app_integration(
+    state: State<'_, DesktopState>,
+) -> Result<AppStatus, String> {
     let endpoint = get_active_proxy_endpoint(&state).await;
     let proxy_running = is_proxy_running(&state).await;
     tauri::async_runtime::spawn_blocking(move || {
@@ -86,7 +90,7 @@ pub(crate) async fn disable_app_integration(state: State<'_, DesktopState>) -> R
         }
         if restart_app {
             restart_app_app(app_path)
-                .map_err(|error| format!("App 接入已停用，但自动重启失败：{error}"))?;
+                .map_err(|error| format!("App 已恢复官方模式，但自动重启失败：{error}"))?;
         }
         discover_app_sync(&endpoint, proxy_running)
     })

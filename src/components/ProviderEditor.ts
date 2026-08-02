@@ -238,6 +238,70 @@ export async function closeProviderEditor(force = false): Promise<boolean> {
   return true;
 }
 
+const PROVIDER_PRESETS: Record<string, { name: string; protocol: ProviderProtocol; baseUrl: string }> = {
+  claude: { name: "Claude 官方", protocol: "anthropic_messages", baseUrl: "https://api.anthropic.com" },
+  openai: { name: "OpenAI 官方", protocol: "openai_chat_completions", baseUrl: "https://api.openai.com/v1" },
+  gemini: { name: "Gemini 官方", protocol: "gemini_generate_content", baseUrl: "https://generativelanguage.googleapis.com" },
+  cpa: { name: "CPA", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8317/v1" },
+  sub2api: { name: "Sub2API", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8080/v1" },
+  deepseek: { name: "DeepSeek", protocol: "openai_chat_completions", baseUrl: "https://api.deepseek.com" },
+  ollama: { name: "Ollama Local", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:11434/v1" },
+  openrouter: { name: "OpenRouter", protocol: "openai_chat_completions", baseUrl: "https://openrouter.ai/api/v1" },
+  modelgate: { name: "ModelGate", protocol: "openai_chat_completions", baseUrl: "https://mg.aid.pub/v1" },
+  groq: { name: "Groq", protocol: "openai_chat_completions", baseUrl: "https://api.groq.com/openai/v1" },
+  github: { name: "GitHub Models", protocol: "openai_chat_completions", baseUrl: "https://models.inference.ai.azure.com" },
+  siliconflow: { name: "SiliconFlow（硅基流动）", protocol: "openai_chat_completions", baseUrl: "https://api.siliconflow.cn/v1" },
+  dashscope: { name: "阿里云百炼", protocol: "openai_chat_completions", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  moonshot: { name: "Moonshot（Kimi）", protocol: "openai_chat_completions", baseUrl: "https://api.moonshot.cn/v1" },
+  mistral: { name: "Mistral", protocol: "openai_chat_completions", baseUrl: "https://api.mistral.ai/v1" },
+  xai: { name: "xAI", protocol: "openai_chat_completions", baseUrl: "https://api.x.ai/v1" },
+  perplexity: { name: "Perplexity", protocol: "openai_chat_completions", baseUrl: "https://api.perplexity.ai" },
+  together: { name: "Together AI", protocol: "openai_chat_completions", baseUrl: "https://api.together.xyz/v1" },
+  fireworks: { name: "Fireworks AI", protocol: "openai_chat_completions", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  cerebras: { name: "Cerebras", protocol: "openai_chat_completions", baseUrl: "https://api.cerebras.ai/v1" },
+  sambanova: { name: "SambaNova", protocol: "openai_chat_completions", baseUrl: "https://api.sambanova.ai/v1" },
+  deepinfra: { name: "DeepInfra", protocol: "openai_chat_completions", baseUrl: "https://api.deepinfra.com/v1/openai" },
+  huggingface: { name: "Hugging Face", protocol: "openai_chat_completions", baseUrl: "https://router.huggingface.co/v1" },
+  novita: { name: "Novita AI", protocol: "openai_chat_completions", baseUrl: "https://api.novita.ai/openai" },
+  zhipu: { name: "智谱 AI", protocol: "openai_chat_completions", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+  minimax: { name: "MiniMax", protocol: "openai_chat_completions", baseUrl: "https://api.minimaxi.com/v1" },
+  hunyuan: { name: "腾讯混元", protocol: "openai_chat_completions", baseUrl: "https://api.hunyuan.cloud.tencent.com/v1" },
+  volcengine: { name: "火山方舟", protocol: "openai_chat_completions", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" },
+  qianfan: { name: "百度千帆", protocol: "openai_chat_completions", baseUrl: "https://qianfan.baidubce.com/v2" },
+  baichuan: { name: "百川智能", protocol: "openai_chat_completions", baseUrl: "https://api.baichuan-ai.com/v1" },
+  yi: { name: "零一万物", protocol: "openai_chat_completions", baseUrl: "https://api.lingyiwanwu.com/v1" },
+  xunfei: { name: "讯飞星火", protocol: "openai_chat_completions", baseUrl: "https://spark-api-open.xf-yun.com/v1" },
+  stepfun: { name: "阶跃星辰", protocol: "openai_chat_completions", baseUrl: "https://api.stepfun.com/v1" },
+  custom: { name: "Custom OpenAI", protocol: "openai_chat_completions", baseUrl: "" },
+};
+
+function setupProviderPresets(): void {
+  const presetContainer = document.querySelector<HTMLElement>("#provider-presets");
+  if (!presetContainer) return;
+
+  const buttons = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-btn");
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const presetKey = button.dataset.preset;
+      if (!presetKey) return;
+      const preset = PROVIDER_PRESETS[presetKey];
+      if (!preset) return;
+
+      element<HTMLInputElement>("#provider-name").value = preset.name;
+      element<HTMLSelectElement>("#protocol").value = preset.protocol;
+      element<HTMLInputElement>("#provider-base-url").value = preset.baseUrl;
+      updateSuggestedEndpoints();
+      setProviderEditorDirty(true);
+
+      for (const item of buttons) item.removeAttribute("data-active");
+      button.setAttribute("data-active", "true");
+
+      if (presetKey !== "ollama") element<HTMLInputElement>("#api-key").focus();
+      else element<HTMLInputElement>("#provider-base-url").focus();
+    });
+  }
+}
+
 function inferProviderBase(provider: Provider): string {
   const suffixes = [
     "/v1/chat/completions",
@@ -923,6 +987,7 @@ async function saveProvider(): Promise<void> {
 }
 
 export function setupProviderEditor(): void {
+  setupProviderPresets();
   const providerForm = element<HTMLFormElement>("#provider-form");
   const saveProviderButton = element<HTMLButtonElement>("#save-provider");
   

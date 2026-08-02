@@ -32,6 +32,7 @@ pub struct CliIntegrationStatus {
     pub state: CliIntegrationState,
     pub cli_path: Option<PathBuf>,
     pub configured_endpoint: Option<String>,
+    pub has_ownership: bool,
     pub endpoint_matches: bool,
     pub shell_configs_updated: Vec<PathBuf>,
     pub message: String,
@@ -88,6 +89,7 @@ pub fn inspect_cli_integration(
                 state: CliIntegrationState::Disabled,
                 cli_path,
                 configured_endpoint: None,
+                has_ownership: false,
                 endpoint_matches: false,
                 shell_configs_updated: Vec::new(),
                 message: "未找到用户 Home 目录，无法检查 CLI 配置文件".to_string(),
@@ -115,8 +117,9 @@ pub fn inspect_cli_integration(
 
     let current_env_ep = std::env::var("CLOUD_CODE_URL").ok();
 
+    let has_ownership = ownership.is_some();
     let state = if let Some(ref ep) = detected_endpoint {
-        if ep == target_endpoint && ownership.is_some() {
+        if ep == target_endpoint && has_ownership {
             CliIntegrationState::Managed
         } else if ep == target_endpoint {
             CliIntegrationState::External
@@ -170,6 +173,7 @@ pub fn inspect_cli_integration(
         state,
         cli_path,
         configured_endpoint,
+        has_ownership,
         endpoint_matches,
         shell_configs_updated: updated_files,
         message,
@@ -286,25 +290,26 @@ fn target_shell_configs_for_write(home: &Path) -> Vec<PathBuf> {
 }
 
 fn extract_endpoint_from_content(content: &str) -> Option<String> {
+    let mut endpoint = None;
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("export CLOUD_CODE_URL=") {
             let val = trimmed.trim_start_matches("export CLOUD_CODE_URL=").trim();
             let val = val.trim_matches('"').trim_matches('\'');
             if !val.is_empty() {
-                return Some(val.to_string());
+                endpoint = Some(val.to_string());
             }
         } else if trimmed.starts_with("set -gx CLOUD_CODE_URL") {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 4 {
                 let val = parts[3].trim_matches('"').trim_matches('\'');
                 if !val.is_empty() {
-                    return Some(val.to_string());
+                    endpoint = Some(val.to_string());
                 }
             }
         }
     }
-    None
+    endpoint
 }
 
 fn update_shell_config_file(
@@ -439,6 +444,17 @@ mod tests {
         assert!(!cleaned.contains(CLI_MARKER_BEGIN));
         assert!(!cleaned.contains("CLOUD_CODE_URL"));
         assert!(cleaned.contains("export PATH=$PATH:~/.local/bin"));
+    }
+
+    #[test]
+    fn test_last_shell_assignment_wins() {
+        let content = format!(
+            "export CLOUD_CODE_URL=\"https://external.example\"\n{CLI_MARKER_BEGIN}\nexport CLOUD_CODE_URL=\"http://127.0.0.1:51234\"\n{CLI_MARKER_END}\n",
+        );
+        assert_eq!(
+            extract_endpoint_from_content(&content),
+            Some("http://127.0.0.1:51234".to_string())
+        );
     }
 
     #[test]

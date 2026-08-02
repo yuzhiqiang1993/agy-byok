@@ -37,11 +37,26 @@ export function renderCli(status: CliStatus): void {
   enableCliBtn.hidden = !status.canEnableIntegration;
   disableCliBtn.hidden = !status.canDisableIntegration;
 
-  enableCliBtn.textContent = "接入模型";
-  disableCliBtn.textContent = "断开接入";
+  enableCliBtn.textContent = "启用代理模式";
+  disableCliBtn.textContent = "恢复官方模式";
 
   setButtonUnavailable(enableCliBtn, !status.canEnableIntegration);
   setButtonUnavailable(disableCliBtn, !status.canDisableIntegration);
+  renderReadiness();
+}
+
+export function renderCliLoadFailure(message: string): void {
+  const state = element<HTMLSpanElement>("#cli-state");
+  const detail = element<HTMLParagraphElement>("#cli-detail");
+  const integrationState = element<HTMLSpanElement>("#cli-integration-state");
+  const integrationDetail = element<HTMLParagraphElement>("#cli-integration-detail");
+
+  state.textContent = "读取失败";
+  state.className = "status-pill error";
+  detail.textContent = `状态读取失败：${message}`;
+  integrationState.textContent = "读取失败";
+  integrationState.className = "status-pill error";
+  integrationDetail.textContent = `状态读取失败：${message}`;
   renderReadiness();
 }
 
@@ -51,17 +66,29 @@ export function setupCliCard(): void {
 
   enableCliButton.addEventListener("click", () => {
     void (async () => {
+      const current = store.cliStatus;
+      const needsReconfiguration = current?.integrationState === "mismatch"
+        || current?.configurationState === "needs_update";
+      const alreadyEnabled = current?.integrationState === "managed" && !needsReconfiguration;
       const status = await withClientBusy(enableCliButton, "cli", async () => {
-        const confirmMsg = "接入模型后将在 Shell 配置文件 (~/.zshrc 等) 中自动配置 CLOUD_CODE_URL 环境变量。新终端窗口即可直接调用自定义模型。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认接入 Antigravity CLI", "确认接入", "取消")) return null;
+        const confirmMsg = needsReconfiguration
+          ? "当前 CLI 的代理配置需要更新，继续后会重新设置 Shell 配置；开启新终端或重新加载 Shell 后生效。是否继续？"
+          : alreadyEnabled
+            ? "当前 CLI 已启用代理模式，无需重复设置。是否继续？"
+            : "启用代理模式后会在 Shell 配置文件 (~/.zshrc 等) 中配置 CLOUD_CODE_URL。是否继续？";
+        if (!await confirmHostAction(confirmMsg, "确认启用代理模式", "启用代理", "取消")) return null;
   
-        showNotice("正在配置 CLI 接入…");
+        showNotice("正在启用 CLI 代理模式…");
         return invoke<CliStatus>("enable_cli_integration");
       });
       if (status === null) return;
       if (status) {
         renderCli(status);
-        showNotice("CLI 已成功接入模型；开启新终端窗口或 source Shell 配置后生效");
+        showNotice(alreadyEnabled && status.integrationState === "managed"
+          ? "CLI 当前已经启用代理模式，无需重复设置"
+          : needsReconfiguration
+            ? "CLI 代理配置已更新；请开启新终端或重新加载 Shell"
+            : "CLI 已启用代理模式；请开启新终端或重新加载 Shell");
       } else if (store.cliStatus) {
         try {
           await refreshCli();
@@ -75,16 +102,16 @@ export function setupCliCard(): void {
   disableCliButton.addEventListener("click", () => {
     void (async () => {
       const status = await withClientBusy(disableCliButton, "cli", async () => {
-        const confirmMsg = "断开接入后将从 Shell 配置文件中安全移除 AGY BYOK 变量注入，恢复 CLI 默认运行模式。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认断开 Antigravity CLI 接入", "确认断开", "取消")) return null;
+        const confirmMsg = "将恢复 CLI 的官方 Shell 配置并移除 AGY BYOK 设置。已打开的终端需要重新加载 Shell 配置。是否继续？";
+        if (!await confirmHostAction(confirmMsg, "确认恢复官方模式", "恢复官方模式", "取消")) return null;
   
-        showNotice("正在断开 CLI 接入…");
+        showNotice("正在恢复 CLI 官方模式…");
         return invoke<CliStatus>("disable_cli_integration");
       });
       if (status === null) return;
       if (status) {
         renderCli(status);
-        showNotice("CLI 已断开模型接入");
+        showNotice("CLI 已恢复官方模式；请重新加载 Shell 配置");
       } else if (store.cliStatus) {
         try {
           await refreshCli();

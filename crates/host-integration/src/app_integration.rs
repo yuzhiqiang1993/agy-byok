@@ -675,7 +675,8 @@ mod tests {
         assert_eq!(mismatch.state, AppIntegrationState::Mismatch);
         assert_eq!(mismatch.configured_endpoint.as_deref(), Some(endpoint));
 
-        let disabled = disable_app_integration(&fixture.app_path, endpoint).unwrap();
+        let disabled =
+            disable_app_integration(&fixture.app_path, "http://127.0.0.1:56067").unwrap();
         assert_eq!(disabled.state, AppIntegrationState::Disabled);
         assert!(!fixture
             .app_path
