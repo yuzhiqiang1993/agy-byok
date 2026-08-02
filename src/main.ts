@@ -2388,16 +2388,6 @@ async function saveProvider(): Promise<void> {
   await executeProviderSave(plan);
 }
 
-function activityMetric(label: string, value: string): HTMLDivElement {
-  const metric = document.createElement("div");
-  const term = document.createElement("dt");
-  term.textContent = label;
-  const detail = document.createElement("dd");
-  detail.textContent = value;
-  metric.append(term, detail);
-  return metric;
-}
-
 function formatActivityTime(timestampMs: number): { label: string; dateTime: string | null } {
   const date = new Date(timestampMs);
   if (Number.isNaN(date.getTime())) return { label: "时间未知", dateTime: null };
@@ -2461,9 +2451,11 @@ function resolveActivityContext(item: ActivityItem): {
   };
 }
 
-function formatTokenUsage(item: ActivityItem): string {
-  if (item.promptTokens === null && item.completionTokens === null) return "—";
-  return `输入 ${item.promptTokens ?? "—"} · 输出 ${item.completionTokens ?? "—"}`;
+function formatNumberCompact(num: number | null): string {
+  if (num === null || num === undefined) return "—";
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 10_000) return `${(num / 1_000).toFixed(1)}k`;
+  return num.toLocaleString();
 }
 
 function renderActivityLog(): void {
@@ -2496,74 +2488,94 @@ function renderActivityLog(): void {
     const context = resolveActivityContext(item);
     const card = document.createElement("article");
     card.className = `activity-item ${failed ? "error" : "success"}`;
+
     const heading = document.createElement("div");
     heading.className = "activity-item-heading";
+
+    const mainGroup = document.createElement("div");
+    mainGroup.className = "activity-item-main";
+
     const timestamp = document.createElement("time");
     const formattedTime = formatActivityTime(item.timestampMs);
+    timestamp.className = "activity-time";
     timestamp.textContent = formattedTime.label;
     if (formattedTime.dateTime) timestamp.dateTime = formattedTime.dateTime;
+
+    const path = document.createElement("div");
+    path.className = "activity-path";
+
+    const reqCode = document.createElement("code");
+    reqCode.textContent = context.requestedName;
+    reqCode.title = item.requestedVirtualModelId ?? item.virtualModelId;
+
+    const arrow = document.createElement("span");
+    arrow.className = "activity-path-arrow";
+    arrow.textContent = "──➔";
+
+    const targetCode = document.createElement("span");
+    targetCode.className = "activity-path-target";
+    targetCode.textContent = `${context.providerName} (${context.upstreamName})`;
+    targetCode.title = `实际上游: ${context.upstreamName} / 协议: ${providerProtocolLabel(item.providerProtocol)}`;
+
+    path.append(reqCode, arrow, targetCode);
+    mainGroup.append(timestamp, path);
+
+    const statusGroup = document.createElement("div");
+    statusGroup.className = "activity-status-group";
+
+    const latency = document.createElement("span");
+    const speedClass = item.durationMs < 1000 ? "fast" : item.durationMs < 4000 ? "medium" : "slow";
+    latency.className = `activity-latency ${speedClass}`;
+    latency.textContent = formatDuration(item.durationMs);
+
     const status = document.createElement("span");
-    status.className = `status-pill ${failed ? "error" : "success"}`;
+    status.className = `status-pill ${failed ? "error" : item.fallbackSucceeded ? "accent" : "success"}`;
+    const httpText = item.statusCode > 0 ? String(item.statusCode) : "无响应";
     status.textContent = failed
-      ? item.fallbackAttempted ? "失败 · Fallback 未成功" : "失败"
-      : item.fallbackSucceeded ? "成功 · Fallback" : "成功";
-    heading.append(timestamp, status);
+      ? `${httpText} · 失败`
+      : item.fallbackSucceeded
+        ? `${httpText} · Fallback`
+        : `${httpText} OK`;
 
-    const route = document.createElement("div");
-    route.className = "activity-route";
-    for (const [label, value, title] of [
-      ["模型入口", context.requestedName, item.requestedVirtualModelId ?? item.virtualModelId],
-      ["实际路由", context.actualRouteName, item.virtualModelId],
-      ["实际上游", context.upstreamName, item.upstreamModelId ?? ""],
-      ["上游服务 / 协议", `${context.providerName} / ${providerProtocolLabel(item.providerProtocol)}`, item.providerId],
-    ]) {
-      const entry = document.createElement("div");
-      const entryLabel = document.createElement("span");
-      entryLabel.textContent = label;
-      const entryValue = document.createElement("code");
-      entryValue.textContent = value;
-      entryValue.title = title;
-      entry.append(entryLabel, entryValue);
-      route.append(entry);
-    }
+    statusGroup.append(latency, status);
+    heading.append(mainGroup, statusGroup);
 
-    const durationMetric = activityMetric("耗时", formatDuration(item.durationMs));
-    const durationDd = durationMetric.querySelector("dd");
-    if (durationDd) {
-      const badge = document.createElement("span");
-      if (item.durationMs < 800) {
-        badge.className = "latency-badge latency-fast";
-        badge.textContent = " 极速";
-      } else if (item.durationMs < 2000) {
-        badge.className = "latency-badge latency-medium";
-        badge.textContent = " 正常";
-      } else {
-        badge.className = "latency-badge latency-slow";
-        badge.textContent = " 较高";
-      }
-      durationDd.append(" ", badge);
-    }
+    const pillsRow = document.createElement("div");
+    pillsRow.className = "activity-pills-row";
 
-    const metrics = document.createElement("dl");
-    metrics.className = "activity-metrics";
-    metrics.append(
-      activityMetric("请求", item.stream ? "流式" : "非流式"),
-      activityMetric("消息", String(item.messageCount)),
-      activityMetric("工具", String(item.toolCount)),
-      durationMetric,
-      activityMetric("HTTP", item.statusCode > 0 ? String(item.statusCode) : "无响应"),
-      activityMetric(
-        "路由",
-        item.fallbackAttempted
-          ? item.fallbackSucceeded ? "Fallback 成功" : "Fallback 尝试失败"
-          : "主模型",
-      ),
-    );
+    const providerPill = document.createElement("span");
+    providerPill.className = "activity-pill";
+    providerPill.textContent = `${context.providerName} / ${providerProtocolLabel(item.providerProtocol)}`;
+
+    const typePill = document.createElement("span");
+    typePill.className = "activity-pill";
+    typePill.textContent = item.stream ? "流式" : "非流式";
+
+    const countPill = document.createElement("span");
+    countPill.className = "activity-pill";
+    countPill.textContent = `${item.messageCount} 消息 · ${item.toolCount} 工具`;
+
+    pillsRow.append(providerPill, typePill, countPill);
+
     if (item.promptTokens !== null || item.completionTokens !== null) {
-      metrics.append(activityMetric("Token", formatTokenUsage(item)));
+      const tokenPill = document.createElement("span");
+      tokenPill.className = "activity-pill accent";
+      const pFormat = formatNumberCompact(item.promptTokens);
+      const cFormat = formatNumberCompact(item.completionTokens);
+      tokenPill.textContent = `TOKEN: ${pFormat} 输入 · ${cFormat} 输出`;
+      tokenPill.title = `输入 ${item.promptTokens ?? "—"} · 输出 ${item.completionTokens ?? "—"}`;
+      pillsRow.append(tokenPill);
     }
 
-    card.append(heading, route, metrics);
+    if (item.fallbackAttempted) {
+      const fbPill = document.createElement("span");
+      fbPill.className = `activity-pill ${item.fallbackSucceeded ? "accent" : "warning"}`;
+      fbPill.textContent = item.fallbackSucceeded ? "Fallback 降级成功" : "Fallback 降级失败";
+      pillsRow.append(fbPill);
+    }
+
+    card.append(heading, pillsRow);
+
     if (failed) {
       const error = document.createElement("div");
       error.className = "activity-error";
@@ -2574,11 +2586,11 @@ function renderActivityLog(): void {
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "quiet activity-copy-error";
-      copy.textContent = "复制错误";
+      copy.textContent = "复制错误诊断";
       copy.addEventListener("click", () => {
         const text = [
           `时间: ${formattedTime.label}`,
-          `模型入口: ${context.requestedName}`,
+          `请求模型: ${context.requestedName}`,
           `实际路由: ${context.actualRouteName}`,
           `实际上游: ${context.upstreamName}`,
           `上游服务: ${context.providerName}`,
@@ -2598,7 +2610,10 @@ function renderActivityLog(): void {
     }
     activityList.append(card);
   }
-  if (!nearTop) {
+
+  if (nearTop) {
+    activityList.scrollTop = 0;
+  } else {
     activityList.scrollTop = oldScrollTop + (activityList.scrollHeight - oldScrollHeight);
   }
 }
