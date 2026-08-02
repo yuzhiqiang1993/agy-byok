@@ -146,9 +146,7 @@ pub fn inspect_app_integration(
                     "检测到旧版 AGY BYOK Wrapper，App 将使用本地代理 {endpoint}；停用后重新启用可生成新的安全凭据"
                 )
             } else {
-                format!(
-                    "检测到旧版 AGY BYOK Wrapper，当前地址为其他代理；更新或停用后可迁移到安全凭据"
-                )
+                "检测到旧版 AGY BYOK Wrapper，当前地址为其他代理；更新或停用后可迁移到安全凭据".to_string()
             },
         });
     }

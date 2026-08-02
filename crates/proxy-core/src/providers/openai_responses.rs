@@ -292,13 +292,11 @@ impl OpenAIResponsesStreamDecoder {
     }
 
     fn tool_state_mut(&mut self, index: u32) -> &mut ResponsesToolState {
-        if !self.tools.contains_key(&index) {
-            self.tools.insert(index, ResponsesToolState::default());
-            self.tool_order.push(index);
-        }
-        self.tools
-            .get_mut(&index)
-            .expect("Responses tool state must exist after insertion")
+        let tool_order = &mut self.tool_order;
+        self.tools.entry(index).or_insert_with(|| {
+            tool_order.push(index);
+            ResponsesToolState::default()
+        })
     }
 
     fn update_tool_metadata(&mut self, index: u32, item: &Value) {
