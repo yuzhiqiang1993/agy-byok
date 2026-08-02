@@ -57,7 +57,7 @@ export function renderReadiness(): void {
     "#readiness-models",
     "#readiness-models-value",
     modelCountValue > 0 ? "ready" : "attention",
-    modelCountValue > 0 ? `${modelCountValue} 个模型` : "去配置 →",
+    modelCountValue > 0 ? `${modelCountValue} 个配置` : "去配置 →",
   );
   setReadinessStep(
     "#readiness-proxy",

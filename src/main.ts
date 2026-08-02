@@ -16,6 +16,7 @@ import { setActivityItems, setActivityLoadFailed, setupActivityList } from "./co
 import { showNotice, setupNoticeBar } from "./components/NoticeBar";
 import { initThemeManager } from "./components/ThemeManager";
 import { setupTabManager } from "./components/TabManager";
+import { setupSettingsView } from "./components/SettingsView";
 import { errorMessage } from "./utils/domUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
 import { refreshHostStatuses } from "./components/HostRefresh";
@@ -29,6 +30,7 @@ setupProviderEditor();
 setupActivityList();
 initThemeManager();
 setupTabManager();
+setupSettingsView();
 setupReasoningModal();
 setupReadinessPanel();
 
@@ -46,6 +48,8 @@ async function initialize(): Promise<void> {
   if (configResult.status === "fulfilled") {
     store.setConfig(configResult.value);
     renderProviders();
+    const portInput = document.querySelector<HTMLInputElement>("#settings-proxy-port");
+    if (portInput) portInput.value = String(configResult.value.proxy_port);
   } else {
     failures.push("上游服务配置");
     const providerList = document.querySelector<HTMLDivElement>("#provider-list");

@@ -961,7 +961,7 @@ async function saveProvider(): Promise<void> {
     : nextVirtuals;
   const finalVirtualModels = [...remainingVirtuals, ...providerVirtuals];
   const nextConfig: AppConfig = {
-    proxy_port: store.config?.proxy_port ?? 51234,
+    proxy_port: store.config?.proxy_port ?? 54321,
     providers,
     upstream_models: [...remainingUpstreams, ...nextUpstreams],
     virtual_models: finalVirtualModels,

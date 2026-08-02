@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Stylized A Body -->
+  <path d="M 28 72 C 22 72 20 66 26 52 L 40 22 C 43 15 48 15 51 21 L 57 32" stroke="#2563eb" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Sparkle inside A -->
+  <path d="M 40 29 C 40 33 36 33 36 33 C 36 33 40 33 40 37 C 40 33 44 33 44 33 C 44 33 40 33 40 29 Z" fill="#2563eb"/>
+  
+  <!-- Circuit Line 1 (Top right) -->
+  <path d="M 48 19 C 56 19 57 11 67 11 L 70 11" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="76" cy="11" r="4.5" fill="none" stroke="#2563eb" stroke-width="4"/>
+
+  <!-- Circuit Line 2 (Middle top) -->
+  <path d="M 48 33 C 54 33 60 25 73 25 L 75 25" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="81" cy="25" r="4.5" fill="none" stroke="#2563eb" stroke-width="4"/>
+
+  <!-- 3 Dots -->
+  <circle cx="67" cy="37" r="2" fill="#2563eb"/>
+  <circle cx="74" cy="37" r="2" fill="#2563eb"/>
+  <circle cx="81" cy="37" r="2" fill="#2563eb"/>
+
+  <!-- Circuit Line 3 (Middle bottom) -->
+  <path d="M 39 42 C 44 42 47 34 54 34 C 62 34 66 48 76 48 L 78 48" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
+  <rect x="77" y="44" width="8" height="8" rx="2" fill="#2563eb"/>
+
+  <!-- Circuit Line 4 (Bottom) -->
+  <path d="M 32 54 C 42 54 48 68 67 68 L 73 68" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
+  <rect x="73" y="64" width="8" height="8" rx="2" fill="#2563eb"/>
+</svg>

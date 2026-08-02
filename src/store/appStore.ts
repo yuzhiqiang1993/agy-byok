@@ -7,7 +7,7 @@ type Listener = () => void;
 
 class AppStore {
   // Config
-  private _config: AppConfig = { proxy_port: 51234, providers: [], upstream_models: [], virtual_models: [] };
+  private _config: AppConfig = { proxy_port: 54321, providers: [], upstream_models: [], virtual_models: [] };
   
   // Proxy
   private _proxyStatus: ProxyStatus | null = null;

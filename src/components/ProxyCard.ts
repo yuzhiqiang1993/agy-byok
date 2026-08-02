@@ -20,7 +20,7 @@ export function renderProxy(status: ProxyStatus): void {
   const running = status.state === "running";
   state.textContent = running ? "运行中" : "已停止";
   state.className = `status-pill ${running ? "success" : "neutral"}`;
-  address.textContent = status.address ?? `127.0.0.1:${store.config?.proxy_port ?? 51234}`;
+  address.textContent = status.address ?? `127.0.0.1:${store.config?.proxy_port ?? 54321}`;
 
   // 1. 代理状态微光脉冲呼吸灯
   const glowDot = document.querySelector("#proxy-glow-dot");

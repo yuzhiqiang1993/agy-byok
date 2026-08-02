@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-pub const DEFAULT_PROXY_PORT: u16 = 51234;
+pub const DEFAULT_PROXY_PORT: u16 = 54321;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

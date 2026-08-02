@@ -14,6 +14,10 @@ const tabCopy: Record<string, { title: string; description: string }> = {
     title: "调用日志",
     description: "查看请求路由、Token 用量与失败详情。",
   },
+  "tab-settings": {
+    title: "应用设置",
+    description: "管理本地代理服务端口、配置文件与应用关于信息。",
+  },
 };
 
 export async function switchTab(targetId: string): Promise<void> {

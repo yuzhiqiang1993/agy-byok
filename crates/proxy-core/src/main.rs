@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .update_config(config_store.get_config())
             .map_err(std::io::Error::other)?;
     }
-    let server = Arc::new(ProxyServer::new(config_store, 51234));
+    let server = Arc::new(ProxyServer::new(config_store, 54321));
     let options = HttpServerOptions {
         official_cloud_code_endpoint: Some("https://daily-cloudcode-pa.googleapis.com".to_string()),
         ..HttpServerOptions::default()

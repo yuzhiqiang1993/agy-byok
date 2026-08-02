@@ -33,6 +33,8 @@ pub fn run() {
             commands::ide::launch_ide,
             commands::ide::disable_ide_integration,
             commands::util::open_path,
+            commands::util::open_config_dir,
+            commands::util::open_external_url,
             commands::app::discover_app,
             commands::app::enable_app_integration,
             commands::app::launch_app,
