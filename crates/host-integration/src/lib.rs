@@ -1,4 +1,5 @@
 mod app_integration;
+mod cli_integration;
 mod discovery;
 mod error;
 mod ide_settings;
@@ -9,6 +10,10 @@ mod transaction;
 pub use app_integration::{
     disable_app_integration, enable_app_integration, inspect_app_integration, AppIntegrationState,
     AppIntegrationStatus, DEFAULT_ANTIGRAVITY_APP_PATH,
+};
+pub use cli_integration::{
+    disable_cli_integration, enable_cli_integration, inspect_cli_integration, CliIntegrationState,
+    CliIntegrationStatus, CLI_MARKER_BEGIN, CLI_MARKER_END, CLI_OWNERSHIP_FILE,
 };
 pub use discovery::{discover, HostInstallation};
 pub use error::HostIntegrationError;
