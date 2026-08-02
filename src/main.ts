@@ -146,10 +146,14 @@ interface ProviderCatalogModel {
   reasoning?: ProviderCatalogReasoning;
 }
 
+type ClientIntegrationState = "official" | "managed" | "external" | "mismatch" | "conflict" | "unavailable";
+type ClientConfigurationState = "not_enabled" | "matched" | "not_running" | "service_stopped" | "needs_update" | "checking" | "unavailable";
+
 interface IdeStatus {
   installed: boolean;
   compatible: boolean;
   ideRunning: boolean;
+  proxyRunning: boolean;
 
   state: "not_installed" | "vendor_original" | "patched" | "modified" | "incompatible";
   appPath: string;
@@ -157,11 +161,30 @@ interface IdeStatus {
   extensionVersion: string | null;
   extensionSha256: string | null;
   message: string;
-  integrationState: "disabled" | "enabled" | "external";
+  integrationState: ClientIntegrationState;
   settingsPath: string;
   integrationMessage: string;
+  configurationState: ClientConfigurationState;
+  configurationMessage: string;
   canEnableIntegration: boolean;
   canLaunchIde: boolean;
+  canDisableIntegration: boolean;
+}
+
+interface AppStatus {
+  installed: boolean;
+  appRunning: boolean;
+  proxyRunning: boolean;
+  appPath: string;
+  appVersion: string | null;
+  lsPath: string;
+  integrationState: ClientIntegrationState;
+  integrationMessage: string;
+  configurationState: ClientConfigurationState;
+  configurationMessage: string;
+  configuredEndpoint: string | null;
+  canEnableIntegration: boolean;
+  canLaunchApp: boolean;
   canDisableIntegration: boolean;
 }
 
@@ -181,8 +204,10 @@ let config: AppConfig = {
 };
 let latestProxyStatus: ProxyStatus | null = null;
 let latestIdeStatus: IdeStatus | null = null;
+let latestAppStatus: AppStatus | null = null;
 let proxyStatusLoadFailed = false;
 let ideStatusLoadFailed = false;
+let appStatusLoadFailed = false;
 let noticeTimer: number | null = null;
 let editingProviderId: string | null = null;
 let draftProviderId = `provider-${crypto.randomUUID()}`;
@@ -194,6 +219,7 @@ let catalogVisionEnabledModelIds = new Set<string>();
 let catalogToolsEnabledModelIds = new Set<string>();
 let catalogReasoningEnabledModelIds = new Set<string>();
 let activeReasoningModel: ProviderCatalogModel | null = null;
+let activeProviderTabId: string | null = null;
 let draftReasoningLevels = new Set<ConfigurableReasoningLevel>();
 let changedCatalogCapabilityModelIds = new Set<string>();
 let changedCatalogReasoningModelIds = new Set<string>();
@@ -277,9 +303,112 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function confirmHostAction(message: string, title: string): Promise<boolean> {
+  try {
+    return await confirm(message, { title, kind: "warning" });
+  } catch (error) {
+    console.error("Native confirm failed:", error);
+    return window.confirm(message);
+  }
+}
+
 function setButtonUnavailable(button: HTMLButtonElement, unavailable: boolean): void {
   button.dataset.unavailable = String(unavailable);
   if (button.dataset.busy !== "true") button.disabled = unavailable;
+}
+
+function integrationStateLabel(state: ClientIntegrationState): string {
+  return {
+    official: "未启用",
+    managed: "已启用",
+    external: "已启用",
+    mismatch: "需要更新",
+    conflict: "无法修改",
+    unavailable: "未找到应用",
+  }[state];
+}
+
+function integrationStateClass(state: ClientIntegrationState): string {
+  if (state === "managed" || state === "external") return "success";
+  if (state === "mismatch") return "warning";
+  if (state === "conflict") return "error";
+  return "neutral";
+}
+
+function displayIntegrationState(
+  integrationState: ClientIntegrationState,
+  configurationState: ClientConfigurationState,
+): ClientIntegrationState {
+  return configurationState === "needs_update" ? "mismatch" : integrationState;
+}
+
+function clientStatusMessage(
+  integrationState: ClientIntegrationState,
+  configurationState: ClientConfigurationState,
+  configurationMessage: string,
+): string {
+  if (configurationMessage) return configurationMessage;
+  if (configurationState === "needs_update") return "配置需要更新，请重新启用模型";
+  if (configurationState === "service_stopped") return "模型已启用，请先启动本地服务";
+  if (configurationState === "not_running") return "配置正常，启动应用后生效";
+  if (configurationState === "checking") return "正在检查配置…";
+  if (configurationState === "not_enabled") return "当前未启用模型";
+  if (configurationState === "matched") return "配置正常";
+  if (integrationState === "conflict") return "暂时无法修改，请关闭应用后刷新再试";
+  return "未找到应用";
+}
+
+function clientConfigurationReady(state: ClientConfigurationState): boolean {
+  return state === "matched" || state === "not_running";
+}
+
+function clientErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  if (message.includes("请先启动") || message.includes("本地代理")) {
+    return "请先启动本地服务。";
+  }
+  if (/App 接入|IDE settings|invalid application bundle|language_server|Wrapper|settings\.json/i.test(message)) {
+    return "暂时无法修改，请关闭应用后刷新再试。";
+  }
+  return message;
+}
+
+function clientReady(state: ClientIntegrationState): boolean {
+  return state === "managed" || state === "external";
+}
+
+function clientActionButtons(client: "ide" | "app"): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>(`#${client}-actions button`));
+}
+
+async function withClientBusy<T>(
+  button: HTMLButtonElement,
+  client: "ide" | "app",
+  action: () => Promise<T>,
+  busyLabel = "处理中…",
+): Promise<T | undefined> {
+  if (button.dataset.busy === "true") return undefined;
+  const buttons = clientActionButtons(client);
+  if (buttons.some((item) => item.dataset.busy === "true")) return undefined;
+  const labels = new Map(buttons.map((item) => [item, item.textContent ?? ""]));
+  buttons.forEach((item) => {
+    item.dataset.busy = "true";
+    item.disabled = true;
+  });
+  button.textContent = busyLabel;
+  let result: T | undefined;
+  try {
+    result = await action();
+  } catch (error) {
+    showNotice(clientErrorMessage(error), "error");
+  } finally {
+    buttons.forEach((item) => {
+      item.dataset.busy = "false";
+      item.textContent = labels.get(item) ?? item.textContent;
+      item.disabled = item.dataset.unavailable === "true";
+    });
+  }
+  return result;
 }
 
 function setReadinessStep(
@@ -294,11 +423,16 @@ function setReadinessStep(
 
 function renderReadiness(): void {
   const modelCountValue = config.virtual_models.length;
-  const upstreamCountValue = config.upstream_models.length;
   const proxyRunning = latestProxyStatus?.state === "running";
   const ideReady = latestIdeStatus
     ? latestIdeStatus.compatible
-      && latestIdeStatus.integrationState !== "disabled"
+      && clientReady(latestIdeStatus.integrationState)
+      && clientConfigurationReady(latestIdeStatus.configurationState)
+    : false;
+  const appReady = latestAppStatus
+    ? latestAppStatus.installed
+      && latestAppStatus.integrationState === "managed"
+      && clientConfigurationReady(latestAppStatus.configurationState)
     : false;
 
   setReadinessStep(
@@ -321,9 +455,27 @@ function renderReadiness(): void {
       ? "读取失败"
       : latestIdeStatus === null
         ? "检查中"
-      : ideReady
-        ? latestIdeStatus.integrationState === "external" ? "外部接入" : "已接入"
-        : "待启用",
+        : !latestIdeStatus.installed
+          ? "未安装"
+          : integrationStateLabel(displayIntegrationState(
+              latestIdeStatus.integrationState,
+              latestIdeStatus.configurationState,
+            )),
+  );
+  setReadinessStep(
+    "#readiness-app",
+    "#readiness-app-value",
+    appStatusLoadFailed ? "attention" : latestAppStatus === null ? "pending" : appReady ? "ready" : "attention",
+    appStatusLoadFailed
+      ? "读取失败"
+      : latestAppStatus === null
+        ? "检查中"
+        : !latestAppStatus.installed
+          ? "未安装"
+          : integrationStateLabel(displayIntegrationState(
+              latestAppStatus.integrationState,
+              latestAppStatus.configurationState,
+            )),
   );
 
   const title = element<HTMLHeadingElement>("#readiness-title");
@@ -331,42 +483,60 @@ function renderReadiness(): void {
   readinessActionButton.hidden = false;
   readinessActionButton.onclick = null;
   if (modelCountValue === 0) {
-    title.textContent = "先添加上游服务并选择模型";
-    detail.textContent = "读取上游模型列表，再选择要接入 IDE 的模型。";
-    readinessActionButton.textContent = "添加第一个上游服务";
+    title.textContent = "先添加要使用的模型";
+    detail.textContent = "添加模型后，就可以在 IDE 或 App 中启用。";
+    readinessActionButton.textContent = "添加模型";
     readinessActionButton.onclick = () => {
       switchTab("tab-models");
       openProviderEditor();
     };
-  } else if (proxyStatusLoadFailed || ideStatusLoadFailed) {
+  } else if (proxyStatusLoadFailed || ideStatusLoadFailed || appStatusLoadFailed) {
     title.textContent = "部分运行状态读取失败";
-    detail.textContent = "请使用对应卡片的刷新操作重试。";
+    detail.textContent = "请使用对应客户端卡片的刷新操作重试。";
     readinessActionButton.hidden = true;
-  } else if (latestProxyStatus === null || latestIdeStatus === null) {
-    title.textContent = "正在确认运行状态…";
-    detail.textContent = `已配置 ${upstreamCountValue} 个上游模型、${modelCountValue} 个 IDE 入口。`;
+  } else if (latestProxyStatus === null || latestIdeStatus === null || latestAppStatus === null) {
+    title.textContent = "正在准备…";
+    detail.textContent = `已设置 ${modelCountValue} 个模型。`;
     readinessActionButton.hidden = true;
   } else if (!proxyRunning) {
-    title.textContent = "模型已就绪，下一步启动代理";
-    detail.textContent = "代理启动后，IDE 才能访问自定义模型。";
-    readinessActionButton.textContent = "启动本地代理";
+    title.textContent = "模型已准备好，请启动服务";
+    detail.textContent = "启动服务后，已启用的 IDE 或 App 才能使用这些模型。";
+    readinessActionButton.textContent = "启动服务";
     readinessActionButton.onclick = () => void withBusy(readinessActionButton, startProxy);
-  } else if (!ideReady) {
-    title.textContent = "代理已就绪，下一步启用模型注入";
-    detail.textContent = latestIdeStatus.ideRunning
-      ? "启用时应用会安全更新用户设置并自动重启 IDE。"
-      : "启用只会管理 jetski.cloudCodeUrl，不修改厂商 App。";
-    readinessActionButton.textContent = latestIdeStatus.ideRunning ? "启用并重启 IDE" : "启用模型注入";
-    readinessActionButton.onclick = () => enableIdeIntegrationButton.click();
-  } else if (latestIdeStatus.ideRunning) {
-    title.textContent = "一切就绪，Antigravity IDE 正在运行";
-    detail.textContent = "IDE 模型请求将通过本地代理发送到你的上游服务。";
+  } else if (!ideReady && !appReady) {
+    const canEnableIde = latestIdeStatus.canEnableIntegration;
+    const canEnableApp = latestAppStatus.canEnableIntegration;
+    if (canEnableIde) {
+      title.textContent = "选择一个应用启用模型";
+      detail.textContent = latestIdeStatus.ideRunning
+        ? "启用后会自动重启正在运行的 IDE。"
+        : "启用后，IDE 就可以使用自定义模型。";
+      readinessActionButton.textContent = latestIdeStatus.ideRunning ? "启用并重启 IDE" : "启用 IDE";
+      readinessActionButton.onclick = () => enableIdeIntegrationButton.click();
+    } else if (canEnableApp) {
+      title.textContent = "选择一个应用启用模型";
+      detail.textContent = latestAppStatus.appRunning
+        ? "启用后会自动重启正在运行的 App。"
+        : "启用后，App 就可以使用自定义模型。";
+      readinessActionButton.textContent = latestAppStatus.appRunning ? "启用并重启 App" : "启用 App";
+      readinessActionButton.onclick = () => enableAppButton.click();
+    } else {
+      title.textContent = "暂时无法启用模型";
+      detail.textContent = "请确认 IDE 或 App 已安装，然后刷新状态。";
+      readinessActionButton.hidden = true;
+    }
+  } else if ((ideReady && latestIdeStatus.ideRunning) || (appReady && latestAppStatus.appRunning)) {
+    const runningClients = [
+      ideReady && latestIdeStatus.ideRunning ? "IDE" : null,
+      appReady && latestAppStatus.appRunning ? "App" : null,
+    ].filter((item): item is string => item !== null);
+    title.textContent = `${runningClients.join("、")} 已启用模型`;
+    detail.textContent = "现在可以直接使用自定义模型。";
     readinessActionButton.hidden = true;
   } else {
-    title.textContent = "接入已就绪，可以启动 Antigravity IDE";
-    detail.textContent = "启动后即可在模型列表中选择自定义模型。";
-    readinessActionButton.textContent = "启动 Antigravity IDE";
-    readinessActionButton.onclick = () => launchIdeButton.click();
+    title.textContent = "模型已启用";
+    detail.textContent = "应用当前未运行，可以从下方启动。";
+    readinessActionButton.hidden = true;
   }
 }
 
@@ -411,7 +581,7 @@ function refreshProviderEditorControls(): void {
   cancelProviderButton.disabled = providerEditorBusy;
   if (!providerEditorBusy) {
     saveProviderButton.textContent = pendingProviderSavePlan
-      ? `确认保存并移除 ${pendingProviderSavePlan.summary.removedVirtualModels.length} 个 IDE 入口`
+      ? `确认保存并移除 ${pendingProviderSavePlan.summary.removedVirtualModels.length} 个模型入口`
       : "保存上游服务";
   }
 }
@@ -475,17 +645,6 @@ function renderProxy(status: ProxyStatus): void {
     }
   }
 
-  // 2. 顶部端口同步呈现
-  const topPortBadge = document.querySelector("#top-port-badge");
-  if (topPortBadge) {
-    if (running) {
-      topPortBadge.textContent = `PORT ${config.proxy_port}`;
-      topPortBadge.removeAttribute("hidden");
-    } else {
-      topPortBadge.setAttribute("hidden", "true");
-    }
-  }
-
   stopProxyButton.hidden = !running;
   setButtonUnavailable(stopProxyButton, !running);
   renderReadiness();
@@ -503,57 +662,34 @@ function renderIde(status: IdeStatus): void {
   ideStatusLoadFailed = false;
   const state = element<HTMLSpanElement>("#ide-state");
   const detail = element<HTMLParagraphElement>("#ide-detail");
-  const labels: Record<IdeStatus["state"], string> = {
-    not_installed: "未安装",
-    vendor_original: "厂商原版",
-    patched: "历史补丁",
-    modified: "未知修改",
-    incompatible: "不兼容",
-  };
-  state.textContent = labels[status.state];
-  state.className = `status-pill ${status.state === "vendor_original" ? "success" : status.state === "patched" ? "accent" : "neutral"}`;
-  const versions = status.appVersion
-    ? `IDE ${status.appVersion} · Extension ${status.extensionVersion ?? "未知"}${status.ideRunning ? " · 正在运行" : ""}`
-    : status.appPath;
-  detail.textContent = `${versions} — ${status.message}`;
+
+  state.textContent = status.ideRunning ? "运行中" : status.installed ? "已安装" : "未安装";
+  state.className = `status-pill ${status.ideRunning ? "success" : status.installed ? "neutral" : "error"}`;
+  detail.textContent = !status.installed
+    ? "未找到 Antigravity IDE"
+    : !status.compatible
+      ? "当前版本暂时无法使用"
+      : status.ideRunning
+        ? "Antigravity IDE 正在运行"
+        : "Antigravity IDE 已安装，当前未运行";
 
   const integrationState = element<HTMLSpanElement>("#ide-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#ide-integration-detail");
-  const integrationLabels: Record<IdeStatus["integrationState"], string> = {
-    disabled: "未启用",
-    enabled: "已启用",
-    external: "外部配置",
-  };
-  integrationState.textContent = integrationLabels[status.integrationState];
-  integrationState.className = `status-pill ${status.integrationState === "enabled" ? "accent" : "neutral"}`;
-  integrationDetail.textContent = status.integrationMessage;
-  const legacyPath = document.querySelector("#ide-settings-path");
-  if (legacyPath) legacyPath.textContent = status.settingsPath;
+  const visibleIntegrationState = displayIntegrationState(status.integrationState, status.configurationState);
+  integrationState.textContent = integrationStateLabel(visibleIntegrationState);
+  integrationState.className = `status-pill ${integrationStateClass(visibleIntegrationState)}`;
+  integrationDetail.textContent = clientStatusMessage(
+    status.integrationState,
+    status.configurationState,
+    status.configurationMessage,
+  );
 
-  const pathDisplay = document.querySelector<HTMLElement>("#ide-settings-path-display");
-  if (pathDisplay) {
-    pathDisplay.textContent = status.settingsPath;
-    pathDisplay.title = status.settingsPath;
-  }
-
-  const urlDisplay = document.querySelector<HTMLElement>("#ide-settings-url-display");
-  if (urlDisplay) {
-    if (status.integrationState === "enabled") {
-      const address = latestProxyStatus?.address ?? `127.0.0.1:${config.proxy_port}`;
-      urlDisplay.textContent = address.startsWith("http") ? address : `http://${address}`;
-    } else if (status.integrationState === "external") {
-      urlDisplay.textContent = "外部配置";
-    } else {
-      urlDisplay.textContent = "未设置";
-    }
-  }
-
-  const integrationReady = status.integrationState !== "disabled";
-  enableIdeIntegrationButton.hidden = status.integrationState !== "disabled";
-  launchIdeButton.hidden = !integrationReady || status.ideRunning;
+  enableIdeIntegrationButton.hidden = !status.canEnableIntegration;
+  launchIdeButton.hidden = !status.canLaunchIde || status.ideRunning;
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
-  enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启 IDE" : "启用模型注入";
-  disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启 IDE" : "停用模型注入";
+  enableIdeIntegrationButton.textContent = status.ideRunning ? "启用并重启" : "启用模型";
+  launchIdeButton.textContent = "启动 IDE";
+  disableIdeIntegrationButton.textContent = status.ideRunning ? "停用并重启" : "停用模型";
   setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
@@ -582,12 +718,171 @@ function providerProtocolLabel(protocol: string | null): string {
   return protocol ?? "未知";
 }
 
+function renderSingleProviderCard(provider: Provider): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "provider-card";
+  const heading = document.createElement("div");
+  heading.className = "provider-card-heading";
+  const identity = document.createElement("div");
+  identity.className = "provider-identity";
+  const title = document.createElement("h3");
+  title.textContent = provider.name;
+  const protocol = document.createElement("span");
+  protocol.className = "status-pill neutral";
+  protocol.textContent = protocolName(provider.protocol);
+  const endpointText = document.createElement("span");
+  endpointText.className = "provider-endpoint-text";
+  endpointText.textContent = provider.models_endpoint;
+
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "copy-endpoint-btn";
+  copyButton.title = "复制接口地址";
+  copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+  copyButton.addEventListener("click", () => {
+    navigator.clipboard.writeText(provider.models_endpoint).then(() => {
+      const originalHtml = copyButton.innerHTML;
+      copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+      setTimeout(() => { copyButton.innerHTML = originalHtml; }, 2000);
+    });
+  });
+
+  const endpoint = document.createElement("code");
+  endpoint.className = "provider-endpoint";
+  endpoint.title = provider.models_endpoint;
+  endpoint.append(endpointText, copyButton);
+  identity.append(title, endpoint);
+
+  const providerUpstreams = config.upstream_models.filter(
+    (upstream) => upstream.provider_id === provider.id,
+  );
+  const modelLinks = config.virtual_models.flatMap((virtualModel) => {
+    const upstream = providerUpstreams.find(
+      (item) => item.id === virtualModel.upstream_model_id,
+    );
+    return upstream ? [{ virtualModel, upstream }] : [];
+  });
+  const providerMeta = document.createElement("div");
+  providerMeta.className = "provider-meta";
+  const count = document.createElement("strong");
+  count.textContent = `${providerUpstreams.length} 个上游模型`;
+  providerMeta.append(protocol, count);
+  heading.append(identity, providerMeta);
+
+  const providerActions = document.createElement("div");
+  providerActions.className = "provider-actions";
+  const providerEditActions = document.createElement("div");
+  providerEditActions.className = "provider-edit-actions";
+  const manage = document.createElement("button");
+  manage.type = "button";
+  manage.className = "secondary compact-button";
+  manage.textContent = "编辑上游服务";
+  manage.addEventListener("click", () => openProviderEditor(provider.id));
+  const removeProviderButton = document.createElement("button");
+  removeProviderButton.type = "button";
+  removeProviderButton.className = "danger-text";
+  removeProviderButton.textContent = "删除上游服务";
+  armDestructiveButton(
+    removeProviderButton,
+    `确认删除及 ${modelLinks.length} 个入口`,
+    () => removeProvider(provider.id, removeProviderButton),
+    () => destructiveMutationBlocker(new Set(modelLinks.map(({ virtualModel }) => virtualModel.id))),
+  );
+  providerEditActions.append(manage, removeProviderButton);
+
+  const providerTestActions = document.createElement("div");
+  providerTestActions.className = "provider-test-actions";
+  const testAllModels = document.createElement("button");
+  testAllModels.type = "button";
+  testAllModels.className = "secondary compact-button provider-bulk-test";
+  const allVirtualModels = modelLinks.map(({ virtualModel }) => virtualModel);
+  const failedVirtualModels = allVirtualModels.filter(
+    (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "error",
+  );
+  const currentVirtualIds = allVirtualModels.map((model) => model.id).sort();
+  const storedTestSession = providerTestSessions.get(provider.id);
+  const testSession = storedTestSession
+    && JSON.stringify([...storedTestSession.targetVirtualModelIds].sort()) === JSON.stringify(currentVirtualIds)
+    ? storedTestSession
+    : undefined;
+  testAllModels.textContent = testSession
+    ? failedVirtualModels.length > 0
+      ? `重试失败（${failedVirtualModels.length}）`
+      : "重新测试全部"
+    : "测试全部模型入口";
+  testAllModels.title = "所有上游服务共享最多 3 个并发测试";
+  testAllModels.disabled = modelLinks.length === 0;
+  testAllModels.addEventListener("click", () => {
+    const currentFailures = allVirtualModels.filter(
+      (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "error",
+    );
+    const targets = testSession && currentFailures.length > 0
+      ? currentFailures
+      : allVirtualModels;
+    void withBusy(
+      testAllModels,
+      () => testProviderModels(
+        provider.id,
+        card,
+        targets,
+        currentVirtualIds,
+        testAllModels,
+      ),
+      "准备测试…",
+    );
+  });
+  const testSummary = document.createElement("span");
+  testSummary.className = "provider-test-summary";
+  if (testSession) {
+    const passed = allVirtualModels.filter(
+      (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "success",
+    ).length;
+    testSummary.classList.add(failedVirtualModels.length > 0 ? "error" : "success");
+    testSummary.textContent = `${passed}/${allVirtualModels.length} 通过`;
+    testSummary.title = `最近测试：${formatActivityTime(testSession.completedAt).label} · ${passed} 通过 · ${failedVirtualModels.length} 失败`;
+    providerTestActions.append(testSummary);
+  }
+  providerTestActions.append(testAllModels);
+  providerActions.append(providerEditActions, providerTestActions);
+
+  const models = document.createElement("div");
+  models.className = "provider-models";
+  if (modelLinks.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "provider-model-empty";
+    empty.textContent = "尚未接入模型入口";
+    models.append(empty);
+  } else {
+    const modelsHeader = document.createElement("div");
+    modelsHeader.className = "provider-models-header";
+    for (const label of ["上游模型", "模型能力", "模型入口"]) {
+      const column = document.createElement("span");
+      column.textContent = label;
+      modelsHeader.append(column);
+    }
+    models.append(modelsHeader);
+
+    for (const upstream of providerUpstreams) {
+      const virtualModels = modelLinks
+        .filter((link) => link.upstream.id === upstream.id)
+        .map((link) => link.virtualModel);
+      if (virtualModels.length > 0) {
+        models.append(providerModelGroup(upstream, virtualModels));
+      }
+    }
+  }
+
+  card.append(heading, providerActions, models);
+  return card;
+}
+
 function renderProviders(): void {
   providerCount.textContent = `${config.providers.length} 个服务`;
   providerList.replaceChildren();
   renderReadiness();
 
   if (config.providers.length === 0) {
+    activeProviderTabId = null;
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = "还没有上游服务。添加连接后即可获取并选择模型。";
@@ -595,163 +890,53 @@ function renderProviders(): void {
     return;
   }
 
+  if (!activeProviderTabId || !config.providers.some((p) => p.id === activeProviderTabId)) {
+    activeProviderTabId = config.providers[0].id;
+  }
+
+  const tabsBar = document.createElement("div");
+  tabsBar.className = "provider-tabs-bar";
+
   for (const provider of config.providers) {
-    const card = document.createElement("article");
-    card.className = "provider-card";
-    const heading = document.createElement("div");
-    heading.className = "provider-card-heading";
-    const identity = document.createElement("div");
-    identity.className = "provider-identity";
-    const title = document.createElement("h3");
-    title.textContent = provider.name;
-    const protocol = document.createElement("span");
-    protocol.className = "status-pill neutral";
-    protocol.textContent = protocolName(provider.protocol);
-    const endpointText = document.createElement("span");
-    endpointText.className = "provider-endpoint-text";
-    endpointText.textContent = provider.models_endpoint;
-
-    const copyButton = document.createElement("button");
-    copyButton.type = "button";
-    copyButton.className = "copy-endpoint-btn";
-    copyButton.title = "复制接口地址";
-    copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-    copyButton.addEventListener("click", () => {
-      navigator.clipboard.writeText(provider.models_endpoint).then(() => {
-        const originalHtml = copyButton.innerHTML;
-        copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-        setTimeout(() => { copyButton.innerHTML = originalHtml; }, 2000);
-      });
-    });
-
-    const endpoint = document.createElement("code");
-    endpoint.className = "provider-endpoint";
-    endpoint.title = provider.models_endpoint;
-    endpoint.append(endpointText, copyButton);
-    identity.append(title, endpoint);
+    const tabCard = document.createElement("button");
+    tabCard.type = "button";
+    const isActive = provider.id === activeProviderTabId;
+    tabCard.className = `provider-tab-card${isActive ? " active" : ""}`;
 
     const providerUpstreams = config.upstream_models.filter(
       (upstream) => upstream.provider_id === provider.id,
     );
-    const modelLinks = config.virtual_models.flatMap((virtualModel) => {
-      const upstream = providerUpstreams.find(
-        (item) => item.id === virtualModel.upstream_model_id,
-      );
-      return upstream ? [{ virtualModel, upstream }] : [];
-    });
-    const providerMeta = document.createElement("div");
-    providerMeta.className = "provider-meta";
-    const count = document.createElement("strong");
-    count.textContent = `${providerUpstreams.length} 个上游模型`;
-    providerMeta.append(protocol, count);
-    heading.append(identity, providerMeta);
+    const modelLinksCount = config.virtual_models.filter((virtualModel) => {
+      return providerUpstreams.some((u) => u.id === virtualModel.upstream_model_id);
+    }).length;
 
-    const providerActions = document.createElement("div");
-    providerActions.className = "provider-actions";
-    const providerEditActions = document.createElement("div");
-    providerEditActions.className = "provider-edit-actions";
-    const manage = document.createElement("button");
-    manage.type = "button";
-    manage.className = "secondary compact-button";
-    manage.textContent = "编辑上游服务";
-    manage.addEventListener("click", () => openProviderEditor(provider.id));
-    const removeProviderButton = document.createElement("button");
-    removeProviderButton.type = "button";
-    removeProviderButton.className = "danger-text";
-    removeProviderButton.textContent = "删除上游服务";
-    armDestructiveButton(
-      removeProviderButton,
-      `确认删除及 ${modelLinks.length} 个入口`,
-      () => removeProvider(provider.id, removeProviderButton),
-      () => destructiveMutationBlocker(new Set(modelLinks.map(({ virtualModel }) => virtualModel.id))),
-    );
-    providerEditActions.append(manage, removeProviderButton);
+    const icon = document.createElement("span");
+    icon.className = "provider-tab-icon";
+    icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>`;
 
-    const providerTestActions = document.createElement("div");
-    providerTestActions.className = "provider-test-actions";
-    const testAllModels = document.createElement("button");
-    testAllModels.type = "button";
-    testAllModels.className = "secondary compact-button provider-bulk-test";
-    const allVirtualModels = modelLinks.map(({ virtualModel }) => virtualModel);
-    const failedVirtualModels = allVirtualModels.filter(
-      (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "error",
-    );
-    const currentVirtualIds = allVirtualModels.map((model) => model.id).sort();
-    const storedTestSession = providerTestSessions.get(provider.id);
-    const testSession = storedTestSession
-      && JSON.stringify([...storedTestSession.targetVirtualModelIds].sort()) === JSON.stringify(currentVirtualIds)
-      ? storedTestSession
-      : undefined;
-    testAllModels.textContent = testSession
-      ? failedVirtualModels.length > 0
-        ? `重试失败（${failedVirtualModels.length}）`
-        : "重新测试全部"
-      : "测试全部 IDE 入口";
-    testAllModels.title = "所有上游服务共享最多 3 个并发测试";
-    testAllModels.disabled = modelLinks.length === 0;
-    testAllModels.addEventListener("click", () => {
-      const currentFailures = allVirtualModels.filter(
-        (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "error",
-      );
-      const targets = testSession && currentFailures.length > 0
-        ? currentFailures
-        : allVirtualModels;
-      void withBusy(
-        testAllModels,
-        () => testProviderModels(
-          provider.id,
-          card,
-          targets,
-          currentVirtualIds,
-          testAllModels,
-        ),
-        "准备测试…",
-      );
-    });
-    const testSummary = document.createElement("span");
-    testSummary.className = "provider-test-summary";
-    if (testSession) {
-      const passed = allVirtualModels.filter(
-        (virtualModel) => connectionTestResults.get(virtualModel.id)?.status === "success",
-      ).length;
-      testSummary.classList.add(failedVirtualModels.length > 0 ? "error" : "success");
-      testSummary.textContent = `${passed}/${allVirtualModels.length} 通过`;
-      testSummary.title = `最近测试：${formatActivityTime(testSession.completedAt).label} · ${passed} 通过 · ${failedVirtualModels.length} 失败`;
-      providerTestActions.append(testSummary);
-    }
-    providerTestActions.append(testAllModels);
-    providerActions.append(providerEditActions, providerTestActions);
+    const title = document.createElement("span");
+    title.className = "provider-tab-title";
+    title.textContent = provider.name;
 
-    const models = document.createElement("div");
-    models.className = "provider-models";
-    if (modelLinks.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "provider-model-empty";
-      empty.textContent = "尚未接入 IDE 模型入口";
-      models.append(empty);
-    } else {
-      const modelsHeader = document.createElement("div");
-      modelsHeader.className = "provider-models-header";
-      for (const label of ["上游模型", "模型能力", "IDE 模型入口"]) {
-        const column = document.createElement("span");
-        column.textContent = label;
-        modelsHeader.append(column);
+    const badge = document.createElement("span");
+    badge.className = "provider-tab-badge";
+    badge.textContent = `${modelLinksCount}`;
+
+    tabCard.append(icon, title, badge);
+    tabCard.addEventListener("click", () => {
+      if (activeProviderTabId !== provider.id) {
+        activeProviderTabId = provider.id;
+        renderProviders();
       }
-      models.append(modelsHeader);
-
-      for (const upstream of providerUpstreams) {
-        const virtualModels = modelLinks
-          .filter((link) => link.upstream.id === upstream.id)
-          .map((link) => link.virtualModel);
-        if (virtualModels.length > 0) {
-          models.append(providerModelGroup(upstream, virtualModels));
-        }
-      }
-    }
-
-    card.append(heading, providerActions, models);
-    providerList.append(card);
+    });
+    tabsBar.append(tabCard);
   }
+
+  providerList.append(tabsBar);
+
+  const activeProvider = config.providers.find((p) => p.id === activeProviderTabId) ?? config.providers[0];
+  const activeCard = renderSingleProviderCard(activeProvider);
+  providerList.append(activeCard);
 }
 
 function providerModelGroup(
@@ -777,7 +962,8 @@ function providerModelGroup(
 
   const variants = document.createElement("div");
   variants.className = "provider-model-variants-inline";
-  for (const virtualModel of virtualModels) {
+  const sortedVirtualModels = sortVirtualModelsByReasoningLevel(virtualModels);
+  for (const virtualModel of sortedVirtualModels) {
     const variant = document.createElement("div");
     variant.className = "model-variant-pill provider-model-variant";
     variant.dataset.virtualModelId = virtualModel.id;
@@ -945,7 +1131,7 @@ function fallbackRemovalBlocker(removedIds: Set<string>): string | null {
   const removed = config.virtual_models.find(
     (model) => model.id === source.fallback_virtual_model_id,
   );
-  return `无法删除：IDE 入口“${source.display_name}”仍将“${removed?.display_name ?? source.fallback_virtual_model_id}”用作备用模型。请先调整 fallback。`;
+  return `无法删除：模型入口“${source.display_name}”仍将“${removed?.display_name ?? source.fallback_virtual_model_id}”用作备用模型。请先调整 fallback。`;
 }
 
 function armDestructiveButton(
@@ -1084,6 +1270,30 @@ function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableRe
     : ["low", "medium", "high", "x_high", "max"];
 }
 
+const REASONING_LEVEL_ORDER: Record<ReasoningLevel, number> = {
+  off: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+  x_high: 4,
+  max: 5,
+  auto: 6,
+};
+
+function sortReasoningLevels<T extends ReasoningLevel>(levels: Iterable<T>): T[] {
+  return [...levels].sort(
+    (a, b) => (REASONING_LEVEL_ORDER[a] ?? 99) - (REASONING_LEVEL_ORDER[b] ?? 99),
+  );
+}
+
+function sortVirtualModelsByReasoningLevel(virtualModels: VirtualModel[]): VirtualModel[] {
+  return [...virtualModels].sort((a, b) => {
+    const orderA = a.default_reasoning_level ? (REASONING_LEVEL_ORDER[a.default_reasoning_level] ?? 99) : -1;
+    const orderB = b.default_reasoning_level ? (REASONING_LEVEL_ORDER[b.default_reasoning_level] ?? 99) : -1;
+    return orderA - orderB;
+  });
+}
+
 function catalogReasoningLevelsForModel(
   model: ProviderCatalogModel,
   protocol: ProviderProtocol,
@@ -1094,14 +1304,16 @@ function catalogReasoningLevelsForModel(
     (level): level is ConfigurableReasoningLevel =>
       configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
   );
-  if (explicit.length > 0) return [...new Set(explicit)];
+  if (explicit.length > 0) return sortReasoningLevels([...new Set(explicit)]);
   const existing = existingUpstream
     ? (Object.keys(existingUpstream.capabilities.reasoning.levels) as ReasoningLevel[]).filter(
         (level): level is ConfigurableReasoningLevel =>
           configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
       )
     : [];
-  return existing.length > 0 ? [...new Set(existing)] : configurableReasoningLevels(protocol);
+  return sortReasoningLevels(
+    existing.length > 0 ? [...new Set(existing)] : configurableReasoningLevels(protocol),
+  );
 }
 
 
@@ -1111,7 +1323,7 @@ function catalogReasoningMetadataLabel(model: ProviderCatalogModel): string | nu
   if (!metadata) return null;
   if (metadata.supported === false) return "思考：不支持";
   const levels = (metadata.levels ?? []).filter((level) => level !== "off" && level !== "auto");
-  if (levels.length > 0) return `思考：${levels.map(reasoningLevelLabel).join(" · ")}`;
+  if (levels.length > 0) return `思考：${sortReasoningLevels(levels).map(reasoningLevelLabel).join(" · ")}`;
   if (metadata.supported === true) return "思考：支持（等级未声明）";
   return "思考：未声明";
 }
@@ -1129,14 +1341,13 @@ function reasoningLevelsForVirtualModels(
   virtualModels: VirtualModel[],
 ): Set<ConfigurableReasoningLevel> {
   const configurable = new Set<ReasoningLevel>(configurableReasoningLevels(protocol));
-  return new Set(
-    virtualModels.flatMap((virtualModel) => {
-      const level = virtualModel.default_reasoning_level;
-      return level && configurable.has(level)
-        ? [level as ConfigurableReasoningLevel]
-        : [];
-    }),
-  );
+  const levels = virtualModels.flatMap((virtualModel) => {
+    const level = virtualModel.default_reasoning_level;
+    return level && configurable.has(level)
+      ? [level as ConfigurableReasoningLevel]
+      : [];
+  });
+  return new Set(sortReasoningLevels(levels));
 }
 
 function customReasoningMapping(protocol: ProviderProtocol, value: string): ReasoningMapping | null {
@@ -1211,9 +1422,13 @@ async function removeProvider(providerId: string, button: HTMLButtonElement): Pr
         .filter((item) => item.provider_id === providerId)
         .map((item) => item.id),
     );
+    const remainingProviders = config.providers.filter((item) => item.id !== providerId);
+    if (activeProviderTabId === providerId) {
+      activeProviderTabId = remainingProviders.length > 0 ? remainingProviders[0].id : null;
+    }
     await persistConfig({
       proxy_port: config.proxy_port,
-      providers: config.providers.filter((item) => item.id !== providerId),
+      providers: remainingProviders,
       upstream_models: config.upstream_models.filter((item) => item.provider_id !== providerId),
       virtual_models: config.virtual_models.filter(
         (item) => !upstreamIds.has(item.upstream_model_id),
@@ -1265,10 +1480,10 @@ function inferProviderBase(provider: Provider): string {
 
 function protocolDescription(protocol: ProviderProtocol): string {
   return {
-    openai_chat_completions: "适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。",
-    openai_responses: "适用于明确提供 /v1/responses 的 OpenAI Responses API 兼容服务；它不是 Chat Completions 的别名。",
-    anthropic_messages: "适用于 /v1/messages；Anthropic 原生 API 及明确声明兼容 Messages API 的服务。",
-    gemini_generate_content: "适用于 Google Gemini generateContent；典型地址包含 /v1beta/models 或 :generateContent。",
+    openai_chat_completions: "适用于 /v1/chat/completions 接口，支持 CPA、Sub2API 及主流 OpenAI 兼容服务网关。",
+    openai_responses: "适用于 OpenAI Responses API 兼容接口（/v1/responses），请勿误选为 Chat Completions。",
+    anthropic_messages: "适用于 /v1/messages 接口，支持 Anthropic 官方 API 及兼容 Messages API 的中转服务。",
+    gemini_generate_content: "适用于 Google Gemini 原生 API（:generateContent），支持 /v1beta/models 接口。",
   }[protocol];
 }
 
@@ -1569,7 +1784,7 @@ function openReasoningModal(model: ProviderCatalogModel): void {
       )
     : undefined;
   const currentLevels = catalogReasoningLevelsByModel.get(model.id) ?? new Set<ConfigurableReasoningLevel>();
-  draftReasoningLevels = new Set(currentLevels);
+  draftReasoningLevels = new Set(sortReasoningLevels(currentLevels));
 
   reasoningModalTitle.textContent = `推理强度配置 · ${model.displayName}`;
   reasoningModalLevelsContainer.replaceChildren();
@@ -1644,7 +1859,7 @@ confirmReasoningModalButton.addEventListener("click", () => {
   const modelId = activeReasoningModel.id;
   if (draftReasoningLevels.size > 0) {
     catalogReasoningEnabledModelIds.add(modelId);
-    catalogReasoningLevelsByModel.set(modelId, new Set(draftReasoningLevels));
+    catalogReasoningLevelsByModel.set(modelId, new Set(sortReasoningLevels(draftReasoningLevels)));
   } else {
     catalogReasoningEnabledModelIds.delete(modelId);
     catalogReasoningLevelsByModel.delete(modelId);
@@ -1696,7 +1911,7 @@ function renderCatalogModels(): void {
       const legacy = document.createElement("span");
       legacy.className = "legacy-badge";
       legacy.textContent = "当前目录未返回";
-      legacy.title = "保留选择不会删除现有配置；取消后保存将移除对应 IDE 入口";
+      legacy.title = "保留选择不会删除现有配置；取消后保存将移除对应模型入口";
       copy.append(legacy);
     }
     copy.append(id);
@@ -1717,7 +1932,7 @@ function renderCatalogModels(): void {
     reasoningBtn.type = "button";
     reasoningBtn.className = `catalog-reasoning-trigger${reasoningEnabled ? " active" : ""}`;
     const reasoningLevelsSummary = reasoningEnabled
-      ? [...selectedLevels!].map(reasoningLevelLabel).join(" · ")
+      ? sortReasoningLevels(selectedLevels!).map(reasoningLevelLabel).join(" · ")
       : "";
     reasoningBtn.textContent = reasoningEnabled
       ? `推理强度：${reasoningLevelsSummary}`
@@ -1760,10 +1975,9 @@ function renderCatalogModels(): void {
           reasoningLevel: ReasoningLevel | null;
         }> = [];
         if (catalogReasoningEnabledModelIds.has(model.id)) {
-          for (const level of catalogReasoningLevelsByModel.get(model.id) ?? []) {
+          for (const level of sortReasoningLevels(catalogReasoningLevelsByModel.get(model.id) ?? [])) {
             testCases.push({ label: reasoningLevelLabel(level), reasoningLevel: level });
           }
-
         }
         if (testCases.length === 0) {
           testCases.push({ label: "普通请求", reasoningLevel: null });
@@ -1816,7 +2030,7 @@ function renderCatalogModels(): void {
 function updateCatalogSelection(): void {
   const count = selectedCatalogModelIds.size;
   element<HTMLElement>("#selected-model-count").textContent =
-    count > 0 ? `已选择 ${count} 个模型` : "尚未选择模型";
+    count > 0 ? `已选择 ${count} 个模型` : "未选择任何模型";
   refreshProviderEditorControls();
   const query = element<HTMLInputElement>("#catalog-search").value.trim().toLowerCase();
   const visibleIds = catalogModels
@@ -1875,7 +2089,7 @@ function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
   const list = document.createElement("ul");
   const lines = [
     `上游模型：新增 ${summary.addedUpstreamIds.length}，移除 ${summary.removedUpstreamIds.length}`,
-    `IDE 入口：新增 ${summary.addedVirtualModels.length}，保留 ${summary.retainedVirtualCount}，移除 ${summary.removedVirtualModels.length}`,
+    `模型入口：新增 ${summary.addedVirtualModels.length}，保留 ${summary.retainedVirtualCount}，移除 ${summary.removedVirtualModels.length}`,
   ];
   if (summary.legacyModelIds.length > 0) {
     lines.push(`保留 ${summary.legacyModelIds.length} 个当前目录未返回的已配置模型`);
@@ -1889,7 +2103,7 @@ function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
   if (summary.removedVirtualModels.length > 0) {
     const removed = document.createElement("details");
     const removedSummary = document.createElement("summary");
-    removedSummary.textContent = "查看将移除的 IDE 入口";
+    removedSummary.textContent = "查看将移除的模型入口";
     const names = document.createElement("p");
     names.textContent = summary.removedVirtualModels.map((model) => model.display_name).join("、");
     removed.append(removedSummary, names);
@@ -1900,6 +2114,7 @@ function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
 }
 
 async function executeProviderSave(plan: ProviderSavePlan): Promise<void> {
+  activeProviderTabId = plan.provider.id;
   const currentUpstreamIds = new Set(
     config.upstream_models
       .filter((upstream) => upstream.provider_id === plan.provider.id)
@@ -1920,7 +2135,7 @@ async function executeProviderSave(plan: ProviderSavePlan): Promise<void> {
   }).length;
   setProviderEditorDirty(false);
   void closeProviderEditor(true);
-  showNotice(`${plan.wasEditing ? "已更新" : "已添加"}上游服务 ${plan.provider.name}：当前 ${currentCount} 个 IDE 入口`);
+  showNotice(`${plan.wasEditing ? "已更新" : "已添加"}上游服务 ${plan.provider.name}：当前 ${currentCount} 个模型入口`);
 }
 
 async function saveProvider(): Promise<void> {
@@ -2064,7 +2279,9 @@ async function saveProvider(): Promise<void> {
       : null;
     const enabledLevels: ReasoningLevel[] = reasoningEnabled
       ? [
-          ...[...selectedReasoningLevels].filter((level) => availableReasoningLevels.includes(level)),
+          ...sortReasoningLevels(
+            [...selectedReasoningLevels].filter((level) => availableReasoningLevels.includes(level)),
+          ),
           ...(customMapping ? ["auto" as const] : []),
         ]
       : [];
@@ -2165,7 +2382,7 @@ async function saveProvider(): Promise<void> {
   if (plan.summary.removedVirtualModels.length > 0) {
     pendingProviderSavePlan = plan;
     refreshProviderEditorControls();
-    showNotice("请确认保存并移除列出的 IDE 入口", "error");
+    showNotice("请确认保存并移除列出的模型入口", "error");
     return;
   }
   await executeProviderSave(plan);
@@ -2295,7 +2512,7 @@ function renderActivityLog(): void {
     const route = document.createElement("div");
     route.className = "activity-route";
     for (const [label, value, title] of [
-      ["IDE 模型入口", context.requestedName, item.requestedVirtualModelId ?? item.virtualModelId],
+      ["模型入口", context.requestedName, item.requestedVirtualModelId ?? item.virtualModelId],
       ["实际路由", context.actualRouteName, item.virtualModelId],
       ["实际上游", context.upstreamName, item.upstreamModelId ?? ""],
       ["上游服务 / 协议", `${context.providerName} / ${providerProtocolLabel(item.providerProtocol)}`, item.providerId],
@@ -2361,7 +2578,7 @@ function renderActivityLog(): void {
       copy.addEventListener("click", () => {
         const text = [
           `时间: ${formattedTime.label}`,
-          `IDE 模型入口: ${context.requestedName}`,
+          `模型入口: ${context.requestedName}`,
           `实际路由: ${context.actualRouteName}`,
           `实际上游: ${context.upstreamName}`,
           `上游服务: ${context.providerName}`,
@@ -2428,21 +2645,93 @@ async function clearActivityLog(): Promise<void> {
 }
 
 
+function renderApp(status: AppStatus): void {
+  latestAppStatus = status;
+  appStatusLoadFailed = false;
+  const state = element<HTMLSpanElement>("#app-state");
+  const detail = element<HTMLParagraphElement>("#app-detail");
+  state.textContent = status.appRunning ? "运行中" : status.installed ? "已安装" : "未安装";
+  state.className = `status-pill ${status.appRunning ? "success" : status.installed ? "neutral" : "error"}`;
+  detail.textContent = status.appRunning
+    ? "Antigravity App 正在运行"
+    : status.installed
+      ? "Antigravity App 已安装，当前未运行"
+      : "未找到 Antigravity App";
+
+  const integrationState = element<HTMLSpanElement>("#app-integration-state");
+  const integrationDetail = element<HTMLParagraphElement>("#app-integration-detail");
+  const visibleIntegrationState = displayIntegrationState(status.integrationState, status.configurationState);
+  integrationState.textContent = integrationStateLabel(visibleIntegrationState);
+  integrationState.className = `status-pill ${integrationStateClass(visibleIntegrationState)}`;
+  integrationDetail.textContent = clientStatusMessage(
+    status.integrationState,
+    status.configurationState,
+    status.configurationMessage,
+  );
+
+  const enableAppBtn = element<HTMLButtonElement>("#enable-app-integration");
+  const launchAppBtn = element<HTMLButtonElement>("#launch-app");
+  const disableAppBtn = element<HTMLButtonElement>("#disable-app-integration");
+
+  enableAppBtn.hidden = !status.canEnableIntegration;
+  launchAppBtn.hidden = !status.canLaunchApp || status.appRunning;
+  disableAppBtn.hidden = !status.canDisableIntegration;
+
+  enableAppBtn.textContent = status.appRunning ? "启用并重启" : "启用模型";
+  launchAppBtn.textContent = "启动 App";
+  disableAppBtn.textContent = status.appRunning ? "停用并重启" : "停用模型";
+
+  setButtonUnavailable(enableAppBtn, !status.canEnableIntegration);
+  setButtonUnavailable(launchAppBtn, !status.canLaunchApp);
+  setButtonUnavailable(disableAppBtn, !status.canDisableIntegration);
+  renderReadiness();
+}
 
 async function refreshIde(): Promise<void> {
-  renderIde(await invoke<IdeStatus>("discover_ide"));
+  try {
+    renderIde(await invoke<IdeStatus>("discover_ide"));
+  } catch (error) {
+    ideStatusLoadFailed = true;
+    renderReadiness();
+    throw error;
+  }
+}
+
+async function refreshApp(): Promise<void> {
+  try {
+    renderApp(await invoke<AppStatus>("discover_app"));
+  } catch (error) {
+    appStatusLoadFailed = true;
+    renderReadiness();
+    throw error;
+  }
+}
+
+let hostRefreshInFlight: Promise<void> | null = null;
+
+async function refreshHostStatuses(): Promise<void> {
+  if (hostRefreshInFlight) return hostRefreshInFlight;
+  const task = Promise.allSettled([refreshIde(), refreshApp()]).then(() => undefined);
+  hostRefreshInFlight = task;
+  try {
+    await task;
+  } finally {
+    if (hostRefreshInFlight === task) hostRefreshInFlight = null;
+  }
 }
 
 async function initialize(): Promise<void> {
-  const [configResult, proxyResult, ideResult, activityResult] = await Promise.allSettled([
+  const [configResult, proxyResult, ideResult, appResult, activityResult] = await Promise.allSettled([
     invoke<AppConfig>("get_config"),
     invoke<ProxyStatus>("proxy_status"),
     invoke<IdeStatus>("discover_ide"),
+    invoke<AppStatus>("discover_app"),
     invoke<ActivityItem[]>("get_activity_log"),
   ]);
   const failures: string[] = [];
   proxyStatusLoadFailed = proxyResult.status === "rejected";
   ideStatusLoadFailed = ideResult.status === "rejected";
+  appStatusLoadFailed = appResult.status === "rejected";
   if (configResult.status === "fulfilled") {
     config = configResult.value;
     renderProviders();
@@ -2467,6 +2756,13 @@ async function initialize(): Promise<void> {
     element<HTMLElement>("#ide-integration-state").textContent = "读取失败";
     setReadinessStep("#readiness-ide", "#readiness-ide-value", "attention", "读取失败");
   }
+  if (appResult.status === "fulfilled") renderApp(appResult.value);
+  else {
+    failures.push("App 状态");
+    element<HTMLElement>("#app-state").textContent = "读取失败";
+    element<HTMLElement>("#app-integration-state").textContent = "读取失败";
+    element<HTMLElement>("#app-integration-detail").textContent = `状态读取失败：${errorMessage(appResult.reason)}`;
+  }
   if (activityResult.status === "fulfilled") setActivityItems(activityResult.value);
   else {
     failures.push("调用日志");
@@ -2476,30 +2772,113 @@ async function initialize(): Promise<void> {
     error.textContent = `调用日志读取失败：${errorMessage(activityResult.reason)}；可点击刷新重试。`;
     activityList.append(error);
   }
+  renderReadiness();
   if (failures.length > 0) {
     showNotice(`部分状态读取失败：${failures.join("、")}`, "error");
   }
 }
 
 async function startProxy(): Promise<void> {
-  const preferredPort = config.proxy_port;
   const status = await invoke<ProxyStatus>("start_proxy");
   renderProxy(status);
   await refreshIde();
-  const actualPort = proxyPortFromAddress(status.address);
-  showNotice(actualPort !== null && actualPort !== preferredPort
-    ? `首选端口 ${preferredPort} 已占用，代理已切换到 ${actualPort}；请停用后重新启用模型注入以更新地址`
-    : "本地代理已启动");
+  await refreshApp();
+  showNotice("服务已启动");
 }
 
 stopProxyButton.addEventListener("click", () => void withBusy(stopProxyButton, async () => {
   renderProxy(await invoke<ProxyStatus>("stop_proxy"));
-  showNotice("本地代理已停止");
+  const results = await Promise.allSettled([refreshIde(), refreshApp()]);
+  if (results.some((result) => result.status === "rejected")) {
+    showNotice("服务已停止，但应用状态刷新失败，请手动刷新", "error");
+  } else {
+    showNotice("服务已停止；已启用的模型暂时无法使用");
+  }
 }));
 
 element<HTMLButtonElement>("#refresh-ide").addEventListener("click", (event) => {
   const button = event.currentTarget as HTMLButtonElement;
   void withBusy(button, refreshIde);
+});
+
+const enableAppButton = element<HTMLButtonElement>("#enable-app-integration");
+const launchAppButton = element<HTMLButtonElement>("#launch-app");
+const disableAppButton = element<HTMLButtonElement>("#disable-app-integration");
+
+enableAppButton.addEventListener("click", () => {
+  void (async () => {
+    const status = await withClientBusy(enableAppButton, "app", async () => {
+      const isRunning = latestAppStatus?.appRunning ?? false;
+      const confirmMsg = isRunning
+        ? "启用模型后，App 会自动重启。是否继续？"
+        : "启用模型后，App 就可以使用自定义模型。是否继续？";
+      if (!await confirmHostAction(confirmMsg, "确认启用模型")) return null;
+
+      showNotice("正在启用模型…");
+      return invoke<AppStatus>("enable_app_integration");
+    });
+    if (status === null) return;
+    if (status) {
+      renderApp(status);
+      showNotice(status.appRunning
+        ? "App 已启用模型并完成重启"
+        : "App 已启用模型，可以启动 App");
+    } else if (latestAppStatus) {
+      try {
+        await refreshApp();
+      } catch {
+        // withClientBusy already reported the operation error.
+      }
+    }
+  })();
+});
+
+launchAppButton.addEventListener("click", () => {
+  void withClientBusy(launchAppButton, "app", async () => {
+    await invoke<void>("launch_app");
+    showNotice("已启动 App");
+    window.setTimeout(() => void refreshApp().catch(() => undefined), 700);
+  }, "启动中…");
+});
+
+disableAppButton.addEventListener("click", () => {
+  void (async () => {
+    const status = await withClientBusy(disableAppButton, "app", async () => {
+      const isRunning = latestAppStatus?.appRunning ?? false;
+      const confirmMsg = isRunning
+        ? "停用模型后，App 会自动重启并恢复官方模型。是否继续？"
+        : "停用模型后，App 下次启动时将使用官方模型。是否继续？";
+      if (!await confirmHostAction(confirmMsg, "确认停用模型")) return null;
+
+      showNotice("正在停用模型…");
+      return invoke<AppStatus>("disable_app_integration");
+    });
+    if (status === null) return;
+    if (status) {
+      renderApp(status);
+      showNotice(status.appRunning
+        ? "App 已停用模型并完成重启"
+        : "App 已停用模型");
+    } else if (latestAppStatus) {
+      try {
+        await refreshApp();
+      } catch {
+        // withClientBusy already reported the operation error.
+      }
+    }
+  })();
+});
+
+element<HTMLButtonElement>("#refresh-app").addEventListener("click", (event) => {
+  const button = event.currentTarget as HTMLButtonElement;
+  void withBusy(button, refreshApp);
+});
+
+window.addEventListener("focus", () => {
+  void refreshHostStatuses();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void refreshHostStatuses();
 });
 
 const copyProxyAddressBtn = document.querySelector("#copy-proxy-address");
@@ -2566,56 +2945,67 @@ cancelProviderButton.addEventListener("click", () => {
 });
 
 enableIdeIntegrationButton.addEventListener("click", () => {
-  void withBusy(enableIdeIntegrationButton, async () => {
-    const isRunning = latestIdeStatus?.ideRunning ?? false;
-    const confirmMsg = isRunning
-      ? "启用 IDE 模型注入将安全更新配置，并自动重启正在运行的 Antigravity IDE。是否确定继续？"
-      : "启用 IDE 模型注入将配置 jetski.cloudCodeUrl 指向本地代理。是否确定继续？";
-    let confirmed = false;
-    try {
-      confirmed = await confirm(confirmMsg, { title: "确认启用模型注入", kind: "warning" });
-    } catch (err) {
-      console.error("Native confirm failed:", err);
-      confirmed = window.confirm(confirmMsg);
-    }
-    if (!confirmed) return;
+  void (async () => {
+    const status = await withClientBusy(enableIdeIntegrationButton, "ide", async () => {
+      const isRunning = latestIdeStatus?.ideRunning ?? false;
+      const confirmMsg = isRunning
+        ? "启用模型后，IDE 会自动重启。是否继续？"
+        : "启用模型后，IDE 就可以使用自定义模型。是否继续？";
+      if (!await confirmHostAction(confirmMsg, "确认启用模型")) return null;
 
-    showNotice("正在启用 IDE 模型注入；运行中的 IDE 将自动重启…");
-    const status = await invoke<IdeStatus>("enable_ide_integration");
-    renderIde(status);
-    showNotice(status.ideRunning
-      ? "IDE 模型注入已启用，Antigravity IDE 已重启"
-      : "IDE 模型注入已启用；请启动代理后打开 Antigravity IDE");
-  });
+      showNotice("正在启用模型…");
+      return invoke<IdeStatus>("enable_ide_integration");
+    });
+    if (status === null) return;
+    if (status) {
+      renderIde(status);
+      showNotice(status.ideRunning
+        ? "IDE 已启用模型并完成重启"
+        : "IDE 已启用模型，可以启动 IDE");
+    } else if (latestIdeStatus) {
+      try {
+        await refreshIde();
+      } catch {
+        // withClientBusy already reported the operation error.
+      }
+    }
+  })();
 });
 
-launchIdeButton.addEventListener("click", () => void withBusy(launchIdeButton, async () => {
-  await invoke<void>("launch_ide");
-  showNotice("已启动厂商原版 Antigravity IDE");
-}));
+launchIdeButton.addEventListener("click", () => {
+  void withClientBusy(launchIdeButton, "ide", async () => {
+    await invoke<void>("launch_ide");
+    showNotice("已启动 IDE");
+    window.setTimeout(() => void refreshIde().catch(() => undefined), 700);
+  }, "启动中…");
+});
 
 disableIdeIntegrationButton.addEventListener("click", () => {
-  void withBusy(disableIdeIntegrationButton, async () => {
-    const isRunning = latestIdeStatus?.ideRunning ?? false;
-    const confirmMsg = isRunning
-      ? "停用 IDE 模型注入将恢复原始配置，并自动重启正在运行的 Antigravity IDE。是否确定继续？"
-      : "停用 IDE 模型注入将恢复原始 settings.json 配置。是否确定继续？";
-    let confirmed = false;
-    try {
-      confirmed = await confirm(confirmMsg, { title: "确认停用模型注入", kind: "warning" });
-    } catch (err) {
-      console.error("Native confirm failed:", err);
-      confirmed = window.confirm(confirmMsg);
-    }
-    if (!confirmed) return;
+  void (async () => {
+    const status = await withClientBusy(disableIdeIntegrationButton, "ide", async () => {
+      const isRunning = latestIdeStatus?.ideRunning ?? false;
+      const confirmMsg = isRunning
+        ? "停用模型后，IDE 会自动重启并恢复官方模型。是否继续？"
+        : "停用模型后，IDE 下次启动时将使用官方模型。是否继续？";
+      if (!await confirmHostAction(confirmMsg, "确认停用模型")) return null;
 
-    showNotice("正在停用 IDE 模型注入；运行中的 IDE 将自动重启…");
-    const status = await invoke<IdeStatus>("disable_ide_integration");
-    renderIde(status);
-    showNotice(status.ideRunning
-      ? "IDE 模型注入已停用，Antigravity IDE 已重启"
-      : "IDE 模型注入已停用，原 settings 已恢复");
-  });
+      showNotice("正在停用模型…");
+      return invoke<IdeStatus>("disable_ide_integration");
+    });
+    if (status === null) return;
+    if (status) {
+      renderIde(status);
+      showNotice(status.ideRunning
+        ? "IDE 已停用模型并完成重启"
+        : "IDE 已停用模型");
+    } else if (latestIdeStatus) {
+      try {
+        await refreshIde();
+      } catch {
+        // withClientBusy already reported the operation error.
+      }
+    }
+  })();
 });
 
 providerForm.addEventListener("submit", (event) => {
@@ -2738,12 +3128,12 @@ const pageTitle = element<HTMLSpanElement>("#page-title-text");
 const pageDescription = element<HTMLParagraphElement>("#page-description");
 const tabCopy: Record<string, { title: string; description: string }> = {
   "tab-status": {
-    title: "运行状态",
-    description: "查看本地代理与 Antigravity IDE 的连接状态。",
+    title: "运行概览",
+    description: "查看代理服务、IDE 和 App 的运行状态。",
   },
   "tab-models": {
-    title: "上游模型",
-    description: "管理上游服务、模型能力和 IDE 模型入口。",
+    title: "模型管理",
+    description: "管理 AI 上游服务及其接入 IDE / App 的模型与推理配置。",
   },
   "tab-activity": {
     title: "调用日志",
