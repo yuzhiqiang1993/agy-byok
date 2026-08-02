@@ -1,3 +1,4 @@
+mod app_integration;
 mod discovery;
 mod error;
 mod ide_settings;
@@ -5,6 +6,10 @@ mod profile;
 mod signing;
 mod transaction;
 
+pub use app_integration::{
+    disable_app_integration, enable_app_integration, inspect_app_integration, AppIntegrationState,
+    AppIntegrationStatus, DEFAULT_ANTIGRAVITY_APP_PATH,
+};
 pub use discovery::{discover, HostInstallation};
 pub use error::HostIntegrationError;
 pub use ide_settings::{

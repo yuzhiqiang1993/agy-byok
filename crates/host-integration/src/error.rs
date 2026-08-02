@@ -16,6 +16,8 @@ pub enum HostIntegrationError {
     ReceiptMismatch,
     #[error("IDE settings integration conflict: {0}")]
     SettingsConflict(String),
+    #[error("App 接入冲突：{0}")]
+    AppIntegrationConflict(String),
     #[error("host command failed: {0}")]
     CommandFailed(String),
     #[error("I/O failed for {path}: {source}")]
