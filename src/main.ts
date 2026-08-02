@@ -9,7 +9,7 @@ import { setupProxyCard, renderProxy } from "./components/ProxyCard";
 import { setupIdeCard, renderIde, renderIdeLoadFailure } from "./components/IdeCard";
 import { setupAppCard, renderApp, renderAppLoadFailure } from "./components/AppCard";
 import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliCard";
-import { renderReadiness } from "./components/ReadinessPanel";
+import { renderReadiness, setupReadinessPanel } from "./components/ReadinessPanel";
 import { renderProviders } from "./components/ProviderList";
 import { setupProviderEditor } from "./components/ProviderEditor";
 import { setActivityItems, setActivityLoadFailed, setupActivityList } from "./components/ActivityList";
@@ -30,6 +30,7 @@ setupActivityList();
 initThemeManager();
 setupTabManager();
 setupReasoningModal();
+setupReadinessPanel();
 
 async function initialize(): Promise<void> {
   const [configResult, proxyResult, ideResult, appResult, cliResult, activityResult] = await Promise.allSettled([

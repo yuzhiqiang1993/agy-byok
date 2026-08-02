@@ -7,6 +7,7 @@ import { confirmHostAction } from "./ConfirmModal";
 import { refreshCli } from "./HostRefresh";
 import { renderReadiness } from "./ReadinessPanel";
 import { store } from "../store/appStore";
+import { switchTab } from "./TabManager";
 
 export function renderCli(status: CliStatus): void {
   store.setCliStatus(status);
@@ -14,11 +15,7 @@ export function renderCli(status: CliStatus): void {
   const detail = element<HTMLParagraphElement>("#cli-detail");
   state.textContent = status.installed ? "已安装" : "未安装";
   state.className = `status-pill ${status.installed ? "neutral" : "error"}`;
-  detail.textContent = status.installed
-    ? status.cliPath
-      ? `Antigravity CLI 已安装 (${status.cliPath})`
-      : "Antigravity CLI 已安装"
-    : "未找到 Antigravity CLI (agy)";
+  detail.textContent = status.installed ? "Antigravity CLI 已安装" : "未找到 Antigravity CLI (agy)";
 
   const integrationState = element<HTMLSpanElement>("#cli-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#cli-integration-detail");
@@ -34,13 +31,21 @@ export function renderCli(status: CliStatus): void {
   const enableCliBtn = element<HTMLButtonElement>("#enable-cli-integration");
   const disableCliBtn = element<HTMLButtonElement>("#disable-cli-integration");
 
-  enableCliBtn.hidden = !status.canEnableIntegration;
-  disableCliBtn.hidden = !status.canDisableIntegration;
+  const needsReconfiguration = visibleIntegrationState === "mismatch"
+    || status.configurationState === "needs_update";
+  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
+    && !needsReconfiguration;
 
-  enableCliBtn.textContent = "启用代理模式";
+  const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
+  enableCliBtn.hidden = !showEnableOrUpdateButton;
+  enableCliBtn.textContent = needsReconfiguration ? "更新代理模式" : "启用代理模式";
+
+  disableCliBtn.hidden = !status.canDisableIntegration;
   disableCliBtn.textContent = "恢复官方模式";
 
-  setButtonUnavailable(enableCliBtn, !status.canEnableIntegration);
+  const modelCount = store.config?.virtual_models.length ?? 0;
+  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  setButtonUnavailable(enableCliBtn, !canEnable);
   setButtonUnavailable(disableCliBtn, !status.canDisableIntegration);
   renderReadiness();
 }
@@ -66,6 +71,16 @@ export function setupCliCard(): void {
 
   enableCliButton.addEventListener("click", () => {
     void (async () => {
+      const modelCount = store.config?.virtual_models.length ?? 0;
+      if (modelCount === 0) {
+        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        void switchTab("tab-models");
+        return;
+      }
+      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
+        showNotice("请先启动本地代理服务，再接入应用", "error");
+        return;
+      }
       const current = store.cliStatus;
       const needsReconfiguration = current?.integrationState === "mismatch"
         || current?.configurationState === "needs_update";
@@ -76,9 +91,11 @@ export function setupCliCard(): void {
           : alreadyEnabled
             ? "当前 CLI 已启用代理模式，无需重复设置。是否继续？"
             : "启用代理模式后会在 Shell 配置文件 (~/.zshrc 等) 中配置 CLOUD_CODE_URL。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认启用代理模式", "启用代理", "取消")) return null;
-  
-        showNotice("正在启用 CLI 代理模式…");
+        const confirmTitle = needsReconfiguration ? "确认更新代理模式" : "确认启用代理模式";
+        const confirmOk = needsReconfiguration ? "更新代理" : "启用代理";
+        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, "取消")) return null;
+
+        showNotice(needsReconfiguration ? "正在更新 CLI 代理模式…" : "正在启用 CLI 代理模式…");
         return invoke<CliStatus>("enable_cli_integration");
       });
       if (status === null) return;

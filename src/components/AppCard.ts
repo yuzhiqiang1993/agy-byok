@@ -7,6 +7,7 @@ import { confirmHostAction } from "./ConfirmModal";
 import { refreshApp } from "./HostRefresh";
 import { renderReadiness } from "./ReadinessPanel";
 import { store } from "../store/appStore";
+import { switchTab } from "./TabManager";
 
 export function renderApp(status: AppStatus): void {
   store.setAppStatus(status);
@@ -35,15 +36,22 @@ export function renderApp(status: AppStatus): void {
   const launchAppBtn = element<HTMLButtonElement>("#launch-app");
   const disableAppBtn = element<HTMLButtonElement>("#disable-app-integration");
 
-  enableAppBtn.hidden = !status.canEnableIntegration;
+  const needsReconfiguration = visibleIntegrationState === "mismatch"
+    || status.configurationState === "needs_update";
+  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
+    && !needsReconfiguration;
+
+  const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
+  enableAppBtn.hidden = !showEnableOrUpdateButton;
+  enableAppBtn.textContent = needsReconfiguration ? "更新代理模式" : "启用代理模式";
   launchAppBtn.hidden = !status.canLaunchApp || status.appRunning;
   disableAppBtn.hidden = !status.canDisableIntegration;
-
-  enableAppBtn.textContent = "启用代理模式";
   launchAppBtn.textContent = "启动 App";
   disableAppBtn.textContent = "恢复官方模式";
 
-  setButtonUnavailable(enableAppBtn, !status.canEnableIntegration);
+  const modelCount = store.config?.virtual_models.length ?? 0;
+  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  setButtonUnavailable(enableAppBtn, !canEnable);
   setButtonUnavailable(launchAppBtn, !status.canLaunchApp);
   setButtonUnavailable(disableAppBtn, !status.canDisableIntegration);
   renderReadiness();
@@ -71,6 +79,16 @@ export function setupAppCard(): void {
 
   enableAppButton.addEventListener("click", () => {
     void (async () => {
+      const modelCount = store.config?.virtual_models.length ?? 0;
+      if (modelCount === 0) {
+        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        void switchTab("tab-models");
+        return;
+      }
+      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
+        showNotice("请先启动本地代理服务，再接入应用", "error");
+        return;
+      }
       const current = store.appStatus;
       const isRunning = current?.appRunning ?? false;
       const needsReconfiguration = current?.integrationState === "mismatch"
@@ -84,11 +102,13 @@ export function setupAppCard(): void {
           : alreadyEnabled
             ? "当前 App 已启用代理模式，无需重复设置。是否继续？"
             : isRunning
-              ? "启用代理模式后，App 会自动重启使配置生效。是否继续？"
+              ? "启用代理模式后，App 会注入配置的模型并自动重启使配置生效。是否继续？"
               : "启用代理模式后，App 即可使用本地代理。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认启用代理模式", "启用代理", "取消")) return null;
+        const confirmTitle = needsReconfiguration ? "确认更新代理模式" : "确认启用代理模式";
+        const confirmOk = needsReconfiguration ? "更新代理" : "启用代理";
+        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, "取消")) return null;
 
-        showNotice("正在启用 App 代理模式…");
+        showNotice(needsReconfiguration ? "正在更新 App 代理模式…" : "正在启用 App 代理模式…");
         return invoke<AppStatus>("enable_app_integration");
       });
       if (status === null) return;

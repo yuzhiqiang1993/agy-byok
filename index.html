@@ -85,12 +85,11 @@
 
               <div class="service-widget-body">
                 <div class="address-block-header inline-header">
-                  <span class="detail-label">监听地址</span>
-                  <span class="address-protocol-tag">HTTP / REST</span>
+                  <span class="detail-label">代理服务地址</span>
                 </div>
                 <div class="address-box inline-address-box">
                   <code id="proxy-address">127.0.0.1:51234</code>
-                  <button id="copy-proxy-address" class="copy-icon-btn" type="button" title="复制监听地址" aria-label="复制监听地址">
+                  <button id="copy-proxy-address" class="copy-icon-btn" type="button" title="复制代理地址" aria-label="复制代理地址">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                   </button>
                 </div>
@@ -99,44 +98,57 @@
           </div>
 
           <div class="hero-bottom-row">
-            <ol class="readiness-steps" aria-label="四步使用流程">
-              <li id="readiness-models" data-state="pending">
-                <div class="step-header">
-                  <span class="step-index">01</span>
-                  <span class="step-badge"></span>
-                </div>
-                <span class="step-title">配置模型</span>
-                <strong id="readiness-models-value">检查中</strong>
-              </li>
-              <li id="readiness-proxy" data-state="pending">
-                <div class="step-header">
-                  <span class="step-index">02</span>
-                  <span class="step-badge"></span>
-                </div>
-                <span class="step-title">启动代理</span>
-                <strong id="readiness-proxy-value">检查中</strong>
-              </li>
-              <li id="readiness-entry" data-state="pending">
-                <div class="step-header">
-                  <span class="step-index">03</span>
-                  <span class="step-badge"></span>
-                </div>
-                <span class="step-title">选择入口</span>
-                <strong id="readiness-entry-value">检查中</strong>
-              </li>
-              <li id="readiness-restore" data-state="ready">
-                <div class="step-header">
-                  <span class="step-index">04</span>
-                  <span class="step-badge"></span>
-                </div>
-                <span class="step-title">恢复官方</span>
-                <strong id="readiness-restore-value">随时可用</strong>
-              </li>
-            </ol>
+            <div class="stepper-wrapper">
+              <ol class="readiness-steps" aria-label="四步使用流程">
+                <li id="readiness-models" class="step-item" data-state="pending">
+                  <div class="step-node">
+                    <span class="step-num">1</span>
+                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div class="step-content">
+                    <span class="step-title">配置模型</span>
+                    <strong id="readiness-models-value" class="step-value">检查中</strong>
+                  </div>
+                  <div class="step-connector" aria-hidden="true"></div>
+                </li>
+                <li id="readiness-proxy" class="step-item" data-state="pending">
+                  <div class="step-node">
+                    <span class="step-num">2</span>
+                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div class="step-content">
+                    <span class="step-title">启动代理</span>
+                    <strong id="readiness-proxy-value" class="step-value">检查中</strong>
+                  </div>
+                  <div class="step-connector" aria-hidden="true"></div>
+                </li>
+                <li id="readiness-entry" class="step-item" data-state="pending">
+                  <div class="step-node">
+                    <span class="step-num">3</span>
+                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div class="step-content">
+                    <span class="step-title">接入应用</span>
+                    <strong id="readiness-entry-value" class="step-value">检查中</strong>
+                  </div>
+                  <div class="step-connector" aria-hidden="true"></div>
+                </li>
+                <li id="readiness-restore" class="step-item" data-state="ready">
+                  <div class="step-node">
+                    <span class="step-num">4</span>
+                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div class="step-content">
+                    <span class="step-title">恢复官方</span>
+                    <strong id="readiness-restore-value" class="step-value">随时可用</strong>
+                  </div>
+                </li>
+              </ol>
+            </div>
           </div>
         </section>
 
-        <section class="status-grid" aria-label="IDE、App 与 CLI 运行状态">
+        <section id="host-cards-section" class="status-grid" aria-label="IDE、App 与 CLI 运行状态">
           <article class="panel status-card">
             <div class="panel-heading">
               <div class="card-title-group">
@@ -224,10 +236,7 @@
 
       <div id="tab-models" class="tab-pane">
         <section class="panel providers-panel">
-          <div class="panel-heading">
-            <div>
-              <h2>第 1 步：配置上游和模型</h2>
-            </div>
+          <div class="panel-heading heading-actions-only">
             <div class="heading-actions">
               <span id="provider-count" class="count-badge">0</span>
               <button id="open-provider-form" class="primary compact-button" type="button">添加上游服务</button>

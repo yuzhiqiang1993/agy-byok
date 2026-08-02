@@ -1,6 +1,9 @@
 import { element } from "../utils/domUtils";
 import { store } from "../store/appStore";
 import { clientConfigurationReady, clientReady } from "../utils/displayUtils";
+import { switchTab } from "./TabManager";
+import { startProxy } from "./ProxyCard";
+import { showNotice } from "./NoticeBar";
 
 function setReadinessStep(
   selector: string,
@@ -54,13 +57,29 @@ export function renderReadiness(): void {
     "#readiness-models",
     "#readiness-models-value",
     modelCountValue > 0 ? "ready" : "attention",
-    modelCountValue > 0 ? `${modelCountValue} 个模型` : "待添加",
+    modelCountValue > 0 ? `${modelCountValue} 个模型` : "去配置 →",
   );
   setReadinessStep(
     "#readiness-proxy",
     "#readiness-proxy-value",
-    proxyStatusLoadFailed ? "attention" : latestProxyStatus === null ? "pending" : proxyRunning ? "ready" : "attention",
-    proxyStatusLoadFailed ? "读取失败" : latestProxyStatus === null ? "检查中" : proxyRunning ? "运行中" : "待启动",
+    proxyStatusLoadFailed
+      ? "attention"
+      : latestProxyStatus === null
+        ? "pending"
+        : modelCountValue === 0
+          ? "pending"
+          : proxyRunning
+            ? "ready"
+            : "attention",
+    proxyStatusLoadFailed
+      ? "读取失败"
+      : latestProxyStatus === null
+        ? "检查中"
+        : modelCountValue === 0
+          ? "待配置模型"
+          : proxyRunning
+            ? "运行中"
+            : "去启动 →",
   );
   setReadinessStep(
     "#readiness-entry",
@@ -69,16 +88,22 @@ export function renderReadiness(): void {
       ? "attention"
       : entryStatusesLoading
         ? "pending"
-        : enabledClients.length > 0
-          ? "ready"
-          : "attention",
+        : modelCountValue === 0 || !proxyRunning
+          ? "pending"
+          : enabledClients.length > 0
+            ? "ready"
+            : "attention",
     entryStatusesLoadFailed
       ? "读取失败"
       : entryStatusesLoading
         ? "检查中"
-        : enabledClients.length > 0
-          ? `已启用 ${enabledClients.join("、")}`
-          : "选择入口",
+        : modelCountValue === 0
+          ? "待配置模型"
+          : !proxyRunning
+            ? "待启动代理"
+            : enabledClients.length > 0
+              ? `已接入 ${enabledClients.join("、")}`
+              : "去接入 →",
   );
   setReadinessStep(
     "#readiness-restore",
@@ -102,10 +127,81 @@ export function renderReadiness(): void {
     title.textContent = "第 2 步：启动本地代理";
     detail.textContent = "模型配置已完成。启动代理后，IDE、App 或 CLI 才能使用这些模型。";
   } else if (enabledClients.length === 0) {
-    title.textContent = "第 3 步：选择要启用的入口";
-    detail.textContent = "在下方选择 IDE、App 或 CLI，点击“启用代理模式”。入口可以单独启用，也可以同时启用多个。";
+    title.textContent = "第 3 步：选择要接入的应用";
+    detail.textContent = "在下方选择 IDE、App 或 CLI，点击“启用代理模式”。应用可以单独接入，也可以同时接入多个。";
   } else {
     title.textContent = "代理模式已启用";
     detail.textContent = "已启用的入口可以使用自定义模型。任何时候都可以恢复对应入口的官方配置。";
   }
 }
+
+export function setupReadinessPanel(): void {
+  const modelsStep = document.querySelector<HTMLElement>("#readiness-models");
+  const proxyStep = document.querySelector<HTMLElement>("#readiness-proxy");
+  const entryStep = document.querySelector<HTMLElement>("#readiness-entry");
+
+  if (modelsStep) {
+    modelsStep.title = "点击切换到模型管理";
+    modelsStep.addEventListener("click", () => {
+      void switchTab("tab-models");
+    });
+  }
+
+  if (proxyStep) {
+    proxyStep.title = "点击启动本地代理服务";
+    proxyStep.addEventListener("click", () => {
+      const modelCount = store.config?.virtual_models.length ?? 0;
+      if (modelCount === 0) {
+        showNotice("请先在“模型管理”中配置至少 1 个模型，再启动代理服务", "error");
+        void switchTab("tab-models");
+        return;
+      }
+      const proxyRunning = store.proxyStatus?.state === "running";
+      if (!proxyRunning) {
+        void startProxy();
+      } else {
+        showNotice("本地代理服务正在运行中");
+      }
+    });
+  }
+
+  if (entryStep) {
+    entryStep.title = "点击前往应用接入卡片";
+    entryStep.addEventListener("click", () => {
+      const modelCount = store.config?.virtual_models.length ?? 0;
+      if (modelCount === 0) {
+        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        void switchTab("tab-models");
+        return;
+      }
+      const proxyRunning = store.proxyStatus?.state === "running";
+      if (!proxyRunning) {
+        showNotice("请先启动本地代理服务，再接入应用", "error");
+        const proxyStepNode = document.querySelector("#readiness-proxy");
+        if (proxyStepNode) {
+          proxyStepNode.classList.remove("highlight-pulse");
+          void (proxyStepNode as HTMLElement).offsetWidth;
+          proxyStepNode.classList.add("highlight-pulse");
+          setTimeout(() => proxyStepNode.classList.remove("highlight-pulse"), 1250);
+        }
+        return;
+      }
+
+      showNotice("请在下方选择 IDE、App 或 CLI，点击“启用代理模式”");
+      const section = document.querySelector("#host-cards-section");
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+        const cards = document.querySelectorAll(".status-card");
+        cards.forEach((card) => {
+          card.classList.remove("highlight-pulse");
+          void (card as HTMLElement).offsetWidth;
+          card.classList.add("highlight-pulse");
+        });
+        setTimeout(() => {
+          cards.forEach((card) => card.classList.remove("highlight-pulse"));
+        }, 1250);
+      }
+    });
+  }
+}
+

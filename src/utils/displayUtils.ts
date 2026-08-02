@@ -4,9 +4,9 @@ import { errorMessage } from "./domUtils";
 
 export function integrationStateLabel(state: ClientIntegrationState): string {
   return {
-    official: "官方模式",
-    managed: "代理模式",
-    external: "外部配置",
+    official: "未启用",
+    managed: "已启用",
+    external: "已启用",
     mismatch: "需要更新",
     conflict: "无法修改",
     unavailable: "未找到应用",

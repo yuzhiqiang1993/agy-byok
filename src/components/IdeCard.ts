@@ -7,6 +7,7 @@ import { confirmHostAction } from "./ConfirmModal";
 import { refreshIde } from "./HostRefresh";
 import { renderReadiness } from "./ReadinessPanel";
 import { store } from "../store/appStore";
+import { switchTab } from "./TabManager";
 
 export function renderIde(status: IdeStatus): void {
   store.setIdeStatus(status);
@@ -38,13 +39,22 @@ export function renderIde(status: IdeStatus): void {
   const launchIdeButton = element<HTMLButtonElement>("#launch-ide");
   const disableIdeIntegrationButton = element<HTMLButtonElement>("#disable-ide-integration");
 
-  enableIdeIntegrationButton.hidden = !status.canEnableIntegration;
+  const needsReconfiguration = visibleIntegrationState === "mismatch"
+    || status.configurationState === "needs_update";
+  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
+    && !needsReconfiguration;
+
+  const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
+  enableIdeIntegrationButton.hidden = !showEnableOrUpdateButton;
+  enableIdeIntegrationButton.textContent = needsReconfiguration ? "更新代理模式" : "启用代理模式";
   launchIdeButton.hidden = !status.canLaunchIde || status.ideRunning;
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
-  enableIdeIntegrationButton.textContent = "启用代理模式";
   launchIdeButton.textContent = "启动 IDE";
   disableIdeIntegrationButton.textContent = "恢复官方模式";
-  setButtonUnavailable(enableIdeIntegrationButton, !status.canEnableIntegration);
+
+  const modelCount = store.config?.virtual_models.length ?? 0;
+  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  setButtonUnavailable(enableIdeIntegrationButton, !canEnable);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
   renderReadiness();
@@ -72,6 +82,16 @@ export function setupIdeCard(): void {
 
   enableIdeIntegrationButton.addEventListener("click", () => {
     void (async () => {
+      const modelCount = store.config?.virtual_models.length ?? 0;
+      if (modelCount === 0) {
+        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        void switchTab("tab-models");
+        return;
+      }
+      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
+        showNotice("请先启动本地代理服务，再接入应用", "error");
+        return;
+      }
       const current = store.ideStatus;
       const isRunning = current?.ideRunning ?? false;
       const needsReconfiguration = current?.integrationState === "mismatch"
@@ -85,11 +105,13 @@ export function setupIdeCard(): void {
           : alreadyEnabled
             ? "当前 IDE 已启用代理模式，无需重复设置。是否继续？"
             : isRunning
-              ? "启用代理模式后，IDE 会自动重启使配置生效。是否继续？"
+              ? "启用代理模式后，IDE 会注入配置的模型并自动重启使配置生效。是否继续？"
               : "启用代理模式后，IDE 即可使用本地代理。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认启用代理模式", "启用代理", "取消")) return null;
-  
-        showNotice("正在启用 IDE 代理模式…");
+        const confirmTitle = needsReconfiguration ? "确认更新代理模式" : "确认启用代理模式";
+        const confirmOk = needsReconfiguration ? "更新代理" : "启用代理";
+        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, "取消")) return null;
+
+        showNotice(needsReconfiguration ? "正在更新 IDE 代理模式…" : "正在启用 IDE 代理模式…");
         return invoke<IdeStatus>("enable_ide_integration");
       });
       if (status === null) return;

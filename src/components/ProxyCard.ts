@@ -47,7 +47,15 @@ export function proxyPortFromAddress(address: string | null): number | null {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
+import { switchTab } from "./TabManager";
+
 export async function startProxy(): Promise<void> {
+  const modelCount = store.config?.virtual_models.length ?? 0;
+  if (modelCount === 0) {
+    showNotice("请先在“模型管理”中配置至少 1 个模型，再启动代理服务", "error");
+    void switchTab("tab-models");
+    return;
+  }
   const status = await invoke<ProxyStatus>("start_proxy");
   renderProxy(status);
   await Promise.all([refreshIde(), refreshApp(), refreshCli()]);
