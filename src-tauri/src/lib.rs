@@ -14,7 +14,7 @@ pub fn run() {
         )
         .try_init();
     let state = create_state().expect("failed to initialize AGY BYOK desktop state");
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -43,7 +43,19 @@ pub fn run() {
             commands::cli::discover_cli,
             commands::cli::enable_cli_integration,
             commands::cli::disable_cli_integration
-        ])
+        ]);
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_process::init()).plugin({
+        let updater_builder = tauri_plugin_updater::Builder::new();
+        let updater_builder = match option_env!("TAURI_UPDATER_PUBLIC_KEY") {
+            Some(public_key) if !public_key.is_empty() => updater_builder.pubkey(public_key),
+            _ => updater_builder,
+        };
+        updater_builder.build()
+    });
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running AGY BYOK");
 }

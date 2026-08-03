@@ -1,0 +1,75 @@
+name: Release desktop app
+
+on:
+  push:
+    tags:
+      - "app-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.target }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Validate updater signing configuration
+        shell: bash
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || {
+            echo "Missing repository secret: TAURI_SIGNING_PRIVATE_KEY" >&2
+            exit 1
+          }
+          test -n "$TAURI_UPDATER_PUBLIC_KEY" || {
+            echo "Missing repository variable: TAURI_UPDATER_PUBLIC_KEY" >&2
+            exit 1
+          }
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tagName: app-v__VERSION__
+          releaseName: AGY BYOK v__VERSION__
+          releaseBody: See the release assets to download or update AGY BYOK.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}

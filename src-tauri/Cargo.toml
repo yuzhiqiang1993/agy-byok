@@ -23,3 +23,7 @@ tauri-plugin-dialog = "2.7.2"
 tokio = { version = "1.38", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"

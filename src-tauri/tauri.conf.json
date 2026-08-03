@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
+    "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Custom model proxy for Antigravity IDE",
     "icon": [
@@ -38,5 +39,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/yuzhiqiang1993/agy-byok/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -17,6 +17,7 @@ import { showNotice, setupNoticeBar } from "./components/NoticeBar";
 import { initThemeManager } from "./components/ThemeManager";
 import { setupTabManager } from "./components/TabManager";
 import { setupSettingsView } from "./components/SettingsView";
+import { setupUpdateManager } from "./components/UpdateManager";
 import { errorMessage } from "./utils/domUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
 import { refreshApp, refreshCli, refreshHostStatuses, refreshIde } from "./controllers/hostController";
@@ -37,6 +38,7 @@ setupReasoningModal();
 setupReadinessPanel();
 
 updateDOMTranslations();
+setupUpdateManager();
 
 function renderRuntimeState(): void {
   if (store.proxyStatusLoadFailed) renderProxyLoadFailure(t("overview.loadFailed"));

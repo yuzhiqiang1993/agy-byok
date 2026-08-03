@@ -6,6 +6,9 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "process:default",
+    "updater:default"
   ]
 }

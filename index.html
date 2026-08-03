@@ -43,7 +43,7 @@
         <main class="app-shell">
           <header class="topbar" data-tauri-drag-region>
             <div class="page-heading" data-tauri-drag-region>
-              <h1 id="page-title"><span id="page-title-text" data-i18n="overview.pageTitle">运行概览</span></h1>
+              <h1 id="page-title" data-tauri-drag-region><span id="page-title-text" data-tauri-drag-region data-i18n="overview.pageTitle">运行概览</span></h1>
               <p id="page-description" data-i18n="overview.pageDesc">按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。</p>
             </div>
             <div class="topbar-actions">
@@ -614,7 +614,7 @@
                 <div class="about-hero-info">
                   <div class="about-title-row">
                     <h3 class="about-app-name" data-i18n="settings.aboutAppName">AGY BYOK</h3>
-                    <span class="version-tag" data-i18n="settings.aboutVersion">v0.1.0</span>
+                    <span id="app-version" class="version-tag">v—</span>
                   </div>
                   <p class="about-app-desc" data-i18n="settings.aboutDesc">Antigravity 自定义模型代理管理与多端无缝接入系统</p>
                   <div class="about-tech-stack">
@@ -624,6 +624,22 @@
                     <span class="tech-tag" data-i18n="settings.techProxy">BYOK Proxy</span>
                   </div>
                 </div>
+              </div>div>
+
+              <div id="app-update-card" class="about-update-card">
+                <div class="action-icon" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                </div>
+                <div class="about-update-info">
+                  <strong data-i18n="settings.updateTitle">应用更新</strong>
+                  <span id="update-status" aria-live="polite" data-i18n="settings.updateIdle">检查最新版本</span>
+                  <p id="update-notes" class="about-update-notes" hidden></p>
+                </div>
+                <div class="about-update-actions">
+                  <button id="check-for-updates" type="button" class="secondary compact-button" data-i18n="settings.checkUpdates">检查更新</button>
+                  <button id="install-update" type="button" class="primary compact-button" data-i18n="settings.installUpdate" hidden>安装更新</button>
+                </div>
+                <progress id="update-progress" max="1" value="0" data-i18n-aria-label="settings.updateProgress" hidden></progress>
               </div>
 
               <div class="about-quick-links">

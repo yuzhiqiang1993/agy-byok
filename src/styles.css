@@ -1,6 +1,7 @@
 /* Window Drag Region Support for macOS Titlebar Overlay */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
+  user-select: none;
 }
 
 button, input, select, textarea, a, .no-drag, [data-tauri-drag-region="false"] {
@@ -3021,6 +3022,64 @@ html[data-theme="dark"] .preset-btn[data-preset="custom"][data-active="true"] {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.about-update-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.about-update-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.about-update-info > strong {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.about-update-info > span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-update-notes {
+  max-height: 72px;
+  margin: 4px 0 0;
+  overflow: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.about-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.about-update-card progress {
+  grid-column: 2 / -1;
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
 .about-quick-links {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3079,7 +3138,8 @@ html[data-theme="dark"] .preset-btn[data-preset="custom"][data-active="true"] {
 /* Dark mode adjustments */
 html[data-theme="dark"] .settings-nav-sidebar,
 html[data-theme="dark"] .settings-row,
-html[data-theme="dark"] .about-action-card {
+html[data-theme="dark"] .about-action-card,
+html[data-theme="dark"] .about-update-card {
   background: rgba(15, 23, 42, 0.75);
   border-color: rgba(255, 255, 255, 0.08);
 }
