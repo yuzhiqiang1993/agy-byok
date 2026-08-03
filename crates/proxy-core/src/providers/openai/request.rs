@@ -1,0 +1,266 @@
+use crate::domain::model::ReasoningMapping;
+use crate::domain::{
+    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
+    ProxyError,
+};
+use crate::routing::ResolvedRoute;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+fn normalize_json_schema_types(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if let Some(schema_type) = object.get_mut("type") {
+                normalize_json_schema_type(schema_type);
+            }
+            for child in object.values_mut() {
+                normalize_json_schema_types(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                normalize_json_schema_types(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_json_schema_type(value: &mut Value) {
+    match value {
+        Value::String(schema_type) if is_json_schema_type(schema_type) => {
+            schema_type.make_ascii_lowercase();
+        }
+        Value::Array(schema_types) => {
+            for schema_type in schema_types {
+                normalize_json_schema_type(schema_type);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_json_schema_type(value: &str) -> bool {
+    matches!(
+        value,
+        "NULL" | "BOOLEAN" | "OBJECT" | "ARRAY" | "NUMBER" | "INTEGER" | "STRING"
+    )
+}
+
+fn convert_message(msg: &NeutralMessage) -> Value {
+    let role_str = match msg.role {
+        MessageRole::System => "system",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "tool",
+    };
+
+    if msg.blocks.len() == 1 {
+        if let NeutralContentBlock::Text(ref text) = msg.blocks[0] {
+            return json!({
+                "role": role_str,
+                "content": text
+            });
+        }
+    }
+
+    let mut contents = Vec::new();
+    let mut reasoning_contents = Vec::new();
+    let mut tool_calls = Vec::new();
+    let mut tool_call_id = None;
+
+    for block in &msg.blocks {
+        match block {
+            NeutralContentBlock::Text(text) => {
+                contents.push(json!({
+                    "type": "text",
+                    "text": text
+                }));
+            }
+            NeutralContentBlock::Image {
+                mime_type,
+                data_base64,
+            } => {
+                contents.push(json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:{};base64,{}", mime_type, data_base64)
+                    }
+                }));
+            }
+            NeutralContentBlock::ToolCall {
+                id,
+                name,
+                arguments_json,
+            } => {
+                tool_calls.push(json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": arguments_json
+                    }
+                }));
+            }
+            NeutralContentBlock::ToolResult {
+                tool_call_id: id,
+                content,
+                ..
+            } => {
+                tool_call_id = Some(id.clone());
+                contents.push(json!({
+                    "type": "text",
+                    "text": content
+                }));
+            }
+            NeutralContentBlock::Thinking { text, .. } => {
+                reasoning_contents.push(text.as_str());
+            }
+        }
+    }
+
+    let mut obj = json!({
+        "role": role_str,
+    });
+
+    if msg.role == MessageRole::Tool {
+        if let Some(id) = tool_call_id {
+            obj["tool_call_id"] = json!(id);
+        }
+        if !contents.is_empty() {
+            let first_text = contents[0]["text"].as_str().unwrap_or_default();
+            obj["content"] = json!(first_text);
+        }
+    } else {
+        if !contents.is_empty() {
+            obj["content"] = Value::Array(contents);
+        }
+        if !reasoning_contents.is_empty() {
+            obj["reasoning_content"] = json!(reasoning_contents.join("\n"));
+        }
+        if !tool_calls.is_empty() {
+            obj["tool_calls"] = Value::Array(tool_calls);
+        }
+    }
+
+    obj
+}
+
+pub(super) fn build_request_payload(
+    route: &ResolvedRoute,
+    request: &NeutralChatRequest,
+) -> Result<Value, ProxyError> {
+    let mut payload = json!({
+        "model": route.upstream_model.upstream_model_id,
+        "stream": request.stream,
+    });
+
+    let mut messages_json = Vec::new();
+    if let Some(ref sys) = request.system_instruction {
+        messages_json.push(json!({
+            "role": "system",
+            "content": sys
+        }));
+    }
+
+    for msg in &request.messages {
+        messages_json.push(convert_message(msg));
+    }
+    payload["messages"] = Value::Array(messages_json);
+
+    if !request.tools.is_empty() {
+        let tools_json: Vec<Value> = request
+            .tools
+            .iter()
+            .map(|t| {
+                let mut parameters = t.function.parameters_schema.clone();
+                normalize_json_schema_types(&mut parameters);
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.function.name,
+                        "description": t.function.description,
+                        "parameters": parameters
+                    }
+                })
+            })
+            .collect();
+        payload["tools"] = Value::Array(tools_json);
+    }
+
+    let params = &route.final_parameters;
+    if let Some(temp) = params.temperature {
+        payload["temperature"] = json!(temp);
+    }
+    if let Some(max_t) = params.max_tokens {
+        payload["max_tokens"] = json!(max_t);
+    }
+    if let Some(top_p) = params.top_p {
+        payload["top_p"] = json!(top_p);
+    }
+
+    if let Some(ref extra) = params.extra_body {
+        for (k, v) in extra {
+            payload[k] = v.clone();
+        }
+    }
+
+    if let Some(level) = route.final_reasoning_level {
+        let mapping = route
+            .upstream_model
+            .capabilities
+            .reasoning
+            .mapping_for(level)
+            .ok_or_else(|| {
+                ProxyError::new(
+                    ErrorCategory::UnsupportedFeature,
+                    format!(
+                        "No reasoning mapping configured for OpenAI level {:?}",
+                        level
+                    ),
+                    400,
+                )
+            })?;
+        match mapping {
+            ReasoningMapping::Effort(effort) => {
+                payload["reasoning_effort"] = json!(effort);
+            }
+            ReasoningMapping::Disabled => {
+                payload["reasoning_effort"] = json!("none");
+            }
+            _ => {
+                return Err(ProxyError::new(
+                    ErrorCategory::UnsupportedFeature,
+                    format!("OpenAI does not support reasoning mapping: {:?}", mapping),
+                    400,
+                ));
+            }
+        }
+    }
+
+    if request.stream {
+        if !payload["stream_options"].is_object() {
+            payload["stream_options"] = json!({});
+        }
+        payload["stream_options"]["include_usage"] = json!(true);
+    }
+
+    Ok(payload)
+}
+
+pub(super) fn build_headers(provider: &Provider) -> Result<HashMap<String, String>, ProxyError> {
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    if !provider.api_key.is_empty() {
+        headers.insert(
+            "Authorization".to_string(),
+            format!("Bearer {}", provider.api_key),
+        );
+    }
+
+    for (k, v) in &provider.headers {
+        headers.insert(k.clone(), v.clone());
+    }
+
+    Ok(headers)
+}
