@@ -1,4 +1,8 @@
 import { clientErrorMessage } from "./displayUtils";
+import { t } from "../i18n";
+import { errorMessage } from "./errorUtils";
+
+export { errorMessage };
 
 let noticeTimer: number | null = null;
 
@@ -22,9 +26,7 @@ export function element<T extends HTMLElement>(selector: string): T {
   return value;
 }
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+
 
 export function setButtonUnavailable(button: HTMLButtonElement, unavailable: boolean): void {
   button.dataset.unavailable = String(unavailable);
@@ -34,7 +36,7 @@ export function setButtonUnavailable(button: HTMLButtonElement, unavailable: boo
 export async function withBusy(
   button: HTMLButtonElement,
   action: () => Promise<void>,
-  busyLabel = "处理中…",
+  busyLabel = t("models.processing"),
 ): Promise<void> {
   if (button.dataset.busy === "true") return;
   const label = button.textContent;
@@ -53,6 +55,47 @@ export async function withBusy(
   }
 }
 
+export function armDestructiveButton(
+  button: HTMLButtonElement,
+  confirmLabel: string,
+  action: () => Promise<void>,
+  beforeArm?: () => string | null,
+): void {
+  const initialLabel = button.textContent ?? "Delete";
+  let armed = false;
+  let resetTimer: number | null = null;
+  const reset = () => {
+    armed = false;
+    if (resetTimer !== null) window.clearTimeout(resetTimer);
+    resetTimer = null;
+    button.textContent = initialLabel;
+    button.classList.remove("danger-confirm");
+  };
+
+  button.addEventListener("click", () => {
+    if (!armed) {
+      const blocker = beforeArm?.();
+      if (blocker) {
+        showNotice(blocker, "error");
+        return;
+      }
+      armed = true;
+      button.textContent = confirmLabel;
+      button.classList.add("danger-confirm");
+      resetTimer = window.setTimeout(reset, 4000);
+      return;
+    }
+
+    const blocker = beforeArm?.();
+    if (blocker) {
+      reset();
+      showNotice(blocker, "error");
+      return;
+    }
+    void action().finally(reset);
+  });
+}
+
 export function clientActionButtons(client: "ide" | "app" | "cli"): HTMLButtonElement[] {
   return Array.from(document.querySelectorAll<HTMLButtonElement>(`#${client}-actions button`));
 }
@@ -61,7 +104,7 @@ export async function withClientBusy<T>(
   button: HTMLButtonElement,
   client: "ide" | "app" | "cli",
   action: () => Promise<T>,
-  busyLabel = "处理中…",
+  busyLabel = t("models.processing"),
 ): Promise<T | undefined> {
   if (button.dataset.busy === "true") return undefined;
   const buttons = clientActionButtons(client);

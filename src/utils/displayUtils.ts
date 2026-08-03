@@ -1,15 +1,16 @@
 import type { ClientIntegrationState, ClientConfigurationState } from "../types/host";
 import type { ProviderProtocol } from "../types/config";
-import { errorMessage } from "./domUtils";
+import { errorMessage } from "./errorUtils";
+import { getLanguage, t } from "../i18n";
 
 export function integrationStateLabel(state: ClientIntegrationState): string {
   return {
-    official: "未启用",
-    managed: "已启用",
-    external: "已启用",
-    mismatch: "需要更新",
-    conflict: "无法修改",
-    unavailable: "未找到应用",
+    official: t("overview.disabled"),
+    managed: t("overview.enabled"),
+    external: t("overview.enabled"),
+    mismatch: t("overview.mismatch"),
+    conflict: t("overview.conflict"),
+    unavailable: t("overview.notInstalled"),
   }[state];
 }
 
@@ -30,17 +31,23 @@ export function displayIntegrationState(
 export function clientStatusMessage(
   integrationState: ClientIntegrationState,
   configurationState: ClientConfigurationState,
-  configurationMessage: string,
+  configurationMessage?: string,
+  clientType: "ide" | "app" | "cli" = "ide",
 ): string {
-  if (configurationMessage) return configurationMessage;
-  if (configurationState === "needs_update") return "代理配置需要更新，请重新设置";
-  if (configurationState === "service_stopped") return "代理模式已配置，请先启动本地代理";
-  if (configurationState === "not_running") return "代理配置正常，启动应用后生效";
-  if (configurationState === "checking") return "正在检查配置…";
-  if (configurationState === "not_enabled") return "当前使用官方配置，可随时启用代理模式";
-  if (configurationState === "matched") return "代理配置正常";
-  if (integrationState === "conflict") return "暂时无法修改，请关闭应用后刷新再试";
-  return "未找到应用";
+  if (configurationState === "needs_update") return t("overview.msgNeedsUpdate");
+  if (configurationState === "service_stopped") return t("overview.msgServiceStopped");
+  if (configurationState === "not_running") return t("overview.msgNotRunning");
+  if (configurationState === "checking") return t("overview.msgChecking");
+  if (configurationState === "not_enabled") {
+    return clientType === "cli" ? t("overview.msgCliNotEnabled") : t("overview.msgNotEnabled");
+  }
+  if (configurationState === "matched" || configurationState === "active") {
+    return clientType === "cli" ? t("overview.msgCliMatched") : t("overview.msgMatched");
+  }
+  if (integrationState === "conflict") return t("overview.msgConflict");
+  if (integrationState === "unavailable") return t("overview.msgUnavailable");
+
+  return configurationMessage || t("overview.msgNotEnabled");
 }
 
 export function clientConfigurationReady(state: ClientConfigurationState, proxyRunning = false): boolean {
@@ -60,20 +67,20 @@ export function clientReady(state: ClientIntegrationState): boolean {
 export function clientErrorMessage(error: unknown): string {
   const message = errorMessage(error);
   if (message.includes("请先启动") || message.includes("本地代理")) {
-    return "请先启动本地代理。";
+    return t("overview.proxyStartError");
   }
   if (/App 代理|IDE settings|invalid application bundle|language_server|Wrapper|settings\.json/i.test(message)) {
-    return "暂时无法修改，请关闭应用后刷新再试。";
+    return t("overview.hostModifyError");
   }
   return message;
 }
 
 export function protocolName(protocol: ProviderProtocol): string {
   return {
-    openai_chat_completions: "OpenAI · Chat Completions",
-    openai_responses: "OpenAI · Responses API",
-    anthropic_messages: "Anthropic · Messages API",
-    gemini_generate_content: "Google · Gemini generateContent",
+    openai_chat_completions: t("models.protocolOpenAI"),
+    openai_responses: t("models.protocolResponses"),
+    anthropic_messages: t("models.protocolAnthropic"),
+    gemini_generate_content: t("models.protocolGemini"),
   }[protocol];
 }
 
@@ -82,27 +89,30 @@ export function providerProtocolLabel(protocol: string | null): string {
     : protocol === "anthropic" ? "anthropic_messages"
       : protocol === "gemini" ? "gemini_generate_content"
         : protocol;
-  if (normalized === null) return "未知";
+  if (normalized === null) return t("activity.unknown");
   if (normalized === "openai_chat_completions" || normalized === "openai_responses"
     || normalized === "anthropic_messages" || normalized === "gemini_generate_content") {
     return protocolName(normalized);
   }
-  return protocol ?? "未知";
+  return protocol ?? t("activity.unknown");
 }
 
 export function protocolDescription(protocol: ProviderProtocol): string {
   return {
-    openai_chat_completions: "适用于 /v1/chat/completions 接口，支持 CPA、Sub2API 及主流 OpenAI 兼容服务网关。",
-    openai_responses: "适用于 OpenAI Responses API 兼容接口（/v1/responses），请勿误选为 Chat Completions。",
-    anthropic_messages: "适用于 /v1/messages 接口，支持 Anthropic 官方 API 及兼容 Messages API 的中转服务。",
-    gemini_generate_content: "适用于 Google Gemini 原生 API（:generateContent），支持 /v1beta/models 接口。",
+    openai_chat_completions: t("models.protocolHelpOpenAI"),
+    openai_responses: t("models.protocolHelpResponses"),
+    anthropic_messages: t("models.protocolHelpAnthropic"),
+    gemini_generate_content: t("models.protocolHelpGemini"),
   }[protocol];
 }
 
 export function formatActivityTime(timestampMs: number): { label: string; full: string; dateTime: string | null } {
   const date = new Date(timestampMs);
-  if (Number.isNaN(date.getTime())) return { label: "时间未知", full: "时间未知", dateTime: null };
-  const label = new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) {
+    const unknown = t("activity.unknownTime");
+    return { label: unknown, full: unknown, dateTime: null };
+  }
+  const label = new Intl.DateTimeFormat(getLanguage(), {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",

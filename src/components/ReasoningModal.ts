@@ -1,42 +1,67 @@
 import { element } from "../utils/domUtils";
 import type { ProviderCatalogModel } from "../types/catalog";
+import type { Provider, ProviderProtocol, UpstreamModel } from "../types/config";
+import type { ModelConnectionTestResult } from "../types/proxy";
 import type { ConfigurableReasoningLevel } from "../types/reasoning";
-import {
-  testProviderModelConnection,
-  setProviderEditorDirty,
-  renderCatalogModels,
-  editingProviderId,
-  catalogReasoningLevelsByModel,
-  catalogReasoningEnabledModelIds,
-  changedCatalogReasoningModelIds,
-  selectedProtocol,
-  withProviderEditorBusy,
-  providerFromForm,
-} from "./ProviderEditor";
-import { reasoningLevelLabel, sortReasoningLevels, catalogReasoningLevelsForModel } from "../utils/reasoningUtils";
-import { store } from "../store/appStore";
+import { catalogReasoningLevelsForModel, reasoningLevelLabel, sortReasoningLevels } from "../utils/reasoningUtils";
+import { t, subscribeLanguage } from "../i18n";
+
+export interface ReasoningModalContext {
+  providerProtocol: ProviderProtocol;
+  existingUpstream?: UpstreamModel;
+  currentLevels: ReadonlySet<ConfigurableReasoningLevel>;
+  providerFromForm: () => Provider;
+  testProviderModelConnection: (
+    provider: Provider,
+    upstreamModelId: string,
+    reasoningLevel: ConfigurableReasoningLevel,
+    customReasoningValue: string | null,
+  ) => Promise<ModelConnectionTestResult>;
+  runBusy: (
+    button: HTMLButtonElement,
+    action: () => Promise<void>,
+    busyLabel?: string,
+  ) => Promise<void>;
+  onConfirm: (modelId: string, levels: Set<ConfigurableReasoningLevel>) => void;
+}
 
 export let activeReasoningModel: ProviderCatalogModel | null = null;
-export let draftReasoningLevels = new Set<ConfigurableReasoningLevel>();
+let draftReasoningLevels = new Set<ConfigurableReasoningLevel>();
+let activeContext: ReasoningModalContext | null = null;
 
-export function openReasoningModal(model: ProviderCatalogModel): void {
+subscribeLanguage(() => {
+  if (!activeReasoningModel || !activeContext) return;
+  element<HTMLElement>("#reasoning-modal-title").textContent =
+    `${t("models.reasoningConfig")} · ${activeReasoningModel.displayName}`;
+  const supportedLevels = catalogReasoningLevelsForModel(
+    activeReasoningModel,
+    activeContext.providerProtocol,
+    activeContext.existingUpstream,
+  );
+  document.querySelectorAll<HTMLSpanElement>("#reasoning-modal-levels .check-label > span").forEach((label, index) => {
+    const level = supportedLevels[index];
+    if (level) label.textContent = reasoningLevelLabel(level);
+  });
+  document.querySelectorAll<HTMLButtonElement>("#reasoning-modal-levels button").forEach((button) => {
+    button.textContent = t("models.testConnection");
+  });
+});
+
+export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
   activeReasoningModel = model;
-
-  const existingUpstream = editingProviderId
-    ? store.config?.upstream_models.find(
-        (item) => item.provider_id === editingProviderId && item.upstream_model_id === model.id,
-      )
-    : undefined;
-  const currentLevels = catalogReasoningLevelsByModel.get(model.id) ?? new Set<ConfigurableReasoningLevel>();
-  draftReasoningLevels = new Set(sortReasoningLevels(currentLevels));
+  activeContext = context;
+  draftReasoningLevels = new Set(sortReasoningLevels(context.currentLevels));
 
   const reasoningModalTitle = element<HTMLElement>("#reasoning-modal-title");
   const reasoningModalLevelsContainer = element<HTMLDivElement>("#reasoning-modal-levels");
-
-  reasoningModalTitle.textContent = `推理强度配置 · ${model.displayName}`;
+  reasoningModalTitle.textContent = `${t("models.reasoningConfig")} · ${model.displayName}`;
   reasoningModalLevelsContainer.replaceChildren();
 
-  const supportedLevels = catalogReasoningLevelsForModel(model, selectedProtocol(), existingUpstream);
+  const supportedLevels = catalogReasoningLevelsForModel(
+    model,
+    context.providerProtocol,
+    context.existingUpstream,
+  );
   for (const level of supportedLevels) {
     const row = document.createElement("div");
     row.className = "reasoning-modal-level-row";
@@ -63,21 +88,28 @@ export function openReasoningModal(model: ProviderCatalogModel): void {
     const testBtn = document.createElement("button");
     testBtn.type = "button";
     testBtn.className = "secondary compact-button";
-    testBtn.textContent = "测试";
+    testBtn.textContent = t("models.testConnection");
     testBtn.addEventListener("click", () => {
-      void withProviderEditorBusy(testBtn, async () => {
+      const currentContext = activeContext;
+      if (!currentContext) return;
+      void currentContext.runBusy(testBtn, async () => {
         result.className = "reasoning-level-test-result pending";
-        result.textContent = "测试中…";
-        const response = await testProviderModelConnection(providerFromForm(), model.id, level, null);
+        result.textContent = t("models.testing");
+        const response = await currentContext.testProviderModelConnection(
+          currentContext.providerFromForm(),
+          model.id,
+          level,
+          null,
+        );
         if (response.success) {
           result.className = "reasoning-level-test-result success";
-          result.textContent = `通过 · ${response.durationMs} ms`;
+          result.textContent = t("models.testSuccess", { time: response.durationMs });
         } else {
           result.className = "reasoning-level-test-result error";
-          result.textContent = `失败 · ${response.message}`;
+          result.textContent = t("models.testFailed", { msg: response.message });
         }
-        result.title = response.message ?? "";
-      }, "测试中…");
+        result.title = response.message;
+      }, t("models.testing"));
     });
 
     testArea.append(result, testBtn);
@@ -93,6 +125,7 @@ export function closeReasoningModal(): void {
   const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
   reasoningModal.hidden = true;
   activeReasoningModel = null;
+  activeContext = null;
 }
 
 export function setupReasoningModal(): void {
@@ -104,18 +137,9 @@ export function setupReasoningModal(): void {
   element<HTMLDivElement>("#reasoning-modal").hidden = true;
 
   confirmReasoningModalButton.addEventListener("click", () => {
-    if (!activeReasoningModel) return;
+    if (!activeReasoningModel || !activeContext) return;
     const modelId = activeReasoningModel.id;
-    if (draftReasoningLevels.size > 0) {
-      catalogReasoningEnabledModelIds.add(modelId);
-      catalogReasoningLevelsByModel.set(modelId, new Set(sortReasoningLevels(draftReasoningLevels)));
-    } else {
-      catalogReasoningEnabledModelIds.delete(modelId);
-      catalogReasoningLevelsByModel.delete(modelId);
-    }
-    changedCatalogReasoningModelIds.add(modelId);
-    setProviderEditorDirty(true);
-    renderCatalogModels();
+    activeContext.onConfirm(modelId, new Set(sortReasoningLevels(draftReasoningLevels)));
     closeReasoningModal();
   });
 

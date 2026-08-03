@@ -1,37 +1,65 @@
-import { element } from "../utils/domUtils";
+import { element, errorMessage, withBusy } from "../utils/domUtils";
 import { store } from "../store/appStore";
-import { renderReadiness } from "./ReadinessPanel";
 import { renderSingleProviderCard } from "./ProviderCard";
-
-export let activeProviderTabId: string | null = null;
-
-export function setProviderEditorActiveTabId(id: string): void {
-  activeProviderTabId = id;
-}
+import { openProviderEditor } from "./ProviderEditor";
+import { getActiveProviderTabId, setActiveProviderTabId } from "../features/providers/providerState";
+import { t } from "../i18n";
+import { configService } from "../services/configService";
 
 export function renderProviders(): void {
   const providerCount = element<HTMLSpanElement>("#provider-count");
   const providerList = element<HTMLDivElement>("#provider-list");
+  const openProviderFormButton = element<HTMLButtonElement>("#open-provider-form");
 
-  const providers = store.config?.providers ?? [];
-  const upstreamModels = store.config?.upstream_models ?? [];
-  const virtualModels = store.config?.virtual_models ?? [];
-
-  providerCount.textContent = `${providers.length} 个服务`;
+  openProviderFormButton.disabled = !store.configLoaded;
   providerList.replaceChildren();
-  renderReadiness();
+  if (!store.configLoaded) {
+    providerCount.textContent = "—";
+    setActiveProviderTabId(null);
+    const state = document.createElement("p");
+    state.className = store.configLoadError ? "empty-state error-state" : "empty-state";
+    state.textContent = store.configLoadError
+      ? `${t("overview.loadFailed")}: ${store.configLoadError}`
+      : t("overview.checking");
+    providerList.append(state);
+    if (store.configLoadError) {
+      const retryButton = document.createElement("button");
+      retryButton.type = "button";
+      retryButton.className = "secondary compact-button";
+      retryButton.textContent = t("overview.refresh");
+      retryButton.addEventListener("click", () => {
+        void withBusy(retryButton, async () => {
+          try {
+            store.setConfig(await configService.getConfig());
+          } catch (error) {
+            store.setConfigFailed(errorMessage(error));
+          }
+        });
+      });
+      providerList.append(retryButton);
+    }
+    return;
+  }
+
+  const providers = store.config.providers;
+  const upstreamModels = store.config.upstream_models;
+  const virtualModels = store.config.virtual_models;
+
+  providerCount.textContent = `${providers.length}`;
 
   if (providers.length === 0) {
-    activeProviderTabId = null;
+    setActiveProviderTabId(null);
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "还没有上游服务。添加连接后即可获取并选择模型。";
+    empty.textContent = t("models.emptyDesc");
     providerList.append(empty);
     return;
   }
 
+  let activeProviderTabId = getActiveProviderTabId();
   if (!activeProviderTabId || !providers.some((p) => p.id === activeProviderTabId)) {
     activeProviderTabId = providers[0].id;
+    setActiveProviderTabId(activeProviderTabId);
   }
 
   const tabsBar = document.createElement("div");
@@ -64,8 +92,8 @@ export function renderProviders(): void {
 
     tabCard.append(icon, title, badge);
     tabCard.addEventListener("click", () => {
-      if (activeProviderTabId !== provider.id) {
-        activeProviderTabId = provider.id;
+      if (getActiveProviderTabId() !== provider.id) {
+        setActiveProviderTabId(provider.id);
         renderProviders();
       }
     });
@@ -75,6 +103,9 @@ export function renderProviders(): void {
   providerList.append(tabsBar);
 
   const activeProvider = providers.find((p) => p.id === activeProviderTabId) ?? providers[0];
-  const activeCard = renderSingleProviderCard(activeProvider);
+  const activeCard = renderSingleProviderCard(activeProvider, {
+    onEdit: () => void openProviderEditor(activeProvider.id),
+    onChanged: renderProviders,
+  });
   providerList.append(activeCard);
 }

@@ -1,24 +1,28 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { ProxyStatus } from "../types/proxy";
-import { element, errorMessage } from "../utils/domUtils";
+import { element, errorMessage, setButtonUnavailable, withBusy } from "../utils/domUtils";
 import { store } from "../store/appStore";
-import { renderReadiness } from "./ReadinessPanel";
-import { refreshIde, refreshApp, refreshCli } from "./HostRefresh";
+import { startProxy as startProxyCommand, stopProxy as stopProxyCommand } from "../controllers/proxyController";
+import { refreshIde, refreshApp, refreshCli } from "../controllers/hostController";
+import { switchTab } from "./TabManager";
+import { t } from "../i18n";
 import { showNotice } from "./NoticeBar";
-import { setButtonUnavailable, withBusy } from "../utils/domUtils";
+
+export function renderProxyLoadFailure(message: string): void {
+  const state = element<HTMLSpanElement>("#proxy-state");
+  const address = element<HTMLElement>("#proxy-address");
+  state.textContent = t("overview.loadFailed");
+  state.className = "status-pill error";
+  address.textContent = t("overview.loadFailedDetail", { message });
+  const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
+  stopProxyButton.hidden = true;
+  setButtonUnavailable(stopProxyButton, true);
+}
 
 export function renderProxy(status: ProxyStatus): void {
-  store.setProxyStatus(status);
-  const actualPort = proxyPortFromAddress(status.address);
-  if (actualPort !== null) {
-    if (store.config) {
-        store.config.proxy_port = actualPort;
-    }
-  }
   const state = element<HTMLSpanElement>("#proxy-state");
   const address = element<HTMLElement>("#proxy-address");
   const running = status.state === "running";
-  state.textContent = running ? "运行中" : "已停止";
+  state.textContent = running ? t("overview.proxyRunning") : t("overview.proxyStopped");
   state.className = `status-pill ${running ? "success" : "neutral"}`;
   address.textContent = status.address ?? `127.0.0.1:${store.config?.proxy_port ?? 54321}`;
 
@@ -33,11 +37,10 @@ export function renderProxy(status: ProxyStatus): void {
   }
 
   const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
-  stopProxyButton.textContent = running ? "停止代理" : "启动代理";
+  stopProxyButton.textContent = running ? t("overview.stopProxy") : t("overview.startProxy");
   stopProxyButton.className = running ? "secondary compact-button" : "primary compact-button";
   stopProxyButton.hidden = false;
   setButtonUnavailable(stopProxyButton, false);
-  renderReadiness();
 }
 
 export function proxyPortFromAddress(address: string | null): number | null {
@@ -47,31 +50,29 @@ export function proxyPortFromAddress(address: string | null): number | null {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
-import { switchTab } from "./TabManager";
-
 export async function startProxy(): Promise<void> {
   const modelCount = store.config?.virtual_models.length ?? 0;
   if (modelCount === 0) {
-    showNotice("请先在“模型管理”中配置至少 1 个模型，再启动代理服务", "error");
+    showNotice(t("overview.proxyModelsRequired", { count: 1 }), "error");
     void switchTab("tab-models");
     return;
   }
-  const status = await invoke<ProxyStatus>("start_proxy");
+  const status = await startProxyCommand();
   renderProxy(status);
   await Promise.all([refreshIde(), refreshApp(), refreshCli()]);
-  showNotice("服务已启动");
+  showNotice(t("overview.proxyStarted"));
 }
 
 export function setupProxyCard(): void {
   const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
   stopProxyButton.addEventListener("click", () => void withBusy(stopProxyButton, async () => {
     if (store.proxyStatus?.state === "running") {
-      renderProxy(await invoke<ProxyStatus>("stop_proxy"));
+      renderProxy(await stopProxyCommand());
       const results = await Promise.allSettled([refreshIde(), refreshApp(), refreshCli()]);
       if (results.some((result) => result.status === "rejected")) {
-        showNotice("服务已停止，但应用状态刷新失败，请手动刷新", "error");
+        showNotice(t("overview.proxyStoppedRefreshFailed"), "error");
       } else {
-        showNotice("本地代理已停止；已启用代理模式的入口暂时无法使用");
+        showNotice(t("overview.proxyStoppedNotice"));
       }
     } else {
       await startProxy();
@@ -85,9 +86,9 @@ export function setupProxyCard(): void {
       if (!address) return;
       const fullUrl = address.startsWith("http") ? address : `http://${address}`;
       navigator.clipboard.writeText(fullUrl).then(() => {
-        showNotice(`已复制代理地址 ${fullUrl}`);
+        showNotice(t("overview.proxyAddressCopied", { address: fullUrl }));
       }).catch((err) => {
-        showNotice(`复制失败：${errorMessage(err)}`, "error");
+        showNotice(t("overview.copyFailed", { message: errorMessage(err) }), "error");
       });
     });
   }

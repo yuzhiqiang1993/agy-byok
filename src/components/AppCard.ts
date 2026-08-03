@@ -1,25 +1,28 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { AppStatus } from "../types/host";
 import { element, setButtonUnavailable, withClientBusy, withBusy } from "../utils/domUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
 import { showNotice } from "./NoticeBar";
 import { confirmHostAction } from "./ConfirmModal";
-import { refreshApp } from "./HostRefresh";
-import { renderReadiness } from "./ReadinessPanel";
+import {
+  disableAppIntegration,
+  enableAppIntegration,
+  launchApp,
+  refreshApp,
+} from "../controllers/hostController";
 import { store } from "../store/appStore";
 import { switchTab } from "./TabManager";
+import { t } from "../i18n";
 
 export function renderApp(status: AppStatus): void {
-  store.setAppStatus(status);
   const state = element<HTMLSpanElement>("#app-state");
   const detail = element<HTMLParagraphElement>("#app-detail");
-  state.textContent = status.appRunning ? "运行中" : status.installed ? "已安装" : "未安装";
+  state.textContent = status.appRunning ? t("overview.running") : status.installed ? t("overview.installed") : t("overview.notInstalled");
   state.className = `status-pill ${status.appRunning ? "success" : status.installed ? "neutral" : "error"}`;
   detail.textContent = status.appRunning
-    ? "Antigravity App 正在运行"
+    ? t("overview.appRunning")
     : status.installed
-      ? "Antigravity App 已安装，当前未运行"
-      : "未找到 Antigravity App";
+      ? t("overview.appNotRunning")
+      : t("overview.msgUnavailable");
 
   const integrationState = element<HTMLSpanElement>("#app-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#app-integration-detail");
@@ -30,6 +33,7 @@ export function renderApp(status: AppStatus): void {
     status.integrationState,
     status.configurationState,
     status.configurationMessage,
+    "app",
   );
 
   const enableAppBtn = element<HTMLButtonElement>("#enable-app-integration");
@@ -43,18 +47,17 @@ export function renderApp(status: AppStatus): void {
 
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableAppBtn.hidden = !showEnableOrUpdateButton;
-  enableAppBtn.textContent = needsReconfiguration ? "更新代理模式" : "启用代理模式";
+  enableAppBtn.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
   launchAppBtn.hidden = !status.canLaunchApp || status.appRunning;
   disableAppBtn.hidden = !status.canDisableIntegration;
-  launchAppBtn.textContent = "启动 App";
-  disableAppBtn.textContent = "恢复官方模式";
+  launchAppBtn.textContent = t("overview.launch");
+  disableAppBtn.textContent = t("overview.disableIntegration");
 
   const modelCount = store.config?.virtual_models.length ?? 0;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
   setButtonUnavailable(enableAppBtn, !canEnable);
   setButtonUnavailable(launchAppBtn, !status.canLaunchApp);
   setButtonUnavailable(disableAppBtn, !status.canDisableIntegration);
-  renderReadiness();
 }
 
 export function renderAppLoadFailure(message: string): void {
@@ -63,13 +66,12 @@ export function renderAppLoadFailure(message: string): void {
   const integrationState = element<HTMLSpanElement>("#app-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#app-integration-detail");
 
-  state.textContent = "读取失败";
+  state.textContent = t("overview.loadFailed");
   state.className = "status-pill error";
-  detail.textContent = `状态读取失败：${message}`;
-  integrationState.textContent = "读取失败";
+  detail.textContent = t("overview.loadFailedDetail", { message });
+  integrationState.textContent = t("overview.loadFailed");
   integrationState.className = "status-pill error";
-  integrationDetail.textContent = `状态读取失败：${message}`;
-  renderReadiness();
+  integrationDetail.textContent = t("overview.loadFailedDetail", { message });
 }
 
 export function setupAppCard(): void {
@@ -81,12 +83,12 @@ export function setupAppCard(): void {
     void (async () => {
       const modelCount = store.config?.virtual_models.length ?? 0;
       if (modelCount === 0) {
-        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
         void switchTab("tab-models");
         return;
       }
       if (!store.proxyStatus || store.proxyStatus.state !== "running") {
-        showNotice("请先启动本地代理服务，再接入应用", "error");
+        showNotice(t("overview.hostProxyRequired"), "error");
         return;
       }
       const current = store.appStatus;
@@ -97,19 +99,19 @@ export function setupAppCard(): void {
       const status = await withClientBusy(enableAppButton, "app", async () => {
         const confirmMsg = needsReconfiguration
           ? isRunning
-            ? "当前 App 的代理配置需要更新，继续后会重新设置代理配置并重启 App。是否继续？"
-            : "当前 App 的代理配置需要更新，继续后会重新设置代理配置；App 未运行，启动后生效。是否继续？"
+            ? t("overview.hostUpdateConfirmRunning", { client: t("overview.clientApp") })
+            : t("overview.hostUpdateConfirmStopped", { client: t("overview.clientApp") })
           : alreadyEnabled
-            ? "当前 App 已启用代理模式，无需重复设置。是否继续？"
+            ? t("overview.hostAlreadyEnabledConfirm", { client: t("overview.clientApp") })
             : isRunning
-              ? "启用代理模式后，App 会注入配置的模型并自动重启使配置生效。是否继续？"
-              : "启用代理模式后，App 即可使用本地代理。是否继续？";
-        const confirmTitle = needsReconfiguration ? "确认更新代理模式" : "确认启用代理模式";
-        const confirmOk = needsReconfiguration ? "更新代理" : "启用代理";
-        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, "取消")) return null;
+              ? t("overview.hostEnableConfirmRunning", { client: t("overview.clientApp") })
+              : t("overview.hostEnableConfirmStopped", { client: t("overview.clientApp") });
+        const confirmTitle = needsReconfiguration ? t("overview.hostUpdateTitle") : t("overview.hostEnableTitle");
+        const confirmOk = needsReconfiguration ? t("overview.hostUpdateOk") : t("overview.hostEnableOk");
+        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, t("overview.hostCancel"))) return null;
 
-        showNotice(needsReconfiguration ? "正在更新 App 代理模式…" : "正在启用 App 代理模式…");
-        return invoke<AppStatus>("enable_app_integration");
+        showNotice(t(needsReconfiguration ? "overview.hostUpdating" : "overview.hostEnabling", { client: t("overview.clientApp") }));
+        return enableAppIntegration();
       });
       if (status === null) return;
       if (status) {
@@ -117,14 +119,14 @@ export function setupAppCard(): void {
         const stillEnabled = status.integrationState === "managed"
           && status.configurationState !== "needs_update";
         showNotice(alreadyEnabled && stillEnabled
-          ? "App 当前已经启用代理模式，无需重复设置"
+          ? t("overview.hostAlreadyEnabled", { client: t("overview.clientApp") })
           : needsReconfiguration
             ? status.appRunning
-              ? "App 代理配置已更新并完成重启"
-              : "App 代理配置已更新，启动 App 后生效"
+              ? t("overview.hostUpdatedRunning", { client: t("overview.clientApp") })
+              : t("overview.hostUpdatedStopped", { client: t("overview.clientApp") })
             : status.appRunning
-              ? "App 已启用代理模式并完成重启"
-              : "App 已启用代理模式，可以启动 App");
+              ? t("overview.hostEnabledRunning", { client: t("overview.clientApp") })
+              : t("overview.hostEnabledStopped", { client: t("overview.clientApp") }));
       } else if (store.appStatus) {
         try {
           await refreshApp();
@@ -137,10 +139,10 @@ export function setupAppCard(): void {
   
   launchAppButton.addEventListener("click", () => {
     void withClientBusy(launchAppButton, "app", async () => {
-      await invoke<void>("launch_app");
-      showNotice("已启动 App");
+      await launchApp();
+      showNotice(t("overview.hostLaunched", { client: t("overview.clientApp") }));
       window.setTimeout(() => void refreshApp().catch(() => undefined), 700);
-    }, "启动中…");
+    }, t("overview.hostLaunching", { client: t("overview.clientApp") }));
   });
   
   disableAppButton.addEventListener("click", () => {
@@ -148,19 +150,19 @@ export function setupAppCard(): void {
       const status = await withClientBusy(disableAppButton, "app", async () => {
         const isRunning = store.appStatus?.appRunning ?? false;
         const confirmMsg = isRunning
-          ? "将移除 AGY BYOK 代理配置，恢复官方模式并重启 App。是否继续？"
-          : "将移除 AGY BYOK 代理配置，恢复官方模式；下次启动 App 时生效。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认恢复官方模式", "恢复官方模式", "取消")) return null;
+          ? t("overview.hostRestoreConfirmRunning", { client: t("overview.clientApp") })
+          : t("overview.hostRestoreConfirmStopped", { client: t("overview.clientApp") });
+        if (!await confirmHostAction(confirmMsg, t("overview.hostRestoreTitle"), t("overview.hostRestoreOk"), t("overview.hostCancel"))) return null;
 
-        showNotice("正在恢复 App 官方模式…");
-        return invoke<AppStatus>("disable_app_integration");
+        showNotice(t("overview.hostRestoring", { client: t("overview.clientApp") }));
+        return disableAppIntegration();
       });
       if (status === null) return;
       if (status) {
         renderApp(status);
         showNotice(status.appRunning
-          ? "App 已恢复官方模式并完成重启"
-          : "App 已恢复官方模式");
+          ? t("overview.hostRestoredRunning", { client: t("overview.clientApp") })
+          : t("overview.hostRestoredStopped", { client: t("overview.clientApp") }));
       } else if (store.appStatus) {
         try {
           await refreshApp();

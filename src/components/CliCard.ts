@@ -1,21 +1,23 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { CliStatus } from "../types/host";
 import { element, setButtonUnavailable, withClientBusy, withBusy } from "../utils/domUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
 import { showNotice } from "./NoticeBar";
 import { confirmHostAction } from "./ConfirmModal";
-import { refreshCli } from "./HostRefresh";
-import { renderReadiness } from "./ReadinessPanel";
+import {
+  disableCliIntegration,
+  enableCliIntegration,
+  refreshCli,
+} from "../controllers/hostController";
 import { store } from "../store/appStore";
 import { switchTab } from "./TabManager";
+import { t } from "../i18n";
 
 export function renderCli(status: CliStatus): void {
-  store.setCliStatus(status);
   const state = element<HTMLSpanElement>("#cli-state");
   const detail = element<HTMLParagraphElement>("#cli-detail");
-  state.textContent = status.installed ? "已安装" : "未安装";
+  state.textContent = status.installed ? t("overview.installed") : t("overview.notInstalled");
   state.className = `status-pill ${status.installed ? "neutral" : "error"}`;
-  detail.textContent = status.installed ? "Antigravity CLI 已安装" : "未找到 Antigravity CLI (agy)";
+  detail.textContent = status.installed ? t("overview.cliInstalled") : t("overview.msgUnavailable");
 
   const integrationState = element<HTMLSpanElement>("#cli-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#cli-integration-detail");
@@ -26,6 +28,7 @@ export function renderCli(status: CliStatus): void {
     status.integrationState,
     status.configurationState,
     status.configurationMessage,
+    "cli",
   );
 
   const enableCliBtn = element<HTMLButtonElement>("#enable-cli-integration");
@@ -38,16 +41,15 @@ export function renderCli(status: CliStatus): void {
 
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableCliBtn.hidden = !showEnableOrUpdateButton;
-  enableCliBtn.textContent = needsReconfiguration ? "更新代理模式" : "启用代理模式";
+  enableCliBtn.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
 
   disableCliBtn.hidden = !status.canDisableIntegration;
-  disableCliBtn.textContent = "恢复官方模式";
+  disableCliBtn.textContent = t("overview.disableIntegration");
 
   const modelCount = store.config?.virtual_models.length ?? 0;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
   setButtonUnavailable(enableCliBtn, !canEnable);
   setButtonUnavailable(disableCliBtn, !status.canDisableIntegration);
-  renderReadiness();
 }
 
 export function renderCliLoadFailure(message: string): void {
@@ -56,13 +58,12 @@ export function renderCliLoadFailure(message: string): void {
   const integrationState = element<HTMLSpanElement>("#cli-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#cli-integration-detail");
 
-  state.textContent = "读取失败";
+  state.textContent = t("overview.loadFailed");
   state.className = "status-pill error";
-  detail.textContent = `状态读取失败：${message}`;
-  integrationState.textContent = "读取失败";
+  detail.textContent = t("overview.loadFailedDetail", { message });
+  integrationState.textContent = t("overview.loadFailed");
   integrationState.className = "status-pill error";
-  integrationDetail.textContent = `状态读取失败：${message}`;
-  renderReadiness();
+  integrationDetail.textContent = t("overview.loadFailedDetail", { message });
 }
 
 export function setupCliCard(): void {
@@ -73,12 +74,12 @@ export function setupCliCard(): void {
     void (async () => {
       const modelCount = store.config?.virtual_models.length ?? 0;
       if (modelCount === 0) {
-        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
         void switchTab("tab-models");
         return;
       }
       if (!store.proxyStatus || store.proxyStatus.state !== "running") {
-        showNotice("请先启动本地代理服务，再接入应用", "error");
+        showNotice(t("overview.hostProxyRequired"), "error");
         return;
       }
       const current = store.cliStatus;
@@ -87,25 +88,25 @@ export function setupCliCard(): void {
       const alreadyEnabled = current?.integrationState === "managed" && !needsReconfiguration;
       const status = await withClientBusy(enableCliButton, "cli", async () => {
         const confirmMsg = needsReconfiguration
-          ? "当前 CLI 的代理配置需要更新，继续后会重新设置 Shell 配置；开启新终端或重新加载 Shell 后生效。是否继续？"
+          ? t("overview.cliUpdateConfirm")
           : alreadyEnabled
-            ? "当前 CLI 已启用代理模式，无需重复设置。是否继续？"
-            : "启用代理模式后会在 Shell 配置文件 (~/.zshrc 等) 中配置 CLOUD_CODE_URL。是否继续？";
-        const confirmTitle = needsReconfiguration ? "确认更新代理模式" : "确认启用代理模式";
-        const confirmOk = needsReconfiguration ? "更新代理" : "启用代理";
-        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, "取消")) return null;
+            ? t("overview.cliAlreadyEnabledConfirm")
+            : t("overview.cliEnableConfirm");
+        const confirmTitle = needsReconfiguration ? t("overview.hostUpdateTitle") : t("overview.hostEnableTitle");
+        const confirmOk = needsReconfiguration ? t("overview.hostUpdateOk") : t("overview.hostEnableOk");
+        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, t("overview.hostCancel"))) return null;
 
-        showNotice(needsReconfiguration ? "正在更新 CLI 代理模式…" : "正在启用 CLI 代理模式…");
-        return invoke<CliStatus>("enable_cli_integration");
+        showNotice(t(needsReconfiguration ? "overview.hostUpdating" : "overview.hostEnabling", { client: t("overview.clientCli") }));
+        return enableCliIntegration();
       });
       if (status === null) return;
       if (status) {
         renderCli(status);
         showNotice(alreadyEnabled && status.integrationState === "managed"
-          ? "CLI 当前已经启用代理模式，无需重复设置"
+          ? t("overview.cliAlreadyEnabled")
           : needsReconfiguration
-            ? "CLI 代理配置已更新；请开启新终端或重新加载 Shell"
-            : "CLI 已启用代理模式；请开启新终端或重新加载 Shell");
+            ? t("overview.cliUpdated")
+            : t("overview.cliEnabled"));
       } else if (store.cliStatus) {
         try {
           await refreshCli();
@@ -119,16 +120,16 @@ export function setupCliCard(): void {
   disableCliButton.addEventListener("click", () => {
     void (async () => {
       const status = await withClientBusy(disableCliButton, "cli", async () => {
-        const confirmMsg = "将恢复 CLI 的官方 Shell 配置并移除 AGY BYOK 设置。已打开的终端需要重新加载 Shell 配置。是否继续？";
-        if (!await confirmHostAction(confirmMsg, "确认恢复官方模式", "恢复官方模式", "取消")) return null;
-  
-        showNotice("正在恢复 CLI 官方模式…");
-        return invoke<CliStatus>("disable_cli_integration");
+        const confirmMsg = t("overview.cliRestoreConfirm");
+        if (!await confirmHostAction(confirmMsg, t("overview.hostRestoreTitle"), t("overview.hostRestoreOk"), t("overview.hostCancel"))) return null;
+
+        showNotice(t("overview.hostRestoring", { client: t("overview.clientCli") }));
+        return disableCliIntegration();
       });
       if (status === null) return;
       if (status) {
         renderCli(status);
-        showNotice("CLI 已恢复官方模式；请重新加载 Shell 配置");
+        showNotice(t("overview.cliRestored"));
       } else if (store.cliStatus) {
         try {
           await refreshCli();

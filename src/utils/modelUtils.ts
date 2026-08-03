@@ -1,5 +1,6 @@
 import type { AppConfig, VirtualModel, ParameterOverrides, ProviderProtocol } from "../types/config";
 import type { ReasoningLevel } from "../types/reasoning";
+import { t } from "../i18n";
 
 export function effectiveHostModelId(model: VirtualModel): string {
   if (model.host_model_id) return model.host_model_id;
@@ -30,7 +31,7 @@ export function nextHostModelId(occupied: Set<string>): string {
       return candidate;
     }
   }
-  throw new Error("IDE 自定义模型槽位已用完");
+  throw new Error(t("models.hostModelSlotsExhausted"));
 }
 
 export function stripConfiguredModelSuffix(modelName: string, providerName: string): string {
@@ -69,9 +70,9 @@ export const emptyParameters = (): ParameterOverrides => ({
 
 export function protocolName(protocol: ProviderProtocol): string {
   return {
-    openai_chat_completions: "OpenAI · Chat Completions",
-    openai_responses: "OpenAI · Responses API",
-    anthropic_messages: "Anthropic · Messages API",
-    gemini_generate_content: "Google · Gemini generateContent",
+    openai_chat_completions: t("models.protocolOpenAI"),
+    openai_responses: t("models.protocolResponses"),
+    anthropic_messages: t("models.protocolAnthropic"),
+    gemini_generate_content: t("models.protocolGemini"),
   }[protocol];
 }

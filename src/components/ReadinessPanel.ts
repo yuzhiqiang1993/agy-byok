@@ -1,9 +1,11 @@
-import { element } from "../utils/domUtils";
+import { element, errorMessage } from "../utils/domUtils";
 import { store } from "../store/appStore";
 import { clientConfigurationReady, clientReady } from "../utils/displayUtils";
+import { startProxy } from "../controllers/proxyController";
+import { refreshHostStatuses } from "../controllers/hostController";
 import { switchTab } from "./TabManager";
-import { startProxy } from "./ProxyCard";
 import { showNotice } from "./NoticeBar";
+import { t } from "../i18n";
 
 function setReadinessStep(
   selector: string,
@@ -57,7 +59,7 @@ export function renderReadiness(): void {
     "#readiness-models",
     "#readiness-models-value",
     modelCountValue > 0 ? "ready" : "attention",
-    modelCountValue > 0 ? `${modelCountValue} 个配置` : "去配置 →",
+    modelCountValue > 0 ? t("overview.step1Configured", { count: modelCountValue }) : t("overview.step1Action") + " →",
   );
   setReadinessStep(
     "#readiness-proxy",
@@ -72,14 +74,14 @@ export function renderReadiness(): void {
             ? "ready"
             : "attention",
     proxyStatusLoadFailed
-      ? "读取失败"
+      ? t("overview.loadFailed")
       : latestProxyStatus === null
-        ? "检查中"
+        ? t("overview.checking")
         : modelCountValue === 0
-          ? "待配置模型"
+          ? t("overview.step1Unconfigured")
           : proxyRunning
-            ? "运行中"
-            : "去启动 →",
+            ? t("overview.proxyRunning")
+            : t("overview.step2Action") + " →",
   );
   setReadinessStep(
     "#readiness-entry",
@@ -94,44 +96,44 @@ export function renderReadiness(): void {
             ? "ready"
             : "attention",
     entryStatusesLoadFailed
-      ? "读取失败"
+      ? t("overview.loadFailed")
       : entryStatusesLoading
-        ? "检查中"
+        ? t("overview.checking")
         : modelCountValue === 0
-          ? "待配置模型"
+          ? t("overview.step1Unconfigured")
           : !proxyRunning
-            ? "待启动代理"
+            ? t("overview.step2Stopped")
             : enabledClients.length > 0
-              ? `已接入 ${enabledClients.join("、")}`
-              : "去接入 →",
+              ? t("overview.step3Ready", { count: enabledClients.length })
+              : t("overview.step3Action") + " →",
   );
   setReadinessStep(
     "#readiness-restore",
     "#readiness-restore-value",
     "ready",
-    "随时可用",
+    t("overview.step4Value"),
   );
 
   const title = element<HTMLHeadingElement>("#readiness-title");
   const detail = element<HTMLParagraphElement>("#readiness-detail");
   if (modelCountValue === 0) {
-    title.textContent = "第 1 步：先配置上游和模型";
-    detail.textContent = "进入“模型管理”，添加上游服务，获取模型列表并保存需要使用的模型。";
+    title.textContent = t("overview.step1HeaderTitle");
+    detail.textContent = t("overview.step1HeaderDesc");
   } else if (proxyStatusLoadFailed || entryStatusesLoadFailed) {
-    title.textContent = "部分运行状态读取失败";
-    detail.textContent = "请使用对应入口卡片的刷新操作重试。";
+    title.textContent = t("overview.loadFailed");
+    detail.textContent = t("overview.loadFailed");
   } else if (latestProxyStatus === null || entryStatusesLoading) {
-    title.textContent = "正在确认运行状态…";
-    detail.textContent = `已配置 ${modelCountValue} 个模型，正在检查代理和入口状态。`;
+    title.textContent = t("overview.checkingStatusTitle");
+    detail.textContent = t("overview.checkingStatusDetail");
   } else if (!proxyRunning) {
-    title.textContent = "第 2 步：启动本地代理";
-    detail.textContent = "模型配置已完成。启动代理后，IDE、App 或 CLI 才能使用这些模型。";
+    title.textContent = t("overview.step2HeaderTitle");
+    detail.textContent = t("overview.step2HeaderDesc");
   } else if (enabledClients.length === 0) {
-    title.textContent = "第 3 步：选择要接入的应用";
-    detail.textContent = "在下方选择 IDE、App 或 CLI，点击“启用代理模式”。应用可以单独接入，也可以同时接入多个。";
+    title.textContent = t("overview.step3HeaderTitle");
+    detail.textContent = t("overview.step3HeaderDesc");
   } else {
-    title.textContent = "代理模式已启用";
-    detail.textContent = "已启用的入口可以使用自定义模型。任何时候都可以恢复对应入口的官方配置。";
+    title.textContent = t("overview.step4HeaderTitle");
+    detail.textContent = t("overview.step4HeaderDesc");
   }
 }
 
@@ -141,42 +143,45 @@ export function setupReadinessPanel(): void {
   const entryStep = document.querySelector<HTMLElement>("#readiness-entry");
 
   if (modelsStep) {
-    modelsStep.title = "点击切换到模型管理";
+    modelsStep.title = t("overview.readinessModelsTooltip");
     modelsStep.addEventListener("click", () => {
       void switchTab("tab-models");
     });
   }
 
   if (proxyStep) {
-    proxyStep.title = "点击启动本地代理服务";
+    proxyStep.title = t("overview.readinessProxyTooltip");
     proxyStep.addEventListener("click", () => {
       const modelCount = store.config?.virtual_models.length ?? 0;
       if (modelCount === 0) {
-        showNotice("请先在“模型管理”中配置至少 1 个模型，再启动代理服务", "error");
+        showNotice(t("overview.proxyModelsRequired", { count: 1 }), "error");
         void switchTab("tab-models");
         return;
       }
       const proxyRunning = store.proxyStatus?.state === "running";
       if (!proxyRunning) {
-        void startProxy();
+        void startProxy()
+          .then(() => refreshHostStatuses())
+          .then(() => showNotice(t("overview.proxyStarted")))
+          .catch((error: unknown) => showNotice(errorMessage(error), "error"));
       } else {
-        showNotice("本地代理服务正在运行中");
+        showNotice(t("overview.proxyAlreadyRunning"));
       }
     });
   }
 
   if (entryStep) {
-    entryStep.title = "点击前往应用接入卡片";
+    entryStep.title = t("overview.readinessEntryTooltip");
     entryStep.addEventListener("click", () => {
       const modelCount = store.config?.virtual_models.length ?? 0;
       if (modelCount === 0) {
-        showNotice("请先在“模型管理”中配置至少 1 个模型，再接入应用", "error");
+        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
         void switchTab("tab-models");
         return;
       }
       const proxyRunning = store.proxyStatus?.state === "running";
       if (!proxyRunning) {
-        showNotice("请先启动本地代理服务，再接入应用", "error");
+        showNotice(t("overview.hostProxyRequired"), "error");
         const proxyStepNode = document.querySelector("#readiness-proxy");
         if (proxyStepNode) {
           proxyStepNode.classList.remove("highlight-pulse");
@@ -187,7 +192,7 @@ export function setupReadinessPanel(): void {
         return;
       }
 
-      showNotice("请在下方选择 IDE、App 或 CLI，点击“启用代理模式”");
+      showNotice(t("overview.hostEntryPrompt"));
       const section = document.querySelector("#host-cards-section");
       if (section) {
         section.scrollIntoView({ behavior: "smooth" });

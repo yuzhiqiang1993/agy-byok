@@ -11,52 +11,48 @@
   <body>
     <div class="workspace-shell">
       <aside class="sidebar">
-        <div class="sidebar-brand">
-          <img class="brand-mark" src="/app-icon.png" alt="" aria-hidden="true" />
-          <strong>AGY BYOK</strong>
+        <div class="sidebar-brand" data-tauri-drag-region>
+          <img class="brand-mark" src="/app-icon.png" alt="AGY BYOK Logo" data-tauri-drag-region />
+          <strong class="brand-title" data-tauri-drag-region>AGY BYOK</strong>
         </div>
         <div class="sidebar-divider"></div>
         <nav class="sidebar-nav" aria-label="工作区导航">
           <button type="button" class="side-nav-button tab-trigger active" data-target="tab-status">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/></svg>
-            运行概览
+            <span data-i18n="nav.overview">运行概览</span>
           </button>
           <button type="button" class="side-nav-button tab-trigger" data-target="tab-models">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/></svg>
-            模型管理
+            <span data-i18n="nav.models">模型管理</span>
           </button>
           <button type="button" class="side-nav-button tab-trigger" data-target="tab-activity">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            调用日志
+            <span data-i18n="nav.activity">调用日志</span>
           </button>
         </nav>
         <div class="sidebar-bottom">
           <div class="sidebar-divider"></div>
           <button type="button" class="side-nav-button tab-trigger" data-target="tab-settings">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-            设置
+            <span data-i18n="nav.settings">设置</span>
           </button>
         </div>
       </aside>
 
       <div class="main-stage">
         <main class="app-shell">
-          <header class="topbar">
-            <div class="page-heading">
-              <h1 id="page-title"><span id="page-title-text">运行概览</span></h1>
-              <p id="page-description">按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。</p>
+          <header class="topbar" data-tauri-drag-region>
+            <div class="page-heading" data-tauri-drag-region>
+              <h1 id="page-title"><span id="page-title-text" data-i18n="overview.pageTitle">运行概览</span></h1>
+              <p id="page-description" data-i18n="overview.pageDesc">按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。</p>
             </div>
             <div class="topbar-actions">
               <nav class="app-tabs" aria-label="功能导航">
-                <button type="button" class="tab-btn tab-trigger active" data-target="tab-status">运行概览</button>
-                <button type="button" class="tab-btn tab-trigger" data-target="tab-models">模型管理</button>
-                <button type="button" class="tab-btn tab-trigger" data-target="tab-activity">调用日志</button>
-                <button type="button" class="tab-btn tab-trigger" data-target="tab-settings">设置</button>
+                <button type="button" class="tab-btn tab-trigger active" data-target="tab-status" data-i18n="nav.overview">运行概览</button>
+                <button type="button" class="tab-btn tab-trigger" data-target="tab-models" data-i18n="nav.models">模型管理</button>
+                <button type="button" class="tab-btn tab-trigger" data-target="tab-activity" data-i18n="nav.activity">调用日志</button>
+                <button type="button" class="tab-btn tab-trigger" data-target="tab-settings" data-i18n="nav.settings">设置</button>
               </nav>
-              <button id="minimal-theme-toggle" class="minimal-theme-toggle" type="button" aria-label="切换主题" title="切换深色/浅色主题">
-                <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-              </button>
             </div>
           </header>
 
@@ -75,29 +71,29 @@
         <section class="panel readiness-panel" aria-labelledby="readiness-title">
           <div class="readiness-copy">
             <div class="readiness-text-group">
-              <h2 id="readiness-title">正在确认运行状态…</h2>
-              <p id="readiness-detail" class="muted">正在检查模型和应用状态。</p>
+              <h2 id="readiness-title" data-i18n="overview.checkingStatusTitle">正在确认运行状态…</h2>
+              <p id="readiness-detail" class="muted" data-i18n="overview.checkingStatusDetail">正在检查模型和应用状态。</p>
             </div>
 
             <div class="hero-service-widget">
               <div class="service-widget-header">
                 <div class="service-widget-title">
-                  <span class="detail-label">本地代理服务</span>
+                  <span class="detail-label" data-i18n="overview.proxyServer">本地代理服务</span>
                   <div class="status-pill-wrapper">
                     <span id="proxy-glow-dot" class="glow-dot"></span>
-                    <span id="proxy-state" class="status-pill neutral">检查中</span>
+                    <span id="proxy-state" class="status-pill neutral" data-i18n="overview.proxyChecking">检查中</span>
                   </div>
                 </div>
-                <button id="stop-proxy" class="secondary compact-button" type="button" hidden>停止代理</button>
+                <button id="stop-proxy" class="secondary compact-button" type="button" hidden data-i18n="overview.stopProxy">停止代理</button>
               </div>
 
               <div class="service-widget-body">
                 <div class="address-block-header inline-header">
-                  <span class="detail-label">代理服务地址</span>
+                  <span class="detail-label" data-i18n="overview.proxyAddress">代理服务地址</span>
                 </div>
                 <div class="address-box inline-address-box">
                   <code id="proxy-address">127.0.0.1:54321</code>
-                  <button id="copy-proxy-address" class="copy-icon-btn" type="button" title="复制代理地址" aria-label="复制代理地址">
+                  <button id="copy-proxy-address" class="copy-icon-btn" type="button" title="复制代理地址" aria-label="复制代理地址" data-i18n-title="overview.copyAddress" data-i18n-aria-label="overview.copyAddress">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                   </button>
                 </div>
@@ -114,8 +110,8 @@
                     <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </div>
                   <div class="step-content">
-                    <span class="step-title">配置模型</span>
-                    <strong id="readiness-models-value" class="step-value">检查中</strong>
+                    <span class="step-title" data-i18n="overview.step1Title">配置模型</span>
+                    <strong id="readiness-models-value" class="step-value" data-i18n="overview.checking">检查中</strong>
                   </div>
                   <div class="step-connector" aria-hidden="true"></div>
                 </li>
@@ -125,8 +121,8 @@
                     <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </div>
                   <div class="step-content">
-                    <span class="step-title">启动代理</span>
-                    <strong id="readiness-proxy-value" class="step-value">检查中</strong>
+                    <span class="step-title" data-i18n="overview.step2Title">启动代理</span>
+                    <strong id="readiness-proxy-value" class="step-value" data-i18n="overview.checking">检查中</strong>
                   </div>
                   <div class="step-connector" aria-hidden="true"></div>
                 </li>
@@ -136,8 +132,8 @@
                     <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </div>
                   <div class="step-content">
-                    <span class="step-title">接入应用</span>
-                    <strong id="readiness-entry-value" class="step-value">检查中</strong>
+                    <span class="step-title" data-i18n="overview.step3Title">接入应用</span>
+                    <strong id="readiness-entry-value" class="step-value" data-i18n="overview.checking">检查中</strong>
                   </div>
                   <div class="step-connector" aria-hidden="true"></div>
                 </li>
@@ -147,8 +143,8 @@
                     <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </div>
                   <div class="step-content">
-                    <span class="step-title">恢复官方</span>
-                    <strong id="readiness-restore-value" class="step-value">随时可用</strong>
+                    <span class="step-title" data-i18n="overview.step4Title">恢复官方</span>
+                    <strong id="readiness-restore-value" class="step-value" data-i18n="overview.step4Value">随时可用</strong>
                   </div>
                 </li>
               </ol>
@@ -160,83 +156,83 @@
           <article class="panel status-card">
             <div class="panel-heading">
               <div class="card-title-group">
-                <h2>Antigravity IDE</h2>
+                <h2 data-i18n="overview.ideTitle">Antigravity IDE</h2>
               </div>
-              <span id="ide-state" class="status-pill neutral" aria-live="polite">检查中</span>
+              <span id="ide-state" class="status-pill neutral" aria-live="polite" data-i18n="overview.checking">检查中</span>
             </div>
 
             <div class="status-card-content">
-              <p id="ide-detail" class="status-description">正在检测 Antigravity IDE…</p>
+              <p id="ide-detail" class="status-description" data-i18n="overview.checkingIde">正在检测 Antigravity IDE…</p>
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">代理模式</span>
-                  <span id="ide-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
+                  <span class="detail-label" data-i18n="overview.proxyMode">代理模式</span>
+                  <span id="ide-integration-state" class="status-pill neutral" aria-live="polite" data-i18n="overview.checking">检查中</span>
                 </div>
-                <p id="ide-integration-detail" class="muted compact">正在检查状态…</p>
+                <p id="ide-integration-detail" class="muted compact" data-i18n="overview.checkingState">正在检查状态…</p>
               </div>
             </div>
 
             <div id="ide-actions" class="card-actions host-actions">
-              <button id="enable-ide-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
-              <button id="disable-ide-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
-              <button id="launch-ide" class="secondary" type="button" hidden disabled>启动 IDE</button>
-              <button id="refresh-ide" class="secondary quiet-compact-btn" type="button">刷新</button>
+              <button id="enable-ide-integration" class="primary" type="button" hidden disabled data-i18n="overview.enableProxyMode">启用代理模式</button>
+              <button id="disable-ide-integration" class="secondary" type="button" hidden disabled data-i18n="overview.disableIntegration">恢复官方模式</button>
+              <button id="launch-ide" class="secondary" type="button" hidden disabled data-i18n="overview.launch">启动 IDE</button>
+              <button id="refresh-ide" class="secondary quiet-compact-btn" type="button" data-i18n="overview.refresh">刷新</button>
             </div>
           </article>
 
           <article class="panel status-card">
             <div class="panel-heading">
               <div class="card-title-group">
-                <h2>Antigravity App</h2>
+                <h2 data-i18n="overview.appTitle">Antigravity App</h2>
               </div>
-              <span id="app-state" class="status-pill neutral">检查中</span>
+              <span id="app-state" class="status-pill neutral" data-i18n="overview.checking">检查中</span>
             </div>
 
             <div class="status-card-content">
-              <p id="app-detail" class="status-description">正在检测原生 App…</p>
+              <p id="app-detail" class="status-description" data-i18n="overview.checkingApp">正在检测原生 App…</p>
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">代理模式</span>
-                  <span id="app-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
+                  <span class="detail-label" data-i18n="overview.proxyMode">代理模式</span>
+                  <span id="app-integration-state" class="status-pill neutral" aria-live="polite" data-i18n="overview.checking">检查中</span>
                 </div>
-                <p id="app-integration-detail" class="muted compact">正在检查状态…</p>
+                <p id="app-integration-detail" class="muted compact" data-i18n="overview.checkingState">正在检查状态…</p>
               </div>
             </div>
 
             <div id="app-actions" class="card-actions host-actions">
-              <button id="enable-app-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
-              <button id="disable-app-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
-              <button id="launch-app" class="secondary" type="button" hidden disabled>启动 App</button>
-              <button id="refresh-app" class="secondary quiet-compact-btn" type="button">刷新</button>
+              <button id="enable-app-integration" class="primary" type="button" hidden disabled data-i18n="overview.enableProxyMode">启用代理模式</button>
+              <button id="disable-app-integration" class="secondary" type="button" hidden disabled data-i18n="overview.disableIntegration">恢复官方模式</button>
+              <button id="launch-app" class="secondary" type="button" hidden disabled data-i18n="overview.launch">启动 App</button>
+              <button id="refresh-app" class="secondary quiet-compact-btn" type="button" data-i18n="overview.refresh">刷新</button>
             </div>
           </article>
 
           <article class="panel status-card">
             <div class="panel-heading">
               <div class="card-title-group">
-                <h2>Antigravity CLI</h2>
+                <h2 data-i18n="overview.cliTitle">Antigravity CLI</h2>
               </div>
-              <span id="cli-state" class="status-pill neutral">检查中</span>
+              <span id="cli-state" class="status-pill neutral" data-i18n="overview.checking">检查中</span>
             </div>
 
             <div class="status-card-content">
-              <p id="cli-detail" class="status-description">正在检测 Antigravity CLI (agy)…</p>
+              <p id="cli-detail" class="status-description" data-i18n="overview.checkingCli">正在检测 Antigravity CLI (agy)…</p>
 
               <div class="ide-integration-summary">
                 <div class="ide-integration-heading">
-                  <span class="detail-label">代理模式</span>
-                  <span id="cli-integration-state" class="status-pill neutral" aria-live="polite">检查中</span>
+                  <span class="detail-label" data-i18n="overview.proxyMode">代理模式</span>
+                  <span id="cli-integration-state" class="status-pill neutral" aria-live="polite" data-i18n="overview.checking">检查中</span>
                 </div>
-                <p id="cli-integration-detail" class="muted compact">正在检查状态…</p>
+                <p id="cli-integration-detail" class="muted compact" data-i18n="overview.checkingState">正在检查状态…</p>
               </div>
             </div>
 
             <div id="cli-actions" class="card-actions host-actions">
-              <button id="enable-cli-integration" class="primary" type="button" hidden disabled>启用代理模式</button>
-              <button id="disable-cli-integration" class="secondary" type="button" hidden disabled>恢复官方模式</button>
-              <button id="refresh-cli" class="secondary quiet-compact-btn" type="button">刷新</button>
+              <button id="enable-cli-integration" class="primary" type="button" hidden disabled data-i18n="overview.enableProxyMode">启用代理模式</button>
+              <button id="disable-cli-integration" class="secondary" type="button" hidden disabled data-i18n="overview.disableIntegration">恢复官方模式</button>
+              <button id="refresh-cli" class="secondary quiet-compact-btn" type="button" data-i18n="overview.refresh">刷新</button>
             </div>
           </article>
         </section>
@@ -247,7 +243,7 @@
           <div class="panel-heading heading-actions-only">
             <div class="heading-actions">
               <span id="provider-count" class="count-badge">0</span>
-              <button id="open-provider-form" class="primary compact-button" type="button">添加上游服务</button>
+              <button id="open-provider-form" class="primary compact-button" type="button" data-i18n="models.addProvider">添加上游服务</button>
             </div>
           </div>
           <div id="provider-list" class="provider-list"></div>
@@ -266,132 +262,132 @@
               <div class="form-summary-copy">
                 <p id="provider-form-kicker" class="visually-hidden">ADD UPSTREAM SERVICE</p>
                 <div class="form-summary-title">
-                  <strong id="provider-form-title">添加上游服务</strong>
-                  <span id="provider-editor-dirty" class="provider-editor-dirty" hidden>未保存</span>
+                  <strong id="provider-form-title" data-i18n="models.addProviderTitle">添加上游服务</strong>
+                  <span id="provider-editor-dirty" class="provider-editor-dirty" hidden data-i18n="models.unsaved">未保存</span>
                 </div>
               </div>
-              <button id="close-provider-modal" class="provider-modal-close" type="button" aria-label="关闭上游服务编辑器" title="关闭（Esc）">
+              <button id="close-provider-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.close" data-i18n-aria-label="modal.close">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
               </button>
             </header>
 
             <form id="provider-form">
-              <p id="provider-form-description" class="form-intro">第 1 步：添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给后续启用代理模式的 IDE、App 或 CLI。</p>
+              <p id="provider-form-description" class="form-intro" data-i18n="models.step1Intro">第 1 步：添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给后续启用代理模式的 IDE、App 或 CLI。</p>
 
               <div class="provider-presets-wrapper">
-                <p class="section-label">快捷预设</p>
+                <p class="section-label" data-i18n="models.quickPresets">快捷预设</p>
                 <div class="provider-presets" id="provider-presets">
-                  <button type="button" class="preset-btn" data-preset="claude">Claude 官方</button>
-                  <button type="button" class="preset-btn" data-preset="openai">OpenAI 官方</button>
-                  <button type="button" class="preset-btn" data-preset="gemini">Gemini 官方</button>
-                  <button type="button" class="preset-btn" data-preset="cpa">CPA</button>
-                  <button type="button" class="preset-btn" data-preset="sub2api">Sub2API</button>
-                  <button type="button" class="preset-btn" data-preset="deepseek">DeepSeek</button>
-                  <button type="button" class="preset-btn" data-preset="ollama">Ollama (Local)</button>
-                  <button type="button" class="preset-btn" data-preset="openrouter">OpenRouter</button>
-                  <button type="button" class="preset-btn" data-preset="modelgate">ModelGate</button>
-                  <button type="button" class="preset-btn" data-preset="groq">Groq</button>
-                  <button type="button" class="preset-btn" data-preset="github">GitHub Models</button>
-                  <button type="button" class="preset-btn" data-preset="siliconflow">硅基流动</button>
-                  <button type="button" class="preset-btn" data-preset="dashscope">阿里云百炼</button>
-                  <button type="button" class="preset-btn" data-preset="moonshot">Kimi (Moonshot)</button>
-                  <button type="button" class="preset-btn" data-preset="mistral">Mistral</button>
-                  <button type="button" class="preset-btn" data-preset="xai">xAI</button>
-                  <button type="button" class="preset-btn" data-preset="perplexity">Perplexity</button>
-                  <button type="button" class="preset-btn" data-preset="together">Together AI</button>
-                  <button type="button" class="preset-btn" data-preset="fireworks">Fireworks AI</button>
-                  <button type="button" class="preset-btn" data-preset="cerebras">Cerebras</button>
-                  <button type="button" class="preset-btn" data-preset="sambanova">SambaNova</button>
-                  <button type="button" class="preset-btn" data-preset="deepinfra">DeepInfra</button>
-                  <button type="button" class="preset-btn" data-preset="huggingface">Hugging Face</button>
-                  <button type="button" class="preset-btn" data-preset="novita">Novita AI</button>
-                  <button type="button" class="preset-btn" data-preset="zhipu">智谱 AI</button>
-                  <button type="button" class="preset-btn" data-preset="minimax">MiniMax</button>
-                  <button type="button" class="preset-btn" data-preset="hunyuan">腾讯混元</button>
-                  <button type="button" class="preset-btn" data-preset="volcengine">火山方舟</button>
-                  <button type="button" class="preset-btn" data-preset="qianfan">百度千帆</button>
-                  <button type="button" class="preset-btn" data-preset="baichuan">百川智能</button>
-                  <button type="button" class="preset-btn" data-preset="yi">零一万物</button>
-                  <button type="button" class="preset-btn" data-preset="xunfei">讯飞星火</button>
-                  <button type="button" class="preset-btn" data-preset="stepfun">阶跃星辰</button>
-                  <button type="button" class="preset-btn" data-preset="custom">自定义</button>
+                  <button type="button" class="preset-btn" data-preset="claude" data-i18n="presets.claude">Claude 官方</button>
+                  <button type="button" class="preset-btn" data-preset="openai" data-i18n="presets.openai">OpenAI 官方</button>
+                  <button type="button" class="preset-btn" data-preset="gemini" data-i18n="presets.gemini">Gemini 官方</button>
+                  <button type="button" class="preset-btn" data-preset="cpa" data-i18n="presets.cpa">CPA</button>
+                  <button type="button" class="preset-btn" data-preset="sub2api" data-i18n="presets.sub2api">Sub2API</button>
+                  <button type="button" class="preset-btn" data-preset="deepseek" data-i18n="presets.deepseek">DeepSeek</button>
+                  <button type="button" class="preset-btn" data-preset="ollama" data-i18n="presets.ollama">Ollama (Local)</button>
+                  <button type="button" class="preset-btn" data-preset="openrouter" data-i18n="presets.openrouter">OpenRouter</button>
+                  <button type="button" class="preset-btn" data-preset="modelgate" data-i18n="presets.modelgate">ModelGate</button>
+                  <button type="button" class="preset-btn" data-preset="groq" data-i18n="presets.groq">Groq</button>
+                  <button type="button" class="preset-btn" data-preset="github" data-i18n="presets.github">GitHub Models</button>
+                  <button type="button" class="preset-btn" data-preset="siliconflow" data-i18n="presets.siliconflow">硅基流动</button>
+                  <button type="button" class="preset-btn" data-preset="dashscope" data-i18n="presets.dashscope">阿里云百炼</button>
+                  <button type="button" class="preset-btn" data-preset="moonshot" data-i18n="presets.moonshot">Kimi (Moonshot)</button>
+                  <button type="button" class="preset-btn" data-preset="mistral" data-i18n="presets.mistral">Mistral</button>
+                  <button type="button" class="preset-btn" data-preset="xai" data-i18n="presets.xai">xAI</button>
+                  <button type="button" class="preset-btn" data-preset="perplexity" data-i18n="presets.perplexity">Perplexity</button>
+                  <button type="button" class="preset-btn" data-preset="together" data-i18n="presets.together">Together AI</button>
+                  <button type="button" class="preset-btn" data-preset="fireworks" data-i18n="presets.fireworks">Fireworks AI</button>
+                  <button type="button" class="preset-btn" data-preset="cerebras" data-i18n="presets.cerebras">Cerebras</button>
+                  <button type="button" class="preset-btn" data-preset="sambanova" data-i18n="presets.sambanova">SambaNova</button>
+                  <button type="button" class="preset-btn" data-preset="deepinfra" data-i18n="presets.deepinfra">DeepInfra</button>
+                  <button type="button" class="preset-btn" data-preset="huggingface" data-i18n="presets.huggingface">Hugging Face</button>
+                  <button type="button" class="preset-btn" data-preset="novita" data-i18n="presets.novita">Novita AI</button>
+                  <button type="button" class="preset-btn" data-preset="zhipu" data-i18n="presets.zhipu">智谱 AI</button>
+                  <button type="button" class="preset-btn" data-preset="minimax" data-i18n="presets.minimax">MiniMax</button>
+                  <button type="button" class="preset-btn" data-preset="hunyuan" data-i18n="presets.hunyuan">腾讯混元</button>
+                  <button type="button" class="preset-btn" data-preset="volcengine" data-i18n="presets.volcengine">火山方舟</button>
+                  <button type="button" class="preset-btn" data-preset="qianfan" data-i18n="presets.qianfan">百度千帆</button>
+                  <button type="button" class="preset-btn" data-preset="baichuan" data-i18n="presets.baichuan">百川智能</button>
+                  <button type="button" class="preset-btn" data-preset="yi" data-i18n="presets.yi">零一万物</button>
+                  <button type="button" class="preset-btn" data-preset="xunfei" data-i18n="presets.xunfei">讯飞星火</button>
+                  <button type="button" class="preset-btn" data-preset="stepfun" data-i18n="presets.stepfun">阶跃星辰</button>
+                  <button type="button" class="preset-btn" data-preset="custom" data-i18n="presets.custom">自定义</button>
                 </div>
               </div>
               <div class="form-grid">
                 <label>
-                  <span>上游服务名称</span>
-                  <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" />
+                  <span data-i18n="models.providerName">上游服务名称</span>
+                  <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" data-i18n-placeholder="models.providerNamePlaceholder" />
                 </label>
 
                 <label class="protocol-field">
-                  <span>协议</span>
+                  <span data-i18n="models.protocol">协议</span>
                   <select id="protocol" name="protocol">
                     <option value="openai_chat_completions">OpenAI · Chat Completions</option>
                     <option value="openai_responses">OpenAI · Responses API</option>
                     <option value="anthropic_messages">Anthropic · Messages API</option>
                     <option value="gemini_generate_content">Google · Gemini generateContent</option>
                   </select>
-                  <p id="protocol-help" class="field-hint protocol-help">适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。</p>
+                  <p id="protocol-help" class="field-hint protocol-help" data-i18n="models.protocolHelpOpenAI">适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。</p>
                 </label>
 
                 <div class="wide endpoint-group">
                   <label>
-                    <span>API 地址</span>
-                    <input id="provider-base-url" name="baseUrl" type="url" placeholder="例如 https://api.openai.com/v1" />
+                    <span data-i18n="models.apiUrl">API 地址</span>
+                    <input id="provider-base-url" name="baseUrl" type="url" placeholder="例如 https://api.openai.com/v1" data-i18n-placeholder="models.apiUrlPlaceholder" />
                   </label>
-                  <p class="field-hint">输入根地址后系统将自动补全模型列表与生成接口，也可展开高级设置自定义。</p>
+                  <p class="field-hint" data-i18n="models.apiUrlHint">输入根地址后系统将自动补全模型列表与生成接口，也可展开高级设置自定义。</p>
                 </div>
 
                 <div class="wide">
                   <label class="field-label" for="api-key">
-                    <span>API Key</span>
-                    <span class="optional-badge">选填</span>
+                    <span data-i18n="models.apiKey">API Key</span>
+                    <span class="optional-badge" data-i18n="models.optional">选填</span>
                   </label>
                   <div class="password-wrapper password-field">
-                    <input id="api-key" name="apiKey" type="password" placeholder="输入 API Key（无鉴权则留空）" autocomplete="off" />
-                    <button id="toggle-api-key" class="password-toggle" type="button" aria-pressed="false" aria-label="显示 API Key">显示</button>
+                    <input id="api-key" name="apiKey" type="password" placeholder="输入 API Key（无鉴权则留空）" data-i18n-placeholder="models.apiKeyPlaceholder" autocomplete="off" />
+                    <button id="toggle-api-key" class="password-toggle" type="button" aria-pressed="false" aria-label="显示">显示</button>
                   </div>
                 </div>
               </div>
 
               <details class="endpoint-settings">
-                <summary>高级设置（自定义端点 URL）</summary>
+                <summary data-i18n="models.advancedSettings">高级设置（自定义端点 URL）</summary>
                 <div class="form-grid compact-grid">
                   <label class="wide">
-                    <span>模型列表接口</span>
+                    <span data-i18n="models.modelsEndpoint">模型列表接口</span>
                     <input id="models-endpoint" name="modelsEndpoint" type="url" />
                   </label>
                   <label class="wide">
-                    <span>生成响应接口</span>
+                    <span data-i18n="models.generateEndpoint">生成响应接口</span>
                     <input id="generate-endpoint" name="generateEndpoint" type="url" required />
                   </label>
                 </div>
               </details>
 
               <div class="form-actions">
-                <button id="cancel-provider" class="secondary" type="button">取消</button>
-                <button id="fetch-provider-models" class="primary" type="button">获取模型列表</button>
+                <button id="cancel-provider" class="secondary" type="button" data-i18n="models.cancel">取消</button>
+                <button id="fetch-provider-models" class="primary" type="button" data-i18n="models.fetchModels">获取模型列表</button>
               </div>
 
               <section id="catalog-results" class="catalog-results" aria-labelledby="catalog-title" hidden>
                 <div class="catalog-header">
                   <div class="catalog-title-group">
-                    <h3 id="catalog-title">选择并保存要使用的模型</h3>
+                    <h3 id="catalog-title" data-i18n="models.catalogTitle">选择并保存要使用的模型</h3>
                   </div>
                   <span id="catalog-status" class="status-pill" role="status" aria-live="polite">获取中</span>
                 </div>
                 <div class="catalog-toolbar">
-                  <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" aria-label="搜索模型" />
-                  <label class="check-label"><input id="select-all-models" type="checkbox" /> 选择当前结果</label>
+                  <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" data-i18n-placeholder="models.searchPlaceholder" aria-label="搜索模型" />
+                  <label class="check-label"><input id="select-all-models" type="checkbox" /> <span data-i18n="models.selectAll">选择当前结果</span></label>
                 </div>
 
                 <div id="catalog-model-list" class="catalog-model-list"></div>
-                <p class="catalog-help catalog-capability-help">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
+                <p class="catalog-help catalog-capability-help" data-i18n="models.capabilityHelp">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
 
                 <div id="provider-change-summary" class="provider-change-summary" role="status" aria-live="polite" hidden></div>
                 <div class="catalog-save-row">
                   <span id="selected-model-count">未选择任何模型</span>
-                  <button id="save-provider" class="primary" type="submit" aria-describedby="provider-change-summary" disabled>保存上游服务</button>
+                  <button id="save-provider" class="primary" type="submit" aria-describedby="provider-change-summary" disabled data-i18n="models.saveProvider">保存上游服务</button>
                 </div>
               </section>
             </form>
@@ -409,22 +405,22 @@
             <header class="provider-modal-header">
               <div class="form-summary-copy">
                 <div class="form-summary-title">
-                  <strong id="reasoning-modal-title">推理强度配置</strong>
+                  <strong id="reasoning-modal-title" data-i18n="models.reasoningConfig">推理强度配置</strong>
                 </div>
               </div>
-              <button id="close-reasoning-modal" class="provider-modal-close" type="button" aria-label="关闭推理强度配置" title="关闭（Esc）">
+              <button id="close-reasoning-modal" class="provider-modal-close" type="button" aria-label="关闭推理强度配置" title="关闭（Esc）" data-i18n-title="modal.close" data-i18n-aria-label="modal.close">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
               </button>
             </header>
 
             <div class="reasoning-modal-body">
-              <p id="reasoning-modal-subtitle" class="form-intro">勾选需要暴露给 IDE、App 或 CLI 的推理/思考档位，并可针对每个档位独立测试上游响应。</p>
+              <p id="reasoning-modal-subtitle" class="form-intro" data-i18n="models.reasoningSubtitle">勾选需要暴露给 IDE、App 或 CLI 的推理/思考档位，并可针对每个档位独立测试上游响应。</p>
               <div id="reasoning-modal-levels" class="reasoning-modal-levels"></div>
             </div>
 
             <div class="reasoning-modal-footer">
-              <button id="cancel-reasoning-modal" class="secondary" type="button">取消</button>
-              <button id="confirm-reasoning-modal" class="primary" type="button">确定</button>
+              <button id="cancel-reasoning-modal" class="secondary" type="button" data-i18n="models.cancel">取消</button>
+              <button id="confirm-reasoning-modal" class="primary" type="button" data-i18n="models.confirm">确定</button>
             </div>
           </section>
         </div>
@@ -433,19 +429,19 @@
       <div id="tab-activity" class="tab-pane">
         <section class="panel activity-panel" aria-labelledby="activity-title">
           <div class="panel-heading activity-toolbar">
-            <h2 id="activity-title" class="visually-hidden">调用日志</h2>
+            <h2 id="activity-title" class="visually-hidden" data-i18n="activity.title">调用日志</h2>
             <div class="heading-actions activity-actions">
-              <span id="activity-count" class="count-badge" aria-label="最近日志数量">最近 0 条</span>
-              <label class="check-label activity-filter"><input id="activity-failed-only" type="checkbox" /> 仅看失败</label>
-              <button id="refresh-activity" class="secondary compact-button" type="button">刷新</button>
-              <button id="clear-activity" class="danger-text" type="button" disabled>清空内存日志</button>
+              <span id="activity-count" class="count-badge" aria-label="最近日志数量">...</span>
+              <label class="check-label activity-filter"><input id="activity-failed-only" type="checkbox" /> <span data-i18n="activity.failedOnly">仅看失败</span></label>
+              <button id="refresh-activity" class="secondary compact-button" type="button" data-i18n="activity.refreshLog">刷新</button>
+              <button id="clear-activity" class="danger-text" type="button" disabled data-i18n="activity.clearLog">清空内存日志</button>
             </div>
           </div>
-          <p class="panel-intro activity-privacy">
+          <p class="panel-intro activity-privacy" data-i18n="activity.privacyNotice">
             日志仅保存在内存中，不记录 Prompt、回答、Tool 参数、Header 或 API Key。
           </p>
           <div id="activity-list" class="activity-list" aria-live="polite">
-            <p class="empty-state">正在读取调用日志…</p>
+            <p class="empty-state" data-i18n="activity.emptyDesc">正在读取调用日志…</p>
           </div>
         </section>
       </div>
@@ -456,19 +452,19 @@
           <nav class="settings-nav-sidebar" aria-label="设置分类">
             <button type="button" class="settings-nav-item active" data-settings-target="settings-general">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              常规偏好
+              <span data-i18n="settings.navGeneral">常规偏好</span>
             </button>
             <button type="button" class="settings-nav-item" data-settings-target="settings-network">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-              网络代理
+              <span data-i18n="settings.navNetwork">网络代理</span>
             </button>
             <button type="button" class="settings-nav-item" data-settings-target="settings-data">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              数据存储
+              <span data-i18n="settings.navData">数据存储</span>
             </button>
             <button type="button" class="settings-nav-item" data-settings-target="settings-about">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              关于应用
+              <span data-i18n="settings.navAbout">关于应用</span>
             </button>
           </nav>
 
@@ -477,8 +473,8 @@
             <!-- General Pane -->
             <section id="settings-general" class="settings-pane active">
               <header class="settings-pane-header">
-                <h2>常规偏好</h2>
-                <p>自定义界面显示语言与视觉外观主题风格。</p>
+                <h2 data-i18n="settings.generalHeader">常规偏好</h2>
+                <p data-i18n="settings.generalSubtitle">自定义界面显示语言与视觉外观主题风格。</p>
               </header>
 
               <div class="settings-group">
@@ -487,12 +483,21 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>显示语言</strong>
-                    <span>选择 AGY BYOK 界面的默认语言</span>
+                    <strong data-i18n="settings.languageTitle">显示语言</strong>
+                    <span data-i18n="settings.languageDesc">选择 AGY BYOK 界面的默认语言</span>
                   </div>
                   <div class="settings-row-ctrl">
                     <select id="settings-language-select" class="custom-select">
-                      <option value="zh-CN" selected>简体中文 (Chinese)</option>
+                      <option value="zh-CN">简体中文 (Chinese Simplified)</option>
+                      <option value="zh-TW">繁體中文 (Chinese Traditional)</option>
+                      <option value="en-US">English</option>
+                      <option value="ja-JP">日本語 (Japanese)</option>
+                      <option value="ko-KR">한국어 (Korean)</option>
+                      <option value="es-ES">Español (Spanish)</option>
+                      <option value="fr-FR">Français (French)</option>
+                      <option value="de-DE">Deutsch (German)</option>
+                      <option value="ru-RU">Русский (Russian)</option>
+                      <option value="pt-BR">Português (Portuguese)</option>
                     </select>
                   </div>
                 </div>
@@ -502,22 +507,22 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>外观主题模式</strong>
-                    <span>切换浅色模式、深色模式或跟随系统操作界面</span>
+                    <strong data-i18n="settings.themeTitle">外观主题模式</strong>
+                    <span data-i18n="settings.themeDesc">切换浅色模式、深色模式或跟随系统操作界面</span>
                   </div>
                   <div class="settings-row-ctrl">
                     <div class="theme-segmented-ctrl">
                       <button type="button" class="theme-btn" data-theme-val="system">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                        跟随系统
+                        <span data-i18n="header.themeSystem">跟随系统</span>
                       </button>
                       <button type="button" class="theme-btn" data-theme-val="light">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                        浅色
+                        <span data-i18n="header.themeLight">浅色</span>
                       </button>
                       <button type="button" class="theme-btn" data-theme-val="dark">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                        深色
+                        <span data-i18n="header.themeDark">深色</span>
                       </button>
                     </div>
                   </div>
@@ -528,8 +533,8 @@
             <!-- Network Pane -->
             <section id="settings-network" class="settings-pane">
               <header class="settings-pane-header">
-                <h2>网络代理服务</h2>
-                <p>配置本地代理监听端口与安全监听网络绑定位。</p>
+                <h2 data-i18n="settings.networkHeader">网络代理服务</h2>
+                <p data-i18n="settings.networkSubtitle">配置本地代理监听端口与安全监听网络绑定位。</p>
               </header>
 
               <div class="settings-group">
@@ -538,13 +543,13 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>代理服务端口 (HTTP)</strong>
-                    <span>设置本地代理 HTTP 监听端口，修改后需重启代理</span>
+                    <strong data-i18n="settings.portTitle">代理服务端口 (HTTP)</strong>
+                    <span data-i18n="settings.portDesc">设置本地代理 HTTP 监听端口，修改后自动重启代理</span>
                   </div>
                   <div class="settings-row-ctrl">
                     <div class="port-input-box">
                       <input id="settings-proxy-port" type="number" min="1024" max="65535" value="54321" />
-                      <button id="save-proxy-port" type="button" class="primary compact-button">保存</button>
+                      <button id="save-proxy-port" type="button" class="primary compact-button" data-i18n="settings.savePort">保存</button>
                     </div>
                   </div>
                 </div>
@@ -554,8 +559,8 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>绑定监听地址</strong>
-                    <span>严格绑定本地 127.0.0.1 回环，禁止外部公网暴露</span>
+                    <strong data-i18n="settings.addressTitle">绑定监听地址</strong>
+                    <span data-i18n="settings.addressDesc">严格绑定本地 127.0.0.1 回环，禁止外部公网暴露</span>
                   </div>
                   <div class="settings-row-ctrl">
                     <span class="status-pill success">127.0.0.1 (Loopback)</span>
@@ -567,8 +572,8 @@
             <!-- Data Pane -->
             <section id="settings-data" class="settings-pane">
               <header class="settings-pane-header">
-                <h2>数据存储与清理</h2>
-                <p>管理本地 config.json 文件与内存请求调试日志。</p>
+                <h2 data-i18n="settings.dataHeader">数据存储与清理</h2>
+                <p data-i18n="settings.dataSubtitle">管理本地 config.json 文件与内存请求调试日志。</p>
               </header>
 
               <div class="settings-group">
@@ -577,11 +582,11 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>配置文件与数据目录</strong>
+                    <strong data-i18n="settings.configPathTitle">配置文件与数据目录</strong>
                     <span id="settings-config-path-text">~/.config/agy-byok/config.json</span>
                   </div>
                   <div class="settings-row-ctrl">
-                    <button id="open-config-dir" type="button" class="secondary compact-button">在 Finder 中打开</button>
+                    <button id="open-config-dir" type="button" class="secondary compact-button" data-i18n="settings.openInFinder">在 Finder 中打开</button>
                   </div>
                 </div>
 
@@ -590,11 +595,11 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   </div>
                   <div class="settings-row-text">
-                    <strong>清空内存调用日志</strong>
-                    <span>只清理内存中暂存的 HTTP 请求记录，不影响模型配置</span>
+                    <strong data-i18n="settings.clearLogsTitle">清空内存调用日志</strong>
+                    <span data-i18n="settings.clearLogsDesc">只清理内存中暂存的 HTTP 请求记录，不影响模型配置</span>
                   </div>
                   <div class="settings-row-ctrl">
-                    <button id="settings-clear-logs-btn" type="button" class="secondary compact-button">清空日志</button>
+                    <button id="settings-clear-logs-btn" type="button" class="secondary compact-button" data-i18n="settings.clearLogsBtn">清空日志</button>
                   </div>
                 </div>
               </div>
@@ -608,15 +613,15 @@
                 </div>
                 <div class="about-hero-info">
                   <div class="about-title-row">
-                    <h3 class="about-app-name">AGY BYOK</h3>
-                    <span class="version-tag">v0.1.0</span>
+                    <h3 class="about-app-name" data-i18n="settings.aboutAppName">AGY BYOK</h3>
+                    <span class="version-tag" data-i18n="settings.aboutVersion">v0.1.0</span>
                   </div>
-                  <p class="about-app-desc">Antigravity 自定义模型代理管理与多端无缝接入系统</p>
+                  <p class="about-app-desc" data-i18n="settings.aboutDesc">Antigravity 自定义模型代理管理与多端无缝接入系统</p>
                   <div class="about-tech-stack">
-                    <span class="tech-tag">Tauri v2</span>
-                    <span class="tech-tag">Rust Core</span>
-                    <span class="tech-tag">TypeScript</span>
-                    <span class="tech-tag">BYOK Proxy</span>
+                    <span class="tech-tag" data-i18n="settings.techTauri">Tauri v2</span>
+                    <span class="tech-tag" data-i18n="settings.techRust">Rust Core</span>
+                    <span class="tech-tag" data-i18n="settings.techTS">TypeScript</span>
+                    <span class="tech-tag" data-i18n="settings.techProxy">BYOK Proxy</span>
                   </div>
                 </div>
               </div>
@@ -627,7 +632,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
                   </div>
                   <div class="action-info">
-                    <strong>开源仓库</strong>
+                    <strong data-i18n="settings.cardGithub">开源仓库</strong>
                     <span>yuzhiqiang1993/agy-byok</span>
                   </div>
                 </button>
@@ -637,8 +642,8 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                   </div>
                   <div class="action-info">
-                    <strong>配置目录</strong>
-                    <span>在 Finder 中打开</span>
+                    <strong data-i18n="settings.cardDir">配置目录</strong>
+                    <span data-i18n="settings.openInFinder">在 Finder 中打开</span>
                   </div>
                 </button>
 
@@ -647,7 +652,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                   </div>
                   <div class="action-info">
-                    <strong>开发者</strong>
+                    <strong data-i18n="settings.cardAuthor">开发者</strong>
                     <span>喻志强 (@yuzhiqiang1993)</span>
                   </div>
                 </button>
@@ -657,8 +662,8 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   </div>
                   <div class="action-info">
-                    <strong>意见反馈</strong>
-                    <span>提交问题与 Feature Request</span>
+                    <strong data-i18n="settings.cardFeedback">意见反馈</strong>
+                    <span data-i18n="settings.cardFeedbackSub">提交 Issue 与 Feature Request</span>
                   </div>
                 </button>
               </div>
@@ -681,7 +686,7 @@
                 <strong id="confirm-modal-title">确认操作</strong>
               </div>
             </div>
-            <button id="close-confirm-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）">
+            <button id="close-confirm-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.close" data-i18n-aria-label="modal.close">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
           </header>

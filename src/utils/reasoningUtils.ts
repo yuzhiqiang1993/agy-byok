@@ -1,6 +1,7 @@
 import type { ReasoningLevel, ConfigurableReasoningLevel, ReasoningMapping } from "../types/reasoning";
 import type { ProviderProtocol, UpstreamModel, VirtualModel } from "../types/config";
 import type { ProviderCatalogModel } from "../types/catalog";
+import { t } from "../i18n";
 
 export const REASONING_LEVEL_ORDER: Record<ReasoningLevel, number> = {
   off: 0,
@@ -28,13 +29,13 @@ export function sortVirtualModelsByReasoningLevel(virtualModels: VirtualModel[])
 
 export function reasoningLevelLabel(level: ReasoningLevel): string {
   return {
-    off: "Off",
-    low: "Low",
-    medium: "Medium",
-    high: "High",
-    x_high: "Extra High",
-    max: "Max",
-    auto: "自定义",
+    off: t("models.reasoningOff"),
+    low: t("models.reasoningLow"),
+    medium: t("models.reasoningMedium"),
+    high: t("models.reasoningHigh"),
+    x_high: t("models.reasoningExtraHigh"),
+    max: t("models.reasoningMax"),
+    auto: t("models.reasoningCustom"),
   }[level];
 }
 
@@ -69,11 +70,15 @@ export function catalogReasoningLevelsForModel(
 export function catalogReasoningMetadataLabel(model: ProviderCatalogModel): string | null {
   const metadata = model.reasoning;
   if (!metadata) return null;
-  if (metadata.supported === false) return "思考：不支持";
+  if (metadata.supported === false) return t("models.reasoningUnsupported");
   const levels = (metadata.levels ?? []).filter((level) => level !== "off" && level !== "auto");
-  if (levels.length > 0) return `思考：${sortReasoningLevels(levels).map(reasoningLevelLabel).join(" · ")}`;
-  if (metadata.supported === true) return "思考：支持（等级未声明）";
-  return "思考：未声明";
+  if (levels.length > 0) {
+    return t("models.reasoningLevels", {
+      levels: sortReasoningLevels(levels).map(reasoningLevelLabel).join(" · "),
+    });
+  }
+  if (metadata.supported === true) return t("models.reasoningSupportedUndeclared");
+  return t("models.reasoningUndeclared");
 }
 
 export function reasoningLevels(protocol: ProviderProtocol): Partial<Record<ReasoningLevel, ReasoningMapping>> {

@@ -13,4 +13,7 @@ export const hostService = {
   launchApp: () => invoke<void>("launch_app"),
   enableCliIntegration: () => invoke<CliStatus>("enable_cli_integration"),
   disableCliIntegration: () => invoke<CliStatus>("disable_cli_integration"),
+  openPath: (path: string) => invoke<void>("open_path", { path }),
+  openConfigDir: () => invoke<void>("open_config_dir"),
+  openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
 };

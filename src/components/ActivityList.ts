@@ -1,23 +1,28 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { ActivityItem } from "../types/activity";
 import { store } from "../store/appStore";
-import { element, errorMessage, setButtonUnavailable, withBusy } from "../utils/domUtils";
-import { armDestructiveButton } from "./ProviderCard";
+import {
+  activityState,
+  nextActivityRequestVersion,
+  setActivityItems as setActivityItemsState,
+  setActivityLoadFailed as setActivityLoadFailedState,
+} from "../features/activity/activityState";
+import { getActivityLog, clearActivityLog as clearActivityLogCommand, subscribeActivityCleared } from "../controllers/activityController";
+import { element, armDestructiveButton, errorMessage, setButtonUnavailable, withBusy } from "../utils/domUtils";
 import { showNotice } from "./NoticeBar";
 import { findVirtualModelByAcceptedId, configuredModelDisplayName } from "../utils/modelUtils";
+import { getLanguage, t, subscribeLanguage } from "../i18n";
 
-let activityRequestVersion = 0;
-let activityActionInProgress = false;
-let activityRefreshInFlight: Promise<void> | null = null;
-let activityItems: ActivityItem[] = [];
-let activitySnapshot = "";
-let activityFailedOnly = false;
+
+
+subscribeLanguage(() => {
+  renderActivityLog();
+});
 
 function formatActivityTime(timestampMs: number): { label: string; dateTime: string | null } {
   const date = new Date(timestampMs);
-  if (Number.isNaN(date.getTime())) return { label: "时间未知", dateTime: null };
+  if (Number.isNaN(date.getTime())) return { label: t("activity.unknownTime"), dateTime: null };
   return {
-    label: new Intl.DateTimeFormat("zh-CN", {
+    label: new Intl.DateTimeFormat(getLanguage(), {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -30,7 +35,9 @@ function formatActivityTime(timestampMs: number): { label: string; dateTime: str
 }
 
 function formatDuration(durationMs: number): string {
-  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`;
+  return durationMs >= 1000
+    ? t("activity.durationSeconds", { value: (durationMs / 1000).toFixed(2) })
+    : t("activity.durationMilliseconds", { value: durationMs });
 }
 
 function isActivityFailure(item: ActivityItem): boolean {
@@ -42,18 +49,12 @@ function providerProtocolLabel(protocol: string | null): string {
     : protocol === "anthropic" ? "anthropic_messages"
       : protocol === "gemini" ? "gemini_generate_content"
         : protocol;
-  if (normalized === null) return "未知";
-  if (normalized === "openai_chat_completions" || normalized === "openai_responses"
-    || normalized === "anthropic_messages" || normalized === "gemini_generate_content") {
-    const protocols: Record<string, string> = {
-      openai_chat_completions: "OpenAI · Chat Completions",
-      openai_responses: "OpenAI · Responses API",
-      anthropic_messages: "Anthropic · Messages API",
-      gemini_generate_content: "Google · Gemini generateContent",
-    };
-    return protocols[normalized] ?? protocol ?? "未知";
-  }
-  return protocol ?? "未知";
+  if (normalized === null) return t("activity.unknown");
+  if (normalized === "openai_chat_completions") return t("models.protocolOpenAI");
+  if (normalized === "openai_responses") return t("models.protocolResponses");
+  if (normalized === "anthropic_messages") return t("models.protocolAnthropic");
+  if (normalized === "gemini_generate_content") return t("models.protocolGemini");
+  return protocol ?? t("activity.unknown");
 }
 
 function resolveActivityContext(item: ActivityItem): {
@@ -102,7 +103,7 @@ function formatNumberCompact(num: number | null): string {
   if (num === null || num === undefined) return "—";
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 10_000) return `${(num / 1_000).toFixed(1)}k`;
-  return num.toLocaleString();
+  return num.toLocaleString(getLanguage());
 }
 
 export function renderActivityLog(): void {
@@ -110,15 +111,27 @@ export function renderActivityLog(): void {
   const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
   const activityList = element<HTMLDivElement>("#activity-list");
   
-  const failures = activityItems.filter(isActivityFailure).length;
-  const visibleItems = activityFailedOnly
-    ? activityItems.filter(isActivityFailure)
-    : activityItems;
-  activityCount.textContent = activityFailedOnly
-    ? `失败 ${visibleItems.length} / 共 ${activityItems.length} 条`
-    : `最近 ${activityItems.length} 条 · 失败 ${failures}`;
+  if (activityState.loadError) {
+    activityCount.textContent = t("overview.loadFailed");
+    activityCount.setAttribute("aria-label", activityCount.textContent);
+    setButtonUnavailable(clearActivityButton, true);
+    activityList.replaceChildren();
+    const error = document.createElement("p");
+    error.className = "empty-state error-state";
+    error.textContent = t("activity.logLoadFailed", { message: activityState.loadError });
+    activityList.append(error);
+    return;
+  }
+
+  const failures = activityState.items.filter(isActivityFailure).length;
+  const visibleItems = activityState.failedOnly
+    ? activityState.items.filter(isActivityFailure)
+    : activityState.items;
+  activityCount.textContent = activityState.failedOnly
+    ? t("activity.countBadgeFiltered", { failed: visibleItems.length, total: activityState.items.length })
+    : t("activity.countBadge", { total: activityState.items.length, failed: failures });
   activityCount.setAttribute("aria-label", activityCount.textContent);
-  setButtonUnavailable(clearActivityButton, activityItems.length === 0);
+  setButtonUnavailable(clearActivityButton, activityState.items.length === 0);
   const oldScrollTop = activityList.scrollTop;
   const oldScrollHeight = activityList.scrollHeight;
   const nearTop = oldScrollTop < 24;
@@ -127,9 +140,9 @@ export function renderActivityLog(): void {
   if (visibleItems.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = activityItems.length === 0
-      ? "暂无调用日志。通过本地代理发起模型请求后，记录会显示在这里。"
-      : "当前没有失败日志。";
+    empty.textContent = activityState.items.length === 0
+      ? t("activity.emptyDesc")
+      : t("activity.emptyDescFiltered");
     activityList.append(empty);
     return;
   }
@@ -166,7 +179,10 @@ export function renderActivityLog(): void {
     const targetCode = document.createElement("span");
     targetCode.className = "activity-path-target";
     targetCode.textContent = `${context.providerName} (${context.upstreamName})`;
-    targetCode.title = `实际上游: ${context.upstreamName} / 协议: ${providerProtocolLabel(item.providerProtocol)}`;
+    targetCode.title = t("activity.actualUpstream", {
+      model: context.upstreamName,
+      protocol: providerProtocolLabel(item.providerProtocol),
+    });
 
     path.append(reqCode, arrow, targetCode);
     mainGroup.append(timestamp, path);
@@ -181,12 +197,12 @@ export function renderActivityLog(): void {
 
     const status = document.createElement("span");
     status.className = `status-pill ${failed ? "error" : item.fallbackSucceeded ? "accent" : "success"}`;
-    const httpText = item.statusCode > 0 ? String(item.statusCode) : "无响应";
+    const httpText = item.statusCode > 0 ? String(item.statusCode) : t("activity.noResponse");
     status.textContent = failed
-      ? `${httpText} · 失败`
+      ? t("activity.statusFailed", { code: httpText })
       : item.fallbackSucceeded
-        ? `${httpText} · Fallback`
-        : `${httpText} OK`;
+        ? t("activity.statusFallback", { code: httpText })
+        : t("activity.statusOk", { code: httpText });
 
     statusGroup.append(latency, status);
     heading.append(mainGroup, statusGroup);
@@ -200,11 +216,11 @@ export function renderActivityLog(): void {
 
     const typePill = document.createElement("span");
     typePill.className = "activity-pill";
-    typePill.textContent = item.stream ? "流式" : "非流式";
+    typePill.textContent = item.stream ? t("activity.stream") : t("activity.nonStream");
 
     const countPill = document.createElement("span");
     countPill.className = "activity-pill";
-    countPill.textContent = `${item.messageCount} 消息 · ${item.toolCount} 工具`;
+    countPill.textContent = `${t("activity.messageCount", { count: item.messageCount })} · ${t("activity.toolCount", { count: item.toolCount })}`;
 
     pillsRow.append(providerPill, typePill, countPill);
 
@@ -213,15 +229,20 @@ export function renderActivityLog(): void {
       tokenPill.className = "activity-pill accent";
       const pFormat = formatNumberCompact(item.promptTokens);
       const cFormat = formatNumberCompact(item.completionTokens);
-      tokenPill.textContent = `TOKEN: ${pFormat} 输入 · ${cFormat} 输出`;
-      tokenPill.title = `输入 ${item.promptTokens ?? "—"} · 输出 ${item.completionTokens ?? "—"}`;
+      tokenPill.textContent = t("activity.tokenLabel", { input: pFormat, output: cFormat });
+      tokenPill.title = t("activity.tokenTitle", {
+        input: item.promptTokens ?? "—",
+        output: item.completionTokens ?? "—",
+      });
       pillsRow.append(tokenPill);
     }
 
     if (item.fallbackAttempted) {
       const fbPill = document.createElement("span");
       fbPill.className = `activity-pill ${item.fallbackSucceeded ? "accent" : "warning"}`;
-      fbPill.textContent = item.fallbackSucceeded ? "Fallback 降级成功" : "Fallback 降级失败";
+      fbPill.textContent = item.fallbackSucceeded
+        ? t("activity.fallbackSuccess")
+        : t("activity.fallbackFailure");
       pillsRow.append(fbPill);
     }
 
@@ -233,29 +254,29 @@ export function renderActivityLog(): void {
       const errorHeading = document.createElement("div");
       errorHeading.className = "activity-error-heading";
       const category = document.createElement("strong");
-      category.textContent = item.errorCategory ?? "未分类错误";
+      category.textContent = item.errorCategory ?? t("activity.unclassifiedError");
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "quiet activity-copy-error";
-      copy.textContent = "复制错误诊断";
+      copy.textContent = t("activity.copyDiagnostic");
       copy.addEventListener("click", () => {
         const text = [
-          `时间: ${formattedTime.label}`,
-          `请求模型: ${context.requestedName}`,
-          `实际路由: ${context.actualRouteName}`,
-          `实际上游: ${context.upstreamName}`,
-          `上游服务: ${context.providerName}`,
-          `HTTP: ${item.statusCode || "无响应"}`,
-          `错误分类: ${item.errorCategory ?? "未分类错误"}`,
-          `错误详情: ${item.errorDetail ?? "未提供错误详情"}`,
+          `${t("activity.timeLabel")}: ${formattedTime.label}`,
+          `${t("activity.requestModelLabel")}: ${context.requestedName}`,
+          `${t("activity.routeLabel")}: ${context.actualRouteName}`,
+          `${t("activity.upstreamModelLabel")}: ${context.upstreamName}`,
+          `${t("activity.providerLabel")}: ${context.providerName}`,
+          t("activity.httpLabel", { code: item.statusCode || t("activity.noResponse") }),
+          `${t("activity.errorCategoryLabel")}: ${item.errorCategory ?? t("activity.unclassifiedError")}`,
+          `${t("activity.errorDetailLabel")}: ${item.errorDetail ?? t("activity.missingErrorDetail")}`,
         ].join("\n");
         void navigator.clipboard.writeText(text)
-          .then(() => showNotice("错误信息已复制"))
-          .catch((copyError) => showNotice(`复制失败：${errorMessage(copyError)}`, "error"));
+          .then(() => showNotice(t("activity.diagnosticCopied")))
+          .catch((copyError) => showNotice(t("activity.copyFailed", { message: errorMessage(copyError) }), "error"));
       });
       errorHeading.append(category, copy);
       const detail = document.createElement("p");
-      detail.textContent = item.errorDetail ?? "未提供错误详情";
+      detail.textContent = item.errorDetail ?? t("activity.missingErrorDetail");
       error.append(errorHeading, detail);
       card.append(error);
     }
@@ -270,84 +291,79 @@ export function renderActivityLog(): void {
 }
 
 export function setActivityItems(items: ActivityItem[]): void {
-  activityItems = [...items].sort((left, right) => right.timestampMs - left.timestampMs);
-  activitySnapshot = JSON.stringify(activityItems);
+  setActivityItemsState(items);
   renderActivityLog();
 }
 
 export function setActivityLoadFailed(message: string): void {
-  activityItems = [];
-  activitySnapshot = "";
-  const activityCount = element<HTMLSpanElement>("#activity-count");
-  const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
-  const activityList = element<HTMLDivElement>("#activity-list");
-  activityCount.textContent = "读取失败";
-  activityCount.setAttribute("aria-label", "读取失败");
-  setButtonUnavailable(clearActivityButton, true);
-  activityList.replaceChildren();
-  const error = document.createElement("p");
-  error.className = "empty-state error-state";
-  error.textContent = `调用日志读取失败：${message}。可点击刷新重试。`;
-  activityList.append(error);
+  setActivityLoadFailedState(message);
+  renderActivityLog();
 }
 
 async function refreshActivityLog(silent = false): Promise<void> {
-  if (activityRefreshInFlight) return activityRefreshInFlight;
-  const requestVersion = activityRequestVersion;
+  if (activityState.refreshInFlight) return activityState.refreshInFlight;
+  const requestVersion = activityState.requestVersion;
   const task = (async () => {
     try {
-      const items = await invoke<ActivityItem[]>("get_activity_log");
-      if (requestVersion !== activityRequestVersion) return;
+      const items = await getActivityLog();
+      if (requestVersion !== activityState.requestVersion) return;
       const ordered = [...items].sort((left, right) => right.timestampMs - left.timestampMs);
       const snapshot = JSON.stringify(ordered);
-      if (snapshot !== activitySnapshot) setActivityItems(ordered);
+      if (snapshot !== activityState.snapshot) setActivityItems(ordered);
     } catch (error) {
-      if (!silent) throw error;
+      if (!silent) {
+        setActivityLoadFailed(errorMessage(error));
+        throw error;
+      }
     }
   })();
-  activityRefreshInFlight = task;
+  activityState.refreshInFlight = task;
   try {
     await task;
   } finally {
-    if (activityRefreshInFlight === task) activityRefreshInFlight = null;
+    if (activityState.refreshInFlight === task) activityState.refreshInFlight = null;
   }
 }
 
 async function clearActivityLog(): Promise<void> {
-  activityActionInProgress = true;
-  activityRequestVersion += 1;
+  activityState.actionInProgress = true;
+  nextActivityRequestVersion();
   try {
-    await invoke<void>("clear_activity_log");
-    activityRequestVersion += 1;
-    setActivityItems([]);
-    showNotice("内存调用日志已清空");
+    await clearActivityLogCommand();
+    nextActivityRequestVersion();
+    showNotice(t("activity.clearSuccess"));
   } finally {
-    activityActionInProgress = false;
+    activityState.actionInProgress = false;
   }
 }
 
 export function setupActivityList(): void {
+  subscribeActivityCleared(() => {
+    nextActivityRequestVersion();
+    renderActivityLog();
+  });
+
   const refreshActivityButton = element<HTMLButtonElement>("#refresh-activity");
   const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
   const failedActivityOnlyCheckbox = element<HTMLInputElement>("#activity-failed-only");
 
   refreshActivityButton.addEventListener("click", () => {
-    void withBusy(refreshActivityButton, () => refreshActivityLog());
+    void withBusy(refreshActivityButton, () => refreshActivityLog(), t("activity.refreshLog"));
   });
   
   armDestructiveButton(
     clearActivityButton,
-    "确认清空内存日志",
+    t("activity.clearConfirm"),
     () => withBusy(clearActivityButton, clearActivityLog),
   );
   
   failedActivityOnlyCheckbox.addEventListener("change", () => {
-    activityFailedOnly = failedActivityOnlyCheckbox.checked;
+    activityState.failedOnly = failedActivityOnlyCheckbox.checked;
     renderActivityLog();
   });
   
   window.setInterval(() => {
-    if (document.visibilityState === "visible" && !activityActionInProgress) {
+    if (document.visibilityState === "visible" && !activityState.actionInProgress) {
       void refreshActivityLog(true);
     }
   }, 2000);

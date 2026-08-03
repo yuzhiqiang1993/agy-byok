@@ -2,10 +2,10 @@ import "./styles.css";
 import { store } from "./store/appStore";
 import { configService } from "./services/configService";
 import { proxyService } from "./services/proxyService";
-import { hostService } from "./services/hostService";
+
 import { activityService } from "./services/activityService";
 
-import { setupProxyCard, renderProxy } from "./components/ProxyCard";
+import { setupProxyCard, renderProxy, renderProxyLoadFailure } from "./components/ProxyCard";
 import { setupIdeCard, renderIde, renderIdeLoadFailure } from "./components/IdeCard";
 import { setupAppCard, renderApp, renderAppLoadFailure } from "./components/AppCard";
 import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliCard";
@@ -19,7 +19,9 @@ import { setupTabManager } from "./components/TabManager";
 import { setupSettingsView } from "./components/SettingsView";
 import { errorMessage } from "./utils/domUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
-import { refreshHostStatuses } from "./components/HostRefresh";
+import { refreshApp, refreshCli, refreshHostStatuses, refreshIde } from "./controllers/hostController";
+
+import { updateDOMTranslations, subscribeLanguage, t } from "./i18n";
 
 setupNoticeBar();
 setupProxyCard();
@@ -34,80 +36,86 @@ setupSettingsView();
 setupReasoningModal();
 setupReadinessPanel();
 
+updateDOMTranslations();
+
+function renderRuntimeState(): void {
+  if (store.proxyStatusLoadFailed) renderProxyLoadFailure(t("overview.loadFailed"));
+  else if (store.proxyStatus) renderProxy(store.proxyStatus);
+  if (store.ideStatusLoadFailed) renderIdeLoadFailure(t("overview.loadFailed"));
+  else if (store.ideStatus) renderIde(store.ideStatus);
+  if (store.appStatusLoadFailed) renderAppLoadFailure(t("overview.loadFailed"));
+  else if (store.appStatus) renderApp(store.appStatus);
+  if (store.cliStatusLoadFailed) renderCliLoadFailure(t("overview.loadFailed"));
+  else if (store.cliStatus) renderCli(store.cliStatus);
+  renderReadiness();
+}
+
+store.subscribe(renderRuntimeState);
+store.subscribeConfig(renderProviders);
+renderProviders();
+
+subscribeLanguage(() => {
+  renderProviders();
+  renderRuntimeState();
+});
+
 async function initialize(): Promise<void> {
   const [configResult, proxyResult, ideResult, appResult, cliResult, activityResult] = await Promise.allSettled([
     configService.getConfig(),
     proxyService.getStatus(),
-    hostService.discoverIde(),
-    hostService.discoverApp(),
-    hostService.discoverCli(),
+    refreshIde(),
+    refreshApp(),
+    refreshCli(),
     activityService.getLog(),
   ]);
 
   const failures: string[] = [];
   if (configResult.status === "fulfilled") {
     store.setConfig(configResult.value);
-    renderProviders();
     const portInput = document.querySelector<HTMLInputElement>("#settings-proxy-port");
     if (portInput) portInput.value = String(configResult.value.proxy_port);
   } else {
-    failures.push("上游服务配置");
-    const providerList = document.querySelector<HTMLDivElement>("#provider-list");
-    if (providerList) {
-      providerList.replaceChildren();
-      const error = document.createElement("p");
-      error.className = "empty-state error-state";
-      error.textContent = `配置读取失败：${errorMessage(configResult.reason)}`;
-      providerList.append(error);
-    }
+    failures.push(t("models.title"));
+    store.setConfigFailed(errorMessage(configResult.reason));
   }
 
   if (proxyResult.status === "fulfilled") {
-    renderProxy(proxyResult.value);
+    store.setProxyStatus(proxyResult.value);
   } else {
     store.setProxyStatusFailed();
-    failures.push("代理状态");
+    failures.push(t("overview.proxyServer"));
     const proxyState = document.querySelector<HTMLSpanElement>("#proxy-state");
     if (proxyState) {
-      proxyState.textContent = "读取失败";
+      proxyState.textContent = t("overview.loadFailed");
       proxyState.className = "status-pill error";
     }
   }
 
-  if (ideResult.status === "fulfilled") {
-    renderIde(ideResult.value);
-  } else {
-    store.setIdeStatusFailed();
-    failures.push("IDE 状态");
+  if (ideResult.status === "rejected") {
+    failures.push(t("overview.ideStatusItem"));
     renderIdeLoadFailure(errorMessage(ideResult.reason));
   }
 
-  if (appResult.status === "fulfilled") {
-    renderApp(appResult.value);
-  } else {
-    store.setAppStatusFailed();
-    failures.push("App 状态");
+  if (appResult.status === "rejected") {
+    failures.push(t("overview.appStatusItem"));
     renderAppLoadFailure(errorMessage(appResult.reason));
   }
 
-  if (cliResult.status === "fulfilled") {
-    renderCli(cliResult.value);
-  } else {
-    store.setCliStatusFailed();
-    failures.push("CLI 状态");
+  if (cliResult.status === "rejected") {
+    failures.push(t("overview.cliStatusItem"));
     renderCliLoadFailure(errorMessage(cliResult.reason));
   }
 
   if (activityResult.status === "fulfilled") {
     setActivityItems(activityResult.value);
   } else {
-    failures.push("调用日志");
+    failures.push(t("overview.activityStatusItem"));
     setActivityLoadFailed(errorMessage(activityResult.reason));
   }
 
   renderReadiness();
   if (failures.length > 0) {
-    showNotice(`部分状态读取失败：${failures.join("、")}`, "error");
+    showNotice(t("overview.statusLoadFailed", { items: failures.join(", ") }), "error");
   }
 }
 

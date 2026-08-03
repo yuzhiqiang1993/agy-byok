@@ -3,6 +3,7 @@ import type { Provider, AppConfig, VirtualModel } from "./config";
 export interface ProxyStatus {
   state: "running" | "stopped";
   address: string | null;
+  port: number;
 }
 
 export interface ModelConnectionTestResult {
@@ -16,8 +17,8 @@ export type ModelConnectionTestOutcome =
   | { kind: "error"; message: string };
 
 export type ConnectionTestViewState =
-  | { status: "testing"; message: string }
-  | { status: "success"; message: string; durationMs: number }
+  | { status: "testing" }
+  | { status: "success"; durationMs: number }
   | { status: "error"; message: string };
 
 export interface ProviderTestSession {
@@ -32,7 +33,10 @@ export interface ProviderChangeSummary {
   removedVirtualModels: VirtualModel[];
   retainedVirtualCount: number;
   legacyModelIds: string[];
-  fallbackBlockers: string[];
+  fallbackBlockers: Array<{
+    source: string;
+    fallback: string;
+  }>;
 }
 
 export interface ProviderSavePlan {

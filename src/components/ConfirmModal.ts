@@ -1,11 +1,16 @@
 import { element } from "../utils/domUtils";
+import { t } from "../i18n";
 
 export function confirmHostAction(
   message: string,
-  title = "确认操作",
-  okLabel = "确认继续",
-  cancelLabel = "取消",
+  title?: string,
+  okLabel?: string,
+  cancelLabel?: string,
 ): Promise<boolean> {
+  const finalTitle = title ?? t("modal.confirmTitle");
+  const finalOk = okLabel ?? t("modal.confirmOk");
+  const finalCancel = cancelLabel ?? t("models.cancel");
+
   return new Promise<boolean>((resolve) => {
     const modal = element<HTMLDivElement>("#confirm-modal");
     const backdrop = element<HTMLDivElement>("#confirm-modal-backdrop");
@@ -15,10 +20,10 @@ export function confirmHostAction(
     const cancelBtn = element<HTMLButtonElement>("#cancel-confirm-modal");
     const okBtn = element<HTMLButtonElement>("#ok-confirm-modal");
 
-    titleEl.textContent = title;
+    titleEl.textContent = finalTitle;
     messageEl.textContent = message;
-    okBtn.textContent = okLabel;
-    cancelBtn.textContent = cancelLabel;
+    okBtn.textContent = finalOk;
+    cancelBtn.textContent = finalCancel;
 
     let cleanup = (): void => {};
 
