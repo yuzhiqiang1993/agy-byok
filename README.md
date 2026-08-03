@@ -2,169 +2,187 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: Prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#当前状态)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#路线图)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#环境要求)
 
-> 面向 Antigravity IDE、Antigravity App 和 Antigravity CLI 提供本地、可恢复的 Bring Your Own Key / Model 能力。
+AGY BYOK 是一个面向 **Antigravity IDE、Antigravity App 和 Antigravity CLI** 的本地自定义模型接入工具。
 
-> [!IMPORTANT]
-> AGY BYOK 当前提供可运行的 macOS 桌面原型，可配置模型、启停代理，并分别为 IDE、App 和 CLI 启用或恢复代理模式。不会复制、修改或重签厂商 App Bundle。
+它让你可以在不修改厂商 App Bundle 的前提下，把自己的 API Key 和上游模型接入 Antigravity，并通过本地代理完成协议转换、模型路由和请求转发。
 
-## 使用流程
+## 它解决什么问题
 
-1. 在“模型管理”中添加上游服务，获取模型列表并保存模型。
-2. 在“运行概览”中启动本地代理。
-3. 在 IDE、App 或 CLI 卡片中点击“启用代理模式”。
-4. 任意时候点击对应入口的“恢复官方模式”，恢复该入口原始配置。
+Antigravity 默认主要使用官方 Cloud Code 服务。如果你希望使用自己的 API Key、公司内部网关、本地模型或其他模型平台，通常需要同时处理三件事：
 
-恢复官方模式不会删除上游服务和模型配置，也不会自动停止本地代理。
+1. 配置上游服务和模型；
+2. 把自定义模型暴露给 Antigravity；
+3. 让请求按照不同 Provider 的协议发送，并且能够随时恢复官方配置。
 
-## 项目目标
+AGY BYOK 把这些操作集中到一个桌面 App 中：
 
-AGY BYOK 只解决四个核心问题：
+- 在“模型管理”中配置 Provider、API Key 和模型；
+- 在“运行概览”中启动本地代理；
+- 对 IDE、App 或 CLI 一键启用代理模式；
+- 使用完成后，一键恢复对应入口的官方模式。
 
-1. 让 Antigravity IDE、Antigravity App 和 Antigravity CLI 能发现并使用自定义模型。
-2. 让自定义模型请求经过 AGY BYOK 自己的代理和协议转换代码。
-3. 支持文本、图片、工具调用和模型思考档位。
-4. 在不复制、不修改厂商 App Bundle 的前提下，通过宿主原生配置接入，并只恢复各入口接管前的原始配置。
+AGY BYOK 是**本地桌面工具 + 本地 Loopback 代理**，不是 HTTPS 劫持工具，也不会安装根证书、复制应用、修改厂商 Bundle 或重签应用。
 
-项目采用独立桌面 App 和本地代理，不把 Provider 管理、配置存储、自动更新等业务逻辑注入宿主应用。AGY BYOK 分别管理 IDE 的 `jetski.cloudCodeUrl`、App 的语言服务配置和 CLI 的 Shell 环境变量；恢复官方模式时只撤销 AGY BYOK 自己接管的配置。
+## 适合谁
 
-## 目标能力
+- 想在 Antigravity 中使用 OpenAI、Anthropic、Gemini 或兼容网关的开发者；
+- 需要接入公司内部模型网关或本地模型服务的团队；
+- 希望同时为 Antigravity IDE、独立 App 和 CLI 配置同一套自定义模型的用户；
+- 需要保留官方模式，并能够在自定义模型和官方服务之间快速切换的用户。
 
-- **多 Provider**：支持 OpenAI Chat Completions、OpenAI Responses API、Anthropic Messages API 和 Google Gemini `generateContent` 四种线协议。
-- **虚拟模型**：将 Provider、真实上游模型和宿主虚拟模型分层管理，使用稳定模型 ID。
-- **思考档位**：上游服务编辑页统一配置英文档位模板；OpenAI-compatible 和 Anthropic 提供 `Default`、`Low`、`Medium`、`High`、`Extra High`、`Max`，Gemini 提供 `Default`、`Low`、`Medium`、`High`。只有在模型行显式勾选“思考档位”的上游模型才按模板展开虚拟变体，并由 Adapter 映射为 Provider 原生参数；新模型默认关闭该能力，确认上游 API 支持后再开启。
-- **中立协议**：先将 Antigravity/Gemini 请求转换为 Canonical Protocol，再适配目标 Provider。
-- **多模态与工具**：保留文本、图片顺序、Function Calling、流式 Tool Call 和公开的 Thinking Summary。
-- **本地直接配置**：Provider 地址、API Key 和自定义 Header 统一保存在本地配置中，空 API Key 可连接无鉴权上游。
-- **透明路由**：原生模型继续转发到官方 Cloud Code，自定义 VirtualModel 才进入 Provider Adapter；默认不跨模型切换，只有显式配置 fallback 时才尝试一次安全降级。
-- **协议选择**：上游服务编辑器默认自动识别；Gemini 和 Anthropic 通常可由 API 地址、模型目录特征判断。OpenAI Chat Completions 与 Responses 都可能共用 `/v1/models`，目录本身无法可靠区分；没有明确 `/v1/responses` 时应选择 Chat Completions。
-- **安全宿主边界**：厂商 App Bundle 始终只读；IDE settings 只管理 `jetski.cloudCodeUrl`，其他配置变化不参与接入状态判断。
+## 支持范围
+
+### 接入入口
+
+| 入口 | 接入方式 | 生效方式 |
+| :--- | :--- | :--- |
+| Antigravity IDE | 修改用户 `settings.json` 中的 `jetski.cloudCodeUrl` | IDE 运行中切换时会按需重启 |
+| Antigravity App | 管理 `language_server` wrapper | App 运行中切换时会按需重启 |
+| Antigravity CLI | 写入 Shell 环境变量 `CLOUD_CODE_URL` | 新终端或重新加载 Shell 后生效 |
+
+### 上游协议
+
+| 协议 | 常见接口 | 适用场景 |
+| :--- | :--- | :--- |
+| OpenAI Chat Completions | `/v1/chat/completions` | 大多数 OpenAI 兼容网关 |
+| OpenAI Responses | `/v1/responses` | Responses API 兼容服务 |
+| Anthropic Messages | `/v1/messages` | Anthropic 官方或兼容服务 |
+| Gemini `generateContent` | `/v1beta/models/{model}:generateContent` | Gemini 原生 API |
+
+当前支持文本、内联图片、工具调用、流式响应，以及不同 Provider 的 Thinking / Reasoning 等级映射。
+
+## 如何使用
+
+### 1. 启动桌面 App
+
+当前项目以 macOS 源码构建为主，先安装依赖：
+
+```bash
+npm install
+npm run tauri dev
+```
+
+启动后打开“模型管理”。
+
+### 2. 添加上游服务和模型
+
+在“模型管理”中：
+
+1. 点击“添加上游服务”；
+2. 选择协议或使用快捷预设；
+3. 填写 API 地址和 API Key；无鉴权的本地服务可以留空 API Key；
+4. 点击“获取模型列表”；
+5. 勾选需要提供给 Antigravity 使用的模型；
+6. 按需确认图像输入、工具调用和 Thinking / Reasoning 能力；
+7. 点击“保存上游服务”。
+
+保存后，AGY BYOK 会为选中的上游模型生成宿主可见的 VirtualModel。模型管理页也支持对单个模型或一组模型进行连接测试。
+
+### 3. 启动本地代理
+
+回到“运行概览”，点击“启动代理”。
+
+代理启动前至少需要保存一个可用模型。默认监听地址是：
+
+```text
+http://127.0.0.1:54321
+```
+
+如果默认端口被占用，桌面端会选择一个空闲的 Loopback 端口，并把实际端口用于后续宿主接入。
+
+### 4. 接入 IDE、App 或 CLI
+
+在“运行概览”对应的入口卡片中点击“启用代理模式”。
+
+- IDE：AGY BYOK 只管理 `jetski.cloudCodeUrl`，不会修改其他 IDE 设置；
+- App：AGY BYOK 通过受管理的 Language Server wrapper 指向本地代理；
+- CLI：AGY BYOK 向 Shell 配置写入 `CLOUD_CODE_URL`，请打开新终端或重新加载 Shell。
+
+如果对应应用正在运行，IDE 和 App 可能会自动重启以应用新配置。
+
+### 5. 开始使用自定义模型
+
+接入成功后，在 Antigravity 的模型选择器中选择 AGY BYOK 注入的模型即可。
+
+请求会按以下规则处理：
+
+- 官方原生模型继续转发到官方 Cloud Code；
+- 自定义 VirtualModel 进入 AGY BYOK 的协议转换和 Provider 路由；
+- 只有显式配置 fallback 时，主路由失败后才会尝试一次备用模型；
+- 调用日志只记录路由、Provider、状态、耗时和脱敏诊断信息，不记录 Prompt 或回答内容。
+
+### 6. 恢复官方模式
+
+在对应入口卡片中点击“恢复官方模式”。
+
+恢复操作只撤销 AGY BYOK 自己接管的配置，不会删除 Provider、模型或本地配置，也不会自动停止代理服务。
+
+## 配置文件与端口
+
+默认配置文件：
+
+```text
+~/Library/Application Support/AGY BYOK/config.v1.json
+```
+
+开发环境可以使用 `AGY_BYOK_CONFIG_PATH` 覆盖配置路径。
+
+端口规则：
+
+- 桌面端默认端口为 `54321`；启动时优先使用配置端口；
+- 桌面端端口冲突时自动选择空闲 Loopback 端口，并持久化实际端口；
+- `cargo run -p agy-byok` 启动的独立代理固定使用 `127.0.0.1:54321`，端口占用时不会自动回退；
+- 桌面端设置中的端口变更由后端事务统一处理：运行中会先验证新端口并完成替换，失败时保留旧代理和旧配置；
+- 代理只绑定 `127.0.0.1`，不应改为非回环地址作为共享服务使用。
+
+## 安全与隐私
+
+- 厂商 App Bundle 始终只读，不执行 Bundle 修改、codesign 或 quarantine 写入；
+- Provider API Key 当前以明文保存在本地配置文件，界面中的密码遮挡不等同于加密存储；
+- 代理只监听本机 Loopback；为兼容当前 IDE，部分宿主路由默认不要求 AGY BYOK Token，CORS 策略也尚未收紧；
+- 调用日志最多保留最近 200 条内存元数据，不记录 Prompt、回答、Tool 参数、Header 或 API Key；
+- 当前安全模型是“本机调用方可信”，不是浏览器 Origin 隔离，也不是多用户共享代理。
 
 ## 当前状态
 
-当前代码已经建立 `proxy-core`、`host-integration` 和最小 Tauri 2 桌面控制面。桌面 App 可以管理本地配置、显式启停代理、检测 IDE、App 和 CLI，并分别启用或恢复对应入口的代理模式；IDE 或 App 运行中切换配置时会按需重启，CLI 则更新 Shell 环境变量。生产代码不提供修改厂商原版 Bundle 的 Apply API。
+已经可用：
 
-| 范围 | 当前状态 |
-| :--- | :--- |
-| Cargo Workspace 与架构契约 | 已建立 |
-| Provider、UpstreamModel、VirtualModel | 已建立，支持启停、参数覆盖、按思考档位展开多个 VirtualModel 和单级 fallback 配置 |
-| 配置持久化与启动校验 | 已实现；配置写入 `config.v1.json`，Provider API Key 当前仍为本地明文存储 |
-| Antigravity 请求/响应转换 | 已实现文本、内联图片、工具调用、Thinking、非流响应和 SSE 事件转换 |
-| 模型目录注入 | 已实现对象型 `models` 与 `agentModelSorts` 成对注入；数组型目录只追加 `models`；思考模型显示为 `模型 等级(供应商)`，普通模型显示为 `模型(供应商)` |
-| OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini Adapter | 非流式与每请求 Stream Decoder 已实现；生成请求应用 Provider 连接超时与整体请求超时 |
-| 原生请求转发 | 原生模型和其他 `/v1internal:*`、`/v1internal/*` 路由转发到官方 Cloud Code |
-| Loopback HTTP 与 SSE | 已实现 Health Probe、请求体限制、聚合型上游响应体限制、并发限制、Graceful Shutdown 和自定义模型流式转发 |
-| CLI 入口 | `cargo run -p agy-byok` 固定绑定 `127.0.0.1:51234`；端口占用时启动失败 |
-| Tauri 2 桌面控制面 | 已实现最小窗口、模型配置、代理显式启停、状态查询，以及 IDE、App、CLI 的检测和代理模式切换 |
-| 桌面动态端口 | 优先使用配置端口，默认 `51234`；占用时选择随机空闲回环端口并持久化实际端口 |
-| IDE settings ownership | 只管理 `jetski.cloudCodeUrl`，记录接管前的目标键值，不恢复整个 settings 文件 |
-| 自动测试 | 已覆盖配置、Adapter、SSE、HTTP、模型目录注入、settings 最小编辑和 ownership 语义 |
-| Antigravity IDE 接入 | 已实现；通过原生 `jetski.cloudCodeUrl` 使用自定义模型，并支持恢复官方配置 |
-| Antigravity App 接入 | 已实现；通过语言服务配置启用代理模式，并支持恢复官方配置 |
-| Antigravity CLI 接入 | 已实现；通过 Shell 环境变量启用代理模式，并支持恢复官方配置 |
+- Provider、上游模型和 VirtualModel 管理；
+- 四种上游协议的非流式请求和流式响应；
+- 文本、图片、工具调用和 Thinking / Reasoning 映射；
+- IDE、App、CLI 的检测、代理模式启用和官方模式恢复；
+- 本地配置、模型连接测试和内存调用日志；
+- 主题切换和多语言界面。
 
-当前代理生命周期是最小实现，不是完整 Supervisor：桌面进程只在内存中保存一个 `HttpServerHandle`，通过 `start_proxy`、`stop_proxy` 和 `proxy_status` 显式管理。当前没有自动启动、崩溃拉起、后台守护、持续健康监控、期望状态持久化或异常退出后的自动恢复。
+仍在收口：
 
-CLI 与桌面端口策略不同：CLI 当前固定使用 `51234`，不会读取 `AppConfig.proxy_port` 作为监听端口，也不会自动回退；桌面端读取并管理 `proxy_port`，端口冲突时回退到系统分配的空闲端口，再把实际端口写回配置。当前 IDE 接入和代理边界见 [IDE 接入与代理安全复盘](docs/IDE_PATCH_SAFETY.md)。
+- 宿主 Tool Result 与真实多轮 Tool Call ID 的 Fixture；
+- `extra_body` 的完整字段校验；
+- Host 路由认证和更严格的 CORS 策略；
+- API Key 的系统钥匙串或独立 Secret Store；
+- 代理自动启动、崩溃恢复和持续健康监控；
+- macOS 签名、Notarization 和自动更新。
 
-当前仍未完成或需要继续收口的能力包括：
-
-- 宿主 Tool Result 与 OpenAI/Anthropic Tool Call ID 的真实多轮关联 Fixture。
-- 配置层 `extra_body` 的完整受控字段校验。
-- Host 路由认证与浏览器跨 Origin 访问策略收紧。
-- API Key 的系统钥匙串或独立 Secret Store。
-- 完整桌面设置、发布签名、Notarization 和自动更新。
-
-## 当前架构
-
-```mermaid
-flowchart TD
-    Host[Antigravity App / IDE]
-
-    subgraph Desktop[AGY BYOK Tauri App]
-        UI[菜单栏与管理界面]
-        Integration[Host Integration]
-        Ownership[IDE Setting Ownership]
-        Config[Local Config]
-
-        subgraph Core[proxy-core]
-            Server[Loopback HTTP Server]
-            Ingress[Antigravity Ingress]
-            Router[Virtual Model Router]
-            Canonical[Canonical Protocol]
-            Adapters[Provider Adapters]
-            Egress[Antigravity Egress]
-        end
-    end
-
-    Upstream[用户配置的上游 Provider]
-
-    UI --> Core
-    UI --> Integration
-    Integration --> Ownership
-    Host --> Server
-    Server --> Ingress
-    Ingress --> Router
-    Router --> Canonical
-    Canonical --> Adapters
-    Adapters --> Upstream
-    Upstream --> Egress
-    Egress --> Host
-    UI --> Config
-    Config --> Core
-```
-
-核心约束：
-
-- `proxy-core` 不依赖 Tauri，不操作宿主安装目录。
-- Host Integration 不读取 Provider API Key，也不参与协议转换。
-- UI 通过桌面 Command 管理配置、代理生命周期和 IDE settings 事务，不向宿主注入这些能力。
-- 原生模型透明转发，自定义 VirtualModel 才进入 BYOK 协议转换。
-
-## Workspace 结构
-
-```text
-agy-byok/
-├── Cargo.toml                 # Cargo Workspace
-├── Cargo.lock                 # 可复现依赖锁文件
-├── crates/
-│   ├── proxy-core/            # 代理领域、路由与 Provider Adapter
-│   └── host-integration/       # 宿主发现、只读兼容性校验与 IDE 目标键 ownership
-├── src-tauri/                  # Tauri Commands、代理生命周期与打包配置
-├── src/                        # 原生 TypeScript 桌面界面
-├── package.json
-├── package-lock.json
-├── docs/
-│   ├── ARCHITECTURE.md        # 系统架构、风险边界与实施路线
-│   ├── ANTIGRAVITY_IDE_INTEGRATION.md # IDE 原生配置链路与验收契约
-│   └── IDE_PATCH_SAFETY.md    # macOS 历史补丁与当前只读边界
-├── LICENSE
-└── README.md
-```
-
-## 本地开发
-
-### 环境要求
-
-当前桌面 App 开发需要：
+## 环境要求
 
 - macOS
 - Rust stable 与 Cargo
 - Node.js 与 npm
 - Xcode Command Line Tools
 
-### 获取代码
+## 开发与构建
 
-```bash
-git clone https://github.com/yuzhiqiang1993/agy-byok.git
-cd agy-byok
-```
-
-### 启动桌面 App
+安装依赖：
 
 ```bash
 npm install
+```
+
+启动开发版：
+
+```bash
 npm run tauri dev
 ```
 
@@ -175,7 +193,7 @@ npm run tauri build -- --debug
 open "target/debug/bundle/macos/AGY BYOK.app"
 ```
 
-### 验证基线
+验证代码：
 
 ```bash
 npm run build
@@ -184,140 +202,34 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-### 当前限制
+以上验证命令均应在提交前执行；当前工作区已确认 `npm run build`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --locked -- -D warnings` 和 `cargo test --workspace --locked` 通过。
 
-`cargo run -p agy-byok` 会加载并校验配置，固定绑定 `127.0.0.1:51234`，然后执行内部 Health Probe。CLI 不使用配置中的 `proxy_port` 决定监听端口，端口占用时也不会自动选择其他端口。首次启动会创建：
+## 项目结构
 
 ```text
-~/Library/Application Support/AGY BYOK/config.v1.json
+agy-byok/
+├── crates/
+│   ├── proxy-core/              # 配置、路由、Provider Adapter、HTTP/SSE 代理
+│   │   └── src/proxy/           # HTTP 生命周期、路由转发、生成和执行模块
+│   └── host-integration/        # IDE settings、App wrapper、CLI Shell 接入
+│       └── src/*_integration/   # 发现、所有权、补丁和事务模块
+├── src-tauri/                   # Tauri 状态、Commands 和宿主控制
+├── src/                         # 原生 TypeScript UI
+│   ├── components/              # 页面组件和交互绑定
+│   ├── controllers/             # 组件与 Tauri Service 之间的用例边界
+│   ├── features/providers/      # Provider 表单、目录、测试和保存逻辑
+│   ├── services/                # Tauri invoke 封装
+│   ├── store/                   # 前端运行时状态
+│   ├── types/                   # 前端类型
+│   └── i18n/                    # 多语言资源
+├── Cargo.toml
+├── package.json
+└── README.md
 ```
-
-开发环境可通过 `AGY_BYOK_CONFIG_PATH` 覆盖配置文件位置。桌面端优先使用配置中的端口；默认值为 `51234`，端口占用时回退到随机空闲回环端口，并持久化实际端口供 IDE settings 使用。
-
-HTTP Server 只绑定 IPv4 Loopback，并拒绝非 Loopback peer，但这不等于只有 AGY BYOK 桌面进程可以访问：
-
-- `/health`、`/healthz` 公开。
-- `/v1/models`、`/v1beta/models` 默认要求进程内随机 Token。
-- IDE 使用的 `/v1internal:*` 宿主路由默认不要求 AGY BYOK Token，因为 Electron Main 和插件 Language Server 没有可用的 Token 注入通道。
-- 当前所有已识别路由返回开放 CORS，预检允许任意 Origin、Header，以及 GET、POST、OPTIONS。
-
-因此当前安全边界是 **LoopbackOnly + 本机调用方可信假设**，不是浏览器 Origin 隔离。其他本地进程，以及能够访问本机回环地址的浏览器页面，都可能调用未认证的宿主路由；在收紧 Host 认证或 CORS 前，不应把代理暴露到非回环地址，也不适合作为多用户共享服务。透明转发会剥离 `x-agy-byok-token`，但会保留厂商 `Authorization`；如果把本地 Token 放在 `Authorization` 中访问透明转发路由，该 Header 也会被转发，因此管理调用应使用专用的 `x-agy-byok-token`。官方上游返回的 `Access-Control-*` Header 会被过滤，由本地代理统一生成当前兼容 IDE 所需的 CORS Header。
-
-需要完整聚合到内存的 Provider 非流响应、流式请求 HTTP 错误体、Provider/官方模型目录和官方非流转发响应均受 4 MiB 上限约束；正常 Provider SSE 与官方流式转发继续使用有界流处理，不受聚合型响应体上限截断。
-
-当前 IDE settings 接入采用目标键 ownership，而不是整文件 Receipt/快照恢复：
-
-- 状态分为 `Disabled / Managed / External`：目标键与 matching ownership 记录的受管 Endpoint 一致时为 `Managed`；目标键等于当前代理 Endpoint 但无 matching ownership 时为 `External`；其他情况为 `Disabled`。
-- 当前 Endpoint 的 `Managed` 重复启用为无操作；代理端口变化后，旧 Endpoint 的 `Managed` 可更新到当前 Endpoint，并继续保留第一次启用前的值。`External` 不会被接管。
-- 停用只处理 `Managed`，包括仍指向旧代理端口的受管配置，并按 matching ownership 恢复原值或删除由 AGY BYOK 插入的目标键；`External` 不会被删除。如果用户或第三方已把目标键改成其他值，则视为 `Disabled` 且不覆盖该值。
-- 旧版 `ide-settings-receipt.json` 和 `ide-settings-original.jsonc` 不参与当前状态判断。
-
-V7 已证明不能原地修改厂商 Bundle，V8 已证明同 ID 用户扩展不能可靠覆盖内置扩展，V9/V10 的托管副本路线也已被否决。当前实现不创建 App 副本，不执行 codesign 或 quarantine 写入。历史 V11 真实探针使用的是 `127.0.0.1:50999`，它只代表当时的验证环境：探针已确认 Electron Main 与插件 LS 都进入代理，且 6 个自定义模型在下拉框可见；当前 CLI 和桌面默认端口均已调整为 `51234`。详细原理见 [IDE 接入与代理安全复盘](docs/IDE_PATCH_SAFETY.md)。
-
-## 实现原则
-
-### 请求链路透明
-
-- 原生模型继续访问原 Cloud Code 服务，自定义模型才进入 Provider Adapter。
-- 透明转发保留 method、path/query、body、厂商 Authorization 和大部分端到端 Header，但会过滤 hop-by-hop Header、Host、Content-Length 和 `x-agy-byok-token`，并强制 `Accept-Encoding: identity`。
-- 生成路由需要先读取受大小限制的 UTF-8 JSON 并识别模型 ID，因此它不是字节级任意协议代理。
-- 默认不自动切换 Provider 或模型；只有显式配置 fallback、主路由发生可重试错误且流式响应尚未输出 frame 时，才尝试一次备用 VirtualModel。
-
-### 能力显式声明
-
-- 图片、工具、并行工具和 Thinking 能力由 UpstreamModel 显式配置。
-- 不通过模型名称正则猜测能力。
-- 不支持的思考档位返回明确错误，不静默忽略。
-
-### 流状态属于单次请求
-
-- 每个请求创建独立 UTF-8、SSE 和 Provider Decoder。
-- Tool Call ID、参数增量和 Thinking 状态不能按模型名全局共享。
-- 客户端取消后立即中止上游请求。
-
-### 厂商 Bundle 必须只读
-
-- 不修改厂商 App Bundle 内的资源、可执行文件、签名或 quarantine。
-- 版本、文件哈希和 Google 签名只用于只读兼容性判断；未匹配 Profile 时禁止启用 IDE 配置接入，但不阻止恢复已经由 AGY BYOK 管理的 settings。
-- 当前生产接入只修改用户 settings 中的 `jetski.cloudCodeUrl`，并拒绝 symlink、重复目标键和非法 JSONC。
-- ownership 只负责目标键原值，不拥有整个 settings 文件；其他键的变化必须保留。
-- 用户或第三方改写目标键后，停用操作不得覆盖其新值。
-
-## 路线图
-
-### M0：仓库与契约基线
-
-- [x] 建立 Cargo Workspace
-- [x] 建立架构与安全恢复契约
-- [x] 建立格式、Clippy 和测试基线
-- [x] 整理 IDE 2.1.1 模型发现与 Endpoint 兼容性事实
-
-### M1：Canonical 与 Adapter 收口
-
-- [x] 重构中立 Request、Response 和 Stream Event
-- [x] 建立强类型 Reasoning Capability
-- [ ] 完成宿主 Tool Result 与真实 Tool Call ID 的 Fixture 和关联验证
-- [ ] 收紧 `extra_body` 和配置不变量
-- [x] 完善三种 Adapter 非流式测试
-
-### M2：HTTP 与 SSE
-
-- [x] 实现 Loopback HTTP Server 和 Health Probe
-- [x] 实现原生模型透明转发
-- [x] 实现增量 UTF-8、SSE Frame 和 Provider Decoder
-- [x] 实现客户端取消、请求/空闲超时、并发限制和 Graceful Shutdown
-
-### M3：Tauri 控制面
-
-- [x] 初始化 Tauri 2 最小桌面窗口
-- [x] 接入 Provider/Model 添加、删除和本地配置
-- [x] 实现基于单个 `HttpServerHandle` 的显式启停与状态查询
-- [ ] 自动启动、持续健康监控、崩溃拉起和期望状态持久化
-- [ ] 菜单栏、完整编辑与 Settings
-
-### M4：macOS 宿主接入
-
-- [x] Antigravity IDE 2.1.1 原生 `jetski.cloudCodeUrl` 接入与目标键 ownership
-- [x] Antigravity CLI Shell 环境变量接入与官方配置恢复
-- [x] Antigravity App 语言服务配置接入与官方配置恢复
-- [x] 历史 Receipt v2 与完整 Snapshot Restore 测试
-- [x] 真实 IDE Discovery 与只读候选校验
-- [x] V7 Bundle Apply 运行探针（失败并恢复，生产 Apply 已移除）
-- [x] V8 隔离用户扩展覆盖探针（重复 Language Server，路线终止）
-- [x] V9/V10 托管副本路线取证与回滚
-- [x] V11 原厂 IDE 双 Endpoint、6 模型真实可见性验证
-
-### M5：发布与平台扩展
-
-- [ ] macOS 签名、Notarization 和更新
-- [ ] Windows 文件锁、UAC 和 ACL
-- [ ] Linux 安装类型、polkit 和 xattr
-
-## 安全与隐私
-
-默认禁止日志记录：
-
-- Prompt、模型回答和 System Prompt
-- Tool 参数和结果
-- 图片、文件内容和用户完整本地路径
-- API Key、Authorization、Cookie 和原始 Header
-- 未脱敏的 Provider 错误正文
-
-应用只在内存中保留最近 200 条脱敏调用元数据，包括路由模型、Provider、协议、流式状态、消息/工具数量、耗时、HTTP 状态，以及从结构化 Provider 错误中提取并截断的诊断摘要；应用退出后自动清空，也可在界面手动清空。
-
-远程 Provider 默认必须使用 HTTPS；只有显式配置的 Loopback Provider 可以使用 HTTP。Provider API Key 当前以明文写入本地配置，桌面 UI 的遮挡只影响显示，不等同于加密存储。
-
-本地 HTTP Server 当前采用 LoopbackOnly，但宿主路由默认无 AGY BYOK Token 且开放 CORS。这个边界用于兼容当前 IDE，不应解释为浏览器 Origin 安全隔离；在 Host 认证或 CORS 策略收紧前，禁止改为非回环监听，也不应作为共享代理服务。
-
-附件下载能力尚未实现；后续实现时需要限制大小、重定向和目标地址，并防止 SSRF 与跨 Origin 凭证泄漏。
-
-如果发现安全问题，请不要在公开 Issue 中附带真实 API Key、Prompt、文件内容或安装备份。
 
 ## 非官方声明
 
-AGY BYOK 是独立开发的非官方兼容工具，与 Google 或 Antigravity 官方没有隶属、授权或背书关系。Antigravity 和 Google 商标仅用于说明兼容目标。
-
-项目不会分发 Antigravity 原始二进制或完整源码。未来 Patch Profile 只保存必要的版本、哈希、Anchor、转换规则和 AGY BYOK 自有内容。
+AGY BYOK 是独立开发的非官方兼容工具，与 Google 或 Antigravity 官方没有隶属、授权或背书关系。项目不会分发 Antigravity 原始二进制或完整源码。
 
 ## 许可证
 
