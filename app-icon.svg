@@ -1,30 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" width="1254" height="1254">
-  <rect width="1254" height="1254" fill="#fff"/>
-  <rect x="22" y="22" width="1210" height="1210" rx="214" fill="none" stroke="#edf0f2" stroke-width="4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Soft Drop Shadow for macOS Dock -->
+    <filter id="icon-shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#0f172a" flood-opacity="0.14"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
 
-  <g transform="translate(-125.4 -125.4) scale(1.2)">
+    <!-- Premium Background Linear Gradient -->
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS Standard Squircle Container (824x824 at 100, 100) -->
+  <g filter="url(#icon-shadow)">
+    <!-- Base Squircle -->
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg-gradient)"/>
+    <!-- Subtle Inner Border -->
+    <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+  </g>
+
+  <!-- Logo Content Group (Perfect Parallel Circuit Geometry) -->
+  <g transform="translate(118, 118) scale(0.77)">
+    <!-- Circuit Lines & A Frame -->
     <g fill="none" stroke="#126cf5" stroke-width="38" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M598 476 563 378c-12-32-38-50-70-50-34 0-61 20-73 53L269 818c-14 40 9 71 48 71h67c23 0 39-12 51-33l39-69c10-17 27-25 48-25h166c27 0 47 10 66 31l21 24c19 21 38 30 66 30h7"/>
-    <path d="M611 535h61c34 0 50-12 66-42l21-39c19-38 41-57 86-57h19"/>
-    <path d="M479 681h75c31 0 47-10 62-33l20-27c15-20 30-29 61-29h71c29 0 42-11 58-35l18-26c15-22 32-28 62-28h31"/>
-    <path d="M483 683c-24 0-39 17-39 38 0 20 14 35 36 35h212c28 0 47 11 66 30l20 20c20 20 37 29 67 29h34"/>
-    <path d="M433 798h253c39 0 51 14 76 39 25 25 43 44 85 44h6"/>
+      <!-- Path 1: Main A Frame & Bottom Branch -->
+      <path d="M 580 420
+               C 550 340 520 290 480 290
+               C 440 290 410 330 380 400
+               L 240 760
+               C 220 810 250 840 300 840
+               C 340 840 380 810 410 770
+               C 435 770 460 770 490 770
+               L 610 770
+               C 660 770 690 790 720 830
+               L 780 830"/>
+
+      <!-- Path 2: Upper Middle Circuit Line (ends at Circle 2) -->
+      <path d="M 590 480 L 640 480 C 675 480 695 465 710 435 L 730 395 C 750 355 775 335 820 335 L 835 335"/>
+
+      <!-- Path 3: Topmost Circuit Line (ends at Circle 1) -->
+      <path d="M 490 610 L 550 610 C 585 610 605 595 620 565 L 640 535 C 655 515 670 505 700 505 L 750 505 C 780 505 795 490 810 460 L 828 430 C 845 405 860 400 890 400 L 910 400"/>
+
+      <!-- Path 4: Middle U-Loop Trace (Straight Horizontal to Upper Square Node) -->
+      <path d="M 485 615
+               C 450 615 415 632 415 652
+               C 415 672 450 690 485 690
+               L 830 690"/>
     </g>
 
+    <!-- Solid Accents & Nodes -->
     <g fill="#126cf5">
-      <circle cx="889" cy="405" r="39"/>
-    <circle cx="964" cy="539" r="39"/>
-    <circle cx="824" cy="657" r="13"/>
-    <circle cx="886" cy="657" r="13"/>
-    <circle cx="948" cy="657" r="13"/>
-    <rect x="914" y="743" width="66" height="66" rx="13"/>
-    <rect x="838" y="855" width="66" height="66" rx="13"/>
-      <path d="m515 509 11 32 33 12-33 11-11 34-11-34-33-11 33-12z"/>
+      <!-- Circle Node 1 (Topmost) -->
+      <circle cx="910" cy="400" r="39"/>
+      <!-- Circle Node 2 (Upper Middle) -->
+      <circle cx="835" cy="335" r="39"/>
+
+      <!-- 3 Horizontal Dots above Middle Loop -->
+      <circle cx="710" cy="580" r="14"/>
+      <circle cx="765" cy="580" r="14"/>
+      <circle cx="820" cy="580" r="14"/>
+
+      <!-- Upper Square Node (Middle Trace) -->
+      <rect x="830" y="657" width="66" height="66" rx="14"/>
+      <!-- Lower Square Node (Bottom Frame Branch) -->
+      <rect x="780" y="797" width="66" height="66" rx="14"/>
+
+      <!-- Sparkle Star inside A -->
+      <path d="m 465 440 11 32 33 12 -33 11 -11 34 -11 -34 -33 -11 33 -12 z"/>
     </g>
 
-    <g fill="#fff">
-      <circle cx="889" cy="405" r="17"/>
-      <circle cx="964" cy="539" r="17"/>
+    <!-- Inner Hollow Circle Cutouts -->
+    <g fill="#ffffff">
+      <circle cx="910" cy="400" r="17"/>
+      <circle cx="835" cy="335" r="17"/>
     </g>
   </g>
 </svg>
