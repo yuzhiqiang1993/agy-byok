@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 pub struct ProxyStatus {
     pub state: &'static str,
     pub address: Option<String>,
+    pub port: u16,
 }
 
 pub struct DesktopState {
@@ -17,7 +18,14 @@ pub struct DesktopState {
     pub ide_settings_path: PathBuf,
     pub ide_integration_root: PathBuf,
     pub activity_log: Arc<ActivityLog>,
+    // Mutating commands acquire this before proxy_handle to keep host writes and proxy changes ordered.
+    pub proxy_host_mutation_lock: Mutex<()>,
     pub proxy_handle: Mutex<Option<HttpServerHandle>>,
+}
+
+pub struct ProxyRuntimeSnapshot {
+    pub endpoint: String,
+    pub running: bool,
 }
 
 pub fn local_proxy_endpoint(port: u16) -> String {
@@ -29,25 +37,26 @@ pub fn status_from_handle(handle: Option<&HttpServerHandle>, configured_port: u1
         Some(handle) => ProxyStatus {
             state: "running",
             address: Some(handle.local_addr().to_string()),
+            port: handle.local_addr().port(),
         },
         None => ProxyStatus {
             state: "stopped",
             address: Some(format!("127.0.0.1:{configured_port}")),
+            port: configured_port,
         },
     }
 }
 
-pub async fn is_proxy_running(state: &DesktopState) -> bool {
-    state.proxy_handle.lock().await.is_some()
-}
-
-pub async fn get_active_proxy_endpoint(state: &DesktopState) -> String {
+pub async fn proxy_runtime_snapshot(state: &DesktopState) -> ProxyRuntimeSnapshot {
     let handle = state.proxy_handle.lock().await;
-    let port = handle
-        .as_ref()
-        .map(|h| h.local_addr().port())
-        .unwrap_or_else(|| state.config_store.get_config().proxy_port);
-    local_proxy_endpoint(port)
+    let (port, running) = match handle.as_ref() {
+        Some(handle) => (handle.local_addr().port(), true),
+        None => (state.config_store.get_config().proxy_port, false),
+    };
+    ProxyRuntimeSnapshot {
+        endpoint: local_proxy_endpoint(port),
+        running,
+    }
 }
 
 pub fn create_state() -> Result<DesktopState, String> {
@@ -75,6 +84,7 @@ pub fn create_state() -> Result<DesktopState, String> {
         ide_settings_path,
         ide_integration_root,
         activity_log: Arc::new(ActivityLog::new()),
+        proxy_host_mutation_lock: Mutex::new(()),
         proxy_handle: Mutex::new(None),
     })
 }

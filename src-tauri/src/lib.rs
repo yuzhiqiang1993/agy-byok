@@ -2,8 +2,8 @@ mod commands;
 mod host;
 mod state;
 
-pub use state::DesktopState;
 use state::create_state;
+pub use state::DesktopState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +20,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::proxy::get_config,
             commands::proxy::save_config,
+            commands::proxy::set_proxy_port,
             commands::provider::test_model_connection,
             commands::provider::fetch_provider_catalog,
             commands::provider::test_provider_model_connection,

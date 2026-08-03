@@ -2,7 +2,7 @@ use crate::host::ide_host::{
     discover_ide_sync, launch_ide_app, restart_ide_app, stop_ide_for_reconfiguration, IdeStatus,
     ANTIGRAVITY_IDE_PATH,
 };
-use crate::state::{get_active_proxy_endpoint, is_proxy_running, DesktopState};
+use crate::state::{proxy_runtime_snapshot, DesktopState};
 use host_integration::{disable_ide_settings, enable_ide_settings};
 use std::path::Path;
 use tauri::State;
@@ -11,8 +11,9 @@ use tauri::State;
 pub(crate) async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         discover_ide_sync(&settings_path, &integration_root, &endpoint, proxy_running)
     })
@@ -24,10 +25,12 @@ pub(crate) async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeSt
 pub(crate) async fn enable_ide_integration(
     state: State<'_, DesktopState>,
 ) -> Result<IdeStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     if !proxy_running {
         return Err("请先启动 AGY BYOK 本地代理，再启用代理模式".to_string());
     }
@@ -68,8 +71,9 @@ pub(crate) async fn enable_ide_integration(
 pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         let current =
             discover_ide_sync(&settings_path, &integration_root, &endpoint, proxy_running)?;
@@ -94,10 +98,12 @@ pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), Str
 pub(crate) async fn disable_ide_integration(
     state: State<'_, DesktopState>,
 ) -> Result<IdeStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let settings_path = state.ide_settings_path.clone();
     let integration_root = state.ide_integration_root.clone();
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current =

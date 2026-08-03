@@ -1,11 +1,12 @@
 use crate::host::cli_host::{discover_cli_sync, CliStatus};
-use crate::state::{get_active_proxy_endpoint, is_proxy_running, DesktopState};
+use crate::state::{proxy_runtime_snapshot, DesktopState};
 use tauri::State;
 
 #[tauri::command]
 pub(crate) async fn discover_cli(state: State<'_, DesktopState>) -> Result<CliStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     let integration_root = state.ide_integration_root.clone();
     tauri::async_runtime::spawn_blocking(move || {
         discover_cli_sync(&integration_root, &endpoint, proxy_running)
@@ -18,8 +19,10 @@ pub(crate) async fn discover_cli(state: State<'_, DesktopState>) -> Result<CliSt
 pub(crate) async fn enable_cli_integration(
     state: State<'_, DesktopState>,
 ) -> Result<CliStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     if !proxy_running {
         return Err("请先启动 AGY BYOK 本地代理，再启用 CLI 代理模式".to_string());
     }
@@ -47,8 +50,10 @@ pub(crate) async fn enable_cli_integration(
 pub(crate) async fn disable_cli_integration(
     state: State<'_, DesktopState>,
 ) -> Result<CliStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     let integration_root = state.ide_integration_root.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let current = discover_cli_sync(&integration_root, &endpoint, proxy_running)?;

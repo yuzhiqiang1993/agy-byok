@@ -43,7 +43,9 @@ pub(crate) async fn test_model_connection(
 }
 
 #[tauri::command]
-pub(crate) async fn fetch_provider_catalog(provider: Provider) -> Result<Vec<ProviderCatalogModel>, String> {
+pub(crate) async fn fetch_provider_catalog(
+    provider: Provider,
+) -> Result<Vec<ProviderCatalogModel>, String> {
     fetch_provider_models(&provider)
         .await
         .map_err(|error| model_connection_error_message(&error))

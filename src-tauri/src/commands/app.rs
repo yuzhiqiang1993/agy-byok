@@ -2,23 +2,28 @@ use crate::host::app_host::{
     discover_app_sync, launch_app_app, restart_app_app, stop_app_for_reconfiguration, AppStatus,
     ANTIGRAVITY_APP_PATH,
 };
-use crate::state::{get_active_proxy_endpoint, is_proxy_running, DesktopState};
+use crate::state::{proxy_runtime_snapshot, DesktopState};
 use std::path::Path;
 use tauri::State;
 
 #[tauri::command]
 pub(crate) async fn discover_app(state: State<'_, DesktopState>) -> Result<AppStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
-    discover_app_sync(&endpoint, proxy_running)
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
+    tauri::async_runtime::spawn_blocking(move || discover_app_sync(&endpoint, proxy_running))
+        .await
+        .map_err(|error| format!("App discovery task failed: {error}"))?
 }
 
 #[tauri::command]
 pub(crate) async fn enable_app_integration(
     state: State<'_, DesktopState>,
 ) -> Result<AppStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     if !proxy_running {
         return Err("请先启动 AGY BYOK 本地代理，再启用 App 代理模式".to_string());
     }
@@ -54,8 +59,9 @@ pub(crate) async fn enable_app_integration(
 
 #[tauri::command]
 pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_APP_PATH);
         let current = discover_app_sync(&endpoint, proxy_running)?;
@@ -72,8 +78,10 @@ pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), Str
 pub(crate) async fn disable_app_integration(
     state: State<'_, DesktopState>,
 ) -> Result<AppStatus, String> {
-    let endpoint = get_active_proxy_endpoint(&state).await;
-    let proxy_running = is_proxy_running(&state).await;
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_APP_PATH);
         let current = discover_app_sync(&endpoint, proxy_running)?;

@@ -6,9 +6,9 @@ pub(crate) async fn open_path(path: String) -> Result<(), String> {
         return open_external_url(path).await;
     }
 
-    let expanded = if path.starts_with("~/") {
+    let expanded = if let Some(relative_path) = path.strip_prefix("~/") {
         if let Some(home) = dirs_home() {
-            home.join(&path[2..])
+            home.join(relative_path)
         } else {
             std::path::PathBuf::from(&path)
         }
