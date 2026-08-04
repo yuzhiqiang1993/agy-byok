@@ -143,7 +143,7 @@ jobs:
               )
 
           Path(latest_path).write_text(
-              json.dumps(latest, ensure_ascii=False, indent=2) + "\\n"
+              json.dumps(latest, ensure_ascii=False, indent=2) + "\n"
           )
           PY
 
