@@ -1,231 +1,232 @@
 # AGY BYOK
 
+[English](README.en.md) · 简体中文
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: Prototype](https://img.shields.io/badge/status-prototype-orange.svg)](#当前状态)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#环境要求)
+[![Platform: macOS | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#环境要求)
 
-AGY BYOK 是一个面向 **Antigravity IDE、Antigravity App 和 Antigravity CLI** 的本地自定义模型接入工具。
+一款**面向 Antigravity 系列 AI 工具的本地 BYOK 模型接入工具**，支持 **Antigravity IDE**、**Antigravity App** 和 **Antigravity CLI** 通过本地代理接入其他模型服务
 
-它让你可以在不修改厂商 App Bundle 的前提下，把自己的 API Key 和上游模型接入 Antigravity，并通过本地代理完成协议转换、模型路由和请求转发。
+### 为什么做这个？
 
-## 它解决什么问题
+Antigravity 只提供了 Gemini 系列的模型以及较低版本的 claude 模型。 Gemini 模型的能力目前又相对较弱，pro系列的模型迟迟未面世，官方又不支持 BYOK 的功能，对于喜欢或者习惯 Antigravity 系列 AI工具的人来说就很难受。
 
-Antigravity 默认主要使用官方 Cloud Code 服务。如果你希望使用自己的 API Key、公司内部网关、本地模型或其他模型平台，通常需要同时处理三件事：
+本项目就是为了解决这个问题，如果你有其他 AI 的订阅，或者其他中转服务，可以通过 AGY BYOK 应用将你的模型注入到 Antigravity IDE,APP或者 CLI 中使用。
 
-1. 配置上游服务和模型；
-2. 把自定义模型暴露给 Antigravity；
-3. 让请求按照不同 Provider 的协议发送，并且能够随时恢复官方配置。
+---
 
-AGY BYOK 把这些操作集中到一个桌面 App 中：
+## 交流群
 
-- 在“模型管理”中配置 Provider、API Key 和模型；
-- 在“运行概览”中启动本地代理；
-- 对 IDE、App 或 CLI 一键启用代理模式；
-- 使用完成后，一键恢复对应入口的官方模式。
+欢迎加入 Antigravity 交流群，群号：`613214996`。
 
-AGY BYOK 是**本地桌面工具 + 本地 Loopback 代理**，不是 HTTPS 劫持工具，也不会安装根证书、复制应用、修改厂商 Bundle 或重签应用。
+<p align="center">
+  <img src="imgs/qrcode.jpg" alt="Antigravity 交流群二维码" width="360" />
+</p>
 
-## 适合谁
+### Telegram 群
 
-- 想在 Antigravity 中使用 OpenAI、Anthropic、Gemini 或兼容网关的开发者；
-- 需要接入公司内部模型网关或本地模型服务的团队；
-- 希望同时为 Antigravity IDE、独立 App 和 CLI 配置同一套自定义模型的用户；
-- 需要保留官方模式，并能够在自定义模型和官方服务之间快速切换的用户。
+[加入 Telegram 群组](https://t.me/+IMj6SaNJAAhlNjM1)
 
-## 支持范围
+---
 
-### 接入入口
+## 功能概览
+
+### 1. 运行概览 (Overview)
+
+运行概览是 AGY BYOK 的主控制台，为你提供一站式的代理和宿主状态概览：
+
+- **代理状态**：查看本地代理是否运行以及实际监听地址
+- **配置状态**：查看已配置的模型数量和当前准备状态
+- **宿主状态**：检测 Antigravity IDE、App 和 CLI 是否已安装、是否运行
+- **快捷操作**：一键启动或停止代理，为指定宿主启用代理模式
+- **安全恢复**：每个宿主都可以单独恢复官方模式
+
+> ![运行概览](imgs/zh/overview.png)
+
+### 2. Provider 与模型管理
+
+- **Provider 预设**：支持常见 Provider 快捷预设，也支持自定义上游服务
+- **模型列表**：根据协议从上游服务获取模型列表，选择需要提供给 Antigravity 的模型
+- **能力配置**：为模型配置图像输入、工具调用和 Thinking / Reasoning 能力
+- **连接测试**：支持测试 Provider、单个模型或一组模型
+
+
+> ![模型管理](imgs/zh/models.png)
+
+#### 2.1 添加上游服务
+
+添加上游服务时，可以选择已有 Provider 预设，也可以手动配置自定义服务：
+
+- 支持 OpenAI、Anthropic、Gemini 和 OpenAI 兼容服务；
+- API Key 对无鉴权的本地模型服务是可选项；
+- API 地址填写服务根地址即可，系统会根据协议补全模型列表和生成请求路径；
+- 高级设置支持自定义端点 URL；
+- 获取模型列表后，可以只保存需要暴露给宿主的模型。
+
+> ![添加上游服务](imgs/zh/add-upstream-service.png)
+
+#### 2.2 注入到 Antigravity
+
+保存模型并为对应宿主启用代理模式后，模型会出现在 Antigravity 的模型选择器中。宿主仍然可以继续使用官方模型，自定义模型则由 AGY BYOK 路由到配置的 Provider。
+
+> ![模型选择器](imgs/zh/model-selector.png)
+
+### 3. 本地代理与宿主接入
+
+AGY BYOK 使用一个只监听本机地址的本地代理完成协议转换和请求转发：
+
+- 默认地址为 `http://127.0.0.1:12345`；
+- 桌面端端口被占用时，会自动选择空闲的 Loopback 端口；
+- 代理可以分别接入 Antigravity IDE、App 和 CLI；
+- 官方原生模型继续使用官方 Cloud Code；
+- AGY BYOK 生成的模型进入本地代理和对应的 Provider Adapter。
+
+宿主接入方式如下：
 
 | 入口 | 接入方式 | 生效方式 |
 | :--- | :--- | :--- |
-| Antigravity IDE | 修改用户 `settings.json` 中的 `jetski.cloudCodeUrl` | IDE 运行中切换时会按需重启 |
-| Antigravity App | 管理 `language_server` wrapper | App 运行中切换时会按需重启 |
+| Antigravity IDE | 修改用户 `settings.json` 中的 `jetski.cloudCodeUrl` | 运行中切换时按需重启 |
+| Antigravity App | 管理指向本地代理的 `language_server` wrapper | 运行中切换时按需重启 |
 | Antigravity CLI | 写入 Shell 环境变量 `CLOUD_CODE_URL` | 新终端或重新加载 Shell 后生效 |
 
-### 上游协议
+### 4. 上游协议与模型能力
+
+当前支持以下上游协议：
 
 | 协议 | 常见接口 | 适用场景 |
 | :--- | :--- | :--- |
-| OpenAI Chat Completions | `/v1/chat/completions` | 大多数 OpenAI 兼容网关 |
+| OpenAI Chat Completions | `/v1/chat/completions` | OpenAI 兼容网关 |
 | OpenAI Responses | `/v1/responses` | Responses API 兼容服务 |
 | Anthropic Messages | `/v1/messages` | Anthropic 官方或兼容服务 |
 | Gemini `generateContent` | `/v1beta/models/{model}:generateContent` | Gemini 原生 API |
 
-当前支持文本、内联图片、工具调用、流式响应，以及不同 Provider 的 Thinking / Reasoning 等级映射。
+支持的请求能力包括：
 
-## 如何使用
+- 文本输入；
+- 内联图片；
+- 工具调用；
+- 流式响应；
+- 不同 Provider 的 Thinking / Reasoning 等级映射。
 
-### 1. 启动桌面 App
+具体能力取决于上游服务本身。模型管理页面会记录已确认的能力，并在协议转换时完成对应映射。
 
-当前项目以 macOS 源码构建为主，先安装依赖：
+### 5. 调用日志 (Activity Logs)
+
+调用日志用于查看代理转发的 HTTP 请求和响应元数据：
+
+- 查看请求路由、Provider、状态和耗时；
+- 区分官方接口透传和自定义模型路由；
+- 支持刷新、失败筛选和清空内存日志；
+- 日志只保存在内存中，不记录 Prompt、回答、Tool 参数、Header 或 API Key。
+
+> ![调用日志](imgs/zh/activity-logs.png)
+
+### 6. 应用设置 (Settings)
+
+应用设置用于管理本地代理服务端口、配置文件和应用偏好：
+
+- **常规偏好**：切换界面语言和外观主题；
+- **网络代理**：查看和调整本地代理相关配置；
+- **数据存储**：管理本地配置和数据位置；
+- **关于应用**：查看应用信息。
+
+> ![应用设置](imgs/zh/settings.png)
+
+---
+
+## 工作方式
+
+```text
+Antigravity IDE / App / CLI
+            │
+            │ 选择由 AGY BYOK 注入的 Model
+            ▼
+      http://127.0.0.1:12345
+            │
+            │ 协议转换、模型路由、请求转发
+            ▼
+ Provider / 公司内部网关 / 本地模型服务
+```
+
+---
+
+
+## 安装指南 (Installation)
+
+当前项目支持 macOS 和 Windows，下面以 macOS 为主要示例；Windows 使用相同的 Tauri / npm 命令构建。
+
+
+### 1.直接下载编译好的对应平台的安装包安装使用
+
+#### macOS 首次打开未签名 App
+
+首次安装 App 后请先执行下面，命令后再打开应用
+
+```bash
+sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"
+```
+
+
+### 2.从源码启动
+
+#### 环境要求
+
+- macOS 或 Windows；
+- Rust stable 与 Cargo；
+- Node.js 与 npm；
+- macOS 需要 Xcode Command Line Tools，Windows 需要 Tauri 所需的 Windows 构建工具。
+
+#### 安装依赖并启动
+
+在项目根目录执行：
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-启动后打开“模型管理”。
+启动后进入“模型管理”，添加 Provider 和模型即可开始配置。源码开发不需要执行下面的 quarantine 隔离属性命令。
 
-### 2. 添加上游服务和模型
 
-在“模型管理”中：
 
-1. 点击“添加上游服务”；
-2. 选择协议或使用快捷预设；
-3. 填写 API 地址和 API Key；无鉴权的本地服务可以留空 API Key；
-4. 点击“获取模型列表”；
-5. 勾选需要提供给 Antigravity 使用的模型；
-6. 按需确认图像输入、工具调用和 Thinking / Reasoning 能力；
-7. 点击“保存上游服务”。
 
-保存后，AGY BYOK 会为选中的上游模型生成宿主可见的 VirtualModel。模型管理页也支持对单个模型或一组模型进行连接测试。
+---
 
-### 3. 启动本地代理
+## 常见问题排查 (Troubleshooting)
 
-回到“运行概览”，点击“启动代理”。
+### macOS 提示应用无法打开？
 
-代理启动前至少需要保存一个可用模型。默认监听地址是：
-
-```text
-http://127.0.0.1:54321
-```
-
-如果默认端口被占用，桌面端会选择一个空闲的 Loopback 端口，并把实际端口用于后续宿主接入。
-
-### 4. 接入 IDE、App 或 CLI
-
-在“运行概览”对应的入口卡片中点击“启用代理模式”。
-
-- IDE：AGY BYOK 只管理 `jetski.cloudCodeUrl`，不会修改其他 IDE 设置；
-- App：AGY BYOK 通过受管理的 Language Server wrapper 指向本地代理；
-- CLI：AGY BYOK 向 Shell 配置写入 `CLOUD_CODE_URL`，请打开新终端或重新加载 Shell。
-
-如果对应应用正在运行，IDE 和 App 可能会自动重启以应用新配置。
-
-### 5. 开始使用自定义模型
-
-接入成功后，在 Antigravity 的模型选择器中选择 AGY BYOK 注入的模型即可。
-
-请求会按以下规则处理：
-
-- 官方原生模型继续转发到官方 Cloud Code；
-- 自定义 VirtualModel 进入 AGY BYOK 的协议转换和 Provider 路由；
-- 只有显式配置 fallback 时，主路由失败后才会尝试一次备用模型；
-- 调用日志只记录路由、Provider、状态、耗时和脱敏诊断信息，不记录 Prompt 或回答内容。
-
-### 6. 恢复官方模式
-
-在对应入口卡片中点击“恢复官方模式”。
-
-恢复操作只撤销 AGY BYOK 自己接管的配置，不会删除 Provider、模型或本地配置，也不会自动停止代理服务。
-
-## 配置文件与端口
-
-默认配置文件：
-
-```text
-~/Library/Application Support/AGY BYOK/config.v1.json
-```
-
-开发环境可以使用 `AGY_BYOK_CONFIG_PATH` 覆盖配置路径。
-
-端口规则：
-
-- 桌面端默认端口为 `54321`；启动时优先使用配置端口；
-- 桌面端端口冲突时自动选择空闲 Loopback 端口，并持久化实际端口；
-- `cargo run -p agy-byok` 启动的独立代理固定使用 `127.0.0.1:54321`，端口占用时不会自动回退；
-- 桌面端设置中的端口变更由后端事务统一处理：运行中会先验证新端口并完成替换，失败时保留旧代理和旧配置；
-- 代理只绑定 `127.0.0.1`，不应改为非回环地址作为共享服务使用。
-
-## 安全与隐私
-
-- 厂商 App Bundle 始终只读，不执行 Bundle 修改、codesign 或 quarantine 写入；
-- Provider API Key 当前以明文保存在本地配置文件，界面中的密码遮挡不等同于加密存储；
-- 代理只监听本机 Loopback；为兼容当前 IDE，部分宿主路由默认不要求 AGY BYOK Token，CORS 策略也尚未收紧；
-- 调用日志最多保留最近 200 条内存元数据，不记录 Prompt、回答、Tool 参数、Header 或 API Key；
-- 当前安全模型是“本机调用方可信”，不是浏览器 Origin 隔离，也不是多用户共享代理。
-
-## 当前状态
-
-已经可用：
-
-- Provider、上游模型和 VirtualModel 管理；
-- 四种上游协议的非流式请求和流式响应；
-- 文本、图片、工具调用和 Thinking / Reasoning 映射；
-- IDE、App、CLI 的检测、代理模式启用和官方模式恢复；
-- 本地配置、模型连接测试和内存调用日志；
-- 主题切换和多语言界面。
-
-仍在收口：
-
-- 宿主 Tool Result 与真实多轮 Tool Call ID 的 Fixture；
-- `extra_body` 的完整字段校验；
-- Host 路由认证和更严格的 CORS 策略；
-- API Key 的系统钥匙串或独立 Secret Store；
-- 代理自动启动、崩溃恢复和持续健康监控；
-- macOS 签名、Notarization 和自动更新。
-
-## 环境要求
-
-- macOS
-- Rust stable 与 Cargo
-- Node.js 与 npm
-- Xcode Command Line Tools
-
-## 开发与构建
-
-安装依赖：
+在系统命令行执行下面命令后重新打开即可。
 
 ```bash
-npm install
+sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"
 ```
 
-启动开发版：
+### Windows 提示应用来自未知发布者？
 
-```bash
-npm run tauri dev
-```
+先确认安装包来自你信任的构建或发布来源。Windows SmartScreen 的提示通常与应用尚未完成签名有关；不要对来源不明的应用强行绕过系统保护。
 
-构建调试版 macOS App：
+### 代理启动后，IDE 或 App 没有走自定义模型？
 
-```bash
-npm run tauri build -- --debug
-open "target/debug/bundle/macos/AGY BYOK.app"
-```
+按以下顺序检查：
 
-验证代码：
+1. 在“模型管理”中确认至少保存了一个模型；
+2. 在“运行概览”中确认本地代理正在运行，并记下实际监听地址；
+3. 确认对应宿主卡片显示为已启用代理模式；
+4. 如果 IDE 或 App 正在运行，等待其按需重启，或手动重新打开；
+5. CLI 需要打开新终端
+6. 查看“调用日志”确认请求是否到达本地代理。
 
-```bash
-npm run build
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-```
+### Provider 连接测试失败？
 
-以上验证命令均应在提交前执行；当前工作区已确认 `npm run build`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --locked -- -D warnings` 和 `cargo test --workspace --locked` 通过。
+检查 API 地址是否为正确的服务根地址、协议是否匹配、API Key 是否有效，以及上游服务是否要求额外的端点配置。无鉴权的本地服务可以留空 API Key。
 
-## 项目结构
+### 恢复官方模式会删除我的配置吗？
 
-```text
-agy-byok/
-├── crates/
-│   ├── proxy-core/              # 配置、路由、Provider Adapter、HTTP/SSE 代理
-│   │   └── src/proxy/           # HTTP 生命周期、路由转发、生成和执行模块
-│   └── host-integration/        # IDE settings、App wrapper、CLI Shell 接入
-│       └── src/*_integration/   # 发现、所有权、补丁和事务模块
-├── src-tauri/                   # Tauri 状态、Commands 和宿主控制
-├── src/                         # 原生 TypeScript UI
-│   ├── components/              # 页面组件和交互绑定
-│   ├── controllers/             # 组件与 Tauri Service 之间的用例边界
-│   ├── features/providers/      # Provider 表单、目录、测试和保存逻辑
-│   ├── services/                # Tauri invoke 封装
-│   ├── store/                   # 前端运行时状态
-│   ├── types/                   # 前端类型
-│   └── i18n/                    # 多语言资源
-├── Cargo.toml
-├── package.json
-└── README.md
-```
+不会。恢复操作只撤销 AGY BYOK 接管的宿主配置，不会删除 Provider、模型或本地配置，也不会自动停止本地代理。
+
+---
 
 ## 非官方声明
 
@@ -234,3 +235,12 @@ AGY BYOK 是独立开发的非官方兼容工具，与 Google 或 Antigravity �
 ## 许可证
 
 本项目使用 [MIT License](LICENSE)。
+
+## 免责声明
+
+本项目仅供个人学习和研究使用。使用本项目即表示你同意：
+
+- 遵守相关服务的使用条款和法律法规；
+- 自行承担配置和使用自定义 Provider、API Key 以及本地代理的风险；
+
+项目作者对因使用本项目而产生的任何直接或间接损失不承担责任。
