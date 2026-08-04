@@ -3,7 +3,6 @@ use crate::error::{io_error, HostIntegrationError};
 use crate::sha256;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -148,8 +147,7 @@ pub(super) fn write_atomic(
             .map_err(|error| io_error(&temporary, error))?;
         file.sync_all()
             .map_err(|error| io_error(&temporary, error))?;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))
-            .map_err(|error| io_error(&temporary, error))?;
+        set_file_mode(&temporary, mode)?;
         fs::rename(&temporary, path).map_err(|error| io_error(path, error))?;
         Ok(())
     })();
@@ -157,6 +155,19 @@ pub(super) fn write_atomic(
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+#[cfg(unix)]
+fn set_file_mode(path: &Path, mode: u32) -> Result<(), HostIntegrationError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|error| io_error(path, error))
+}
+
+#[cfg(not(unix))]
+fn set_file_mode(_path: &Path, _mode: u32) -> Result<(), HostIntegrationError> {
+    Ok(())
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
