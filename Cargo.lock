@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agy-byok"
-version = "0.1.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "agy-byok-desktop"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "agy-byok",
  "host-integration",
@@ -1600,7 +1600,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "host-integration"
-version = "0.1.0"
+version = "1.0.1"
 dependencies = [
  "json5",
  "plist",
