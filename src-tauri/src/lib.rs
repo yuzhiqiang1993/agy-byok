@@ -5,6 +5,54 @@ mod state;
 use state::create_state;
 pub use state::DesktopState;
 
+#[cfg(desktop)]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager,
+};
+
+#[cfg(desktop)]
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(desktop)]
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "Show AGY BYOK", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    TrayIconBuilder::new()
+        .icon(tauri::include_image!("./icons/tray-icon.png"))
+        .icon_as_template(true)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("AGY BYOK")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(&tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = tracing_subscriber::fmt()
@@ -14,7 +62,14 @@ pub fn run() {
         )
         .try_init();
     let state = create_state().expect("failed to initialize AGY BYOK desktop state");
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        show_main_window(app);
+    }));
+
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -46,16 +101,31 @@ pub fn run() {
         ]);
 
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_process::init()).plugin({
-        let updater_builder = tauri_plugin_updater::Builder::new();
-        let updater_builder = match option_env!("TAURI_UPDATER_PUBLIC_KEY") {
-            Some(public_key) if !public_key.is_empty() => updater_builder.pubkey(public_key),
-            _ => updater_builder,
-        };
-        updater_builder.build()
-    });
+    let builder = builder
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin({
+            let updater_builder = tauri_plugin_updater::Builder::new();
+            let updater_builder = match option_env!("TAURI_UPDATER_PUBLIC_KEY") {
+                Some(public_key) if !public_key.is_empty() => updater_builder.pubkey(public_key),
+                _ => updater_builder,
+            };
+            updater_builder.build()
+        });
 
     builder
+        .setup(|app| {
+            #[cfg(desktop)]
+            setup_tray(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running AGY BYOK");
 }

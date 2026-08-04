@@ -18,12 +18,95 @@ import { initThemeManager } from "./components/ThemeManager";
 import { setupTabManager } from "./components/TabManager";
 import { setupSettingsView } from "./components/SettingsView";
 import { setupUpdateManager } from "./components/UpdateManager";
+import { isTauriRuntime } from "./services/updateService";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorMessage } from "./utils/domUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
 import { refreshApp, refreshCli, refreshHostStatuses, refreshIde } from "./controllers/hostController";
 
 import { updateDOMTranslations, subscribeLanguage, t } from "./i18n";
 
+const OVERLAY_TITLEBAR_HEIGHT = 40;
+const WINDOW_INTERACTIVE_SELECTOR = "button, input, select, textarea, a, [data-tauri-drag-region=\"false\"], .no-drag";
+const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable=\"true\"]";
+
+function runWindowAction(action: Promise<void>, message: string): void {
+  void action.catch((error: unknown) => {
+    console.error(message, error);
+  });
+}
+
+async function toggleFullscreen(appWindow: ReturnType<typeof getCurrentWindow>): Promise<void> {
+  const fullscreen = await appWindow.isFullscreen();
+  await appWindow.setFullscreen(!fullscreen);
+}
+
+function setupWindowDragging(): void {
+  if (!isTauriRuntime()) return;
+
+  const appWindow = getCurrentWindow();
+  document.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(WINDOW_INTERACTIVE_SELECTOR)) return;
+
+    const isMarkedDragRegion = target.closest("[data-tauri-drag-region]") !== null;
+    const isOverlayTitlebarRegion = event.clientY <= OVERLAY_TITLEBAR_HEIGHT;
+    if (!isMarkedDragRegion && !isOverlayTitlebarRegion) return;
+
+    event.preventDefault();
+    const windowAction = event.detail === 2
+      ? appWindow.toggleMaximize()
+      : appWindow.startDragging();
+    runWindowAction(windowAction, "Unable to update the window state");
+  });
+}
+
+function setupWindowShortcuts(): void {
+  if (!isTauriRuntime()) return;
+
+  const appWindow = getCurrentWindow();
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.repeat) return;
+
+    const target = event.target;
+    if (target instanceof Element && target.closest(EDITABLE_SELECTOR)) return;
+
+    const key = event.key.toLowerCase();
+    const primaryModifier = event.metaKey || event.ctrlKey;
+
+    if (primaryModifier && key === "w" && !event.altKey && !event.shiftKey) {
+      event.preventDefault();
+      runWindowAction(appWindow.close(), "Unable to close the window");
+      return;
+    }
+
+    if (primaryModifier && key === "m" && !event.altKey && !event.shiftKey) {
+      event.preventDefault();
+      runWindowAction(appWindow.minimize(), "Unable to minimize the window");
+      return;
+    }
+
+    const fullscreenShortcut =
+      event.key === "F11" ||
+      (event.metaKey && event.ctrlKey && key === "f") ||
+      (primaryModifier && event.shiftKey && key === "f");
+    if (fullscreenShortcut) {
+      event.preventDefault();
+      runWindowAction(toggleFullscreen(appWindow), "Unable to toggle fullscreen");
+      return;
+    }
+
+    if (event.key === "Escape") {
+      runWindowAction(appWindow.setFullscreen(false), "Unable to exit fullscreen");
+    }
+  });
+}
+
+setupWindowDragging();
+setupWindowShortcuts();
 setupNoticeBar();
 setupProxyCard();
 setupIdeCard();
