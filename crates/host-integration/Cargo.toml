@@ -1,6 +1,6 @@
 [package]
 name = "host-integration"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Safe Antigravity host discovery, patching, and restoration"
 license = "MIT"

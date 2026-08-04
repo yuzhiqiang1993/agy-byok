@@ -136,13 +136,38 @@ export function setupUpdateManager(): void {
   async function installUpdate(): Promise<void> {
     if (!pendingUpdate || state !== "available") return;
 
+    state = "checking";
+    pendingUpdate = null;
+    hasChecked = false;
+    render();
+
+    let freshUpdate: Update | null;
+    try {
+      freshUpdate = await checkForUpdate();
+    } catch (error) {
+      hasChecked = true;
+      state = "error";
+      render();
+      showNotice(t("settings.updateCheckFailed", { message: errorMessage(error) }), "error");
+      return;
+    }
+
+    hasChecked = true;
+    if (!freshUpdate) {
+      state = "idle";
+      render();
+      showNotice(t("settings.latestVersion"));
+      return;
+    }
+
+    pendingUpdate = freshUpdate;
     state = "downloading";
     downloadedBytes = 0;
     contentLength = undefined;
     render();
 
     try {
-      await downloadAndInstallUpdate(pendingUpdate, handleDownloadEvent);
+      await downloadAndInstallUpdate(freshUpdate, handleDownloadEvent);
       state = "ready";
       render();
       showNotice(t("settings.updateRestarting"));

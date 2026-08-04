@@ -125,9 +125,9 @@ jobs:
               str(asset["id"]): asset["name"]
               for asset in json.loads(Path(assets_path).read_text())
           }
+          api_marker = "/releases/assets/"
 
           for platform, entry in latest.get("platforms", {}).items():
-              api_marker = "/releases/assets/"
               url = entry.get("url", "")
               if api_marker not in url:
                   continue
@@ -141,6 +141,27 @@ jobs:
                   f"https://github.com/{repository}/releases/download/"
                   f"{release_tag}/{quote(asset_name)}"
               )
+
+          expected_suffixes = {
+              "darwin-aarch64": "_aarch64.app.tar.gz",
+              "darwin-aarch64-app": "_aarch64.app.tar.gz",
+              "darwin-x86_64": "_x64.app.tar.gz",
+              "darwin-x86_64-app": "_x64.app.tar.gz",
+              "windows-x86_64": "_x64-setup.exe",
+              "windows-x86_64-nsis": "_x64-setup.exe",
+              "windows-x86_64-msi": "_x64_en-US.msi",
+          }
+          for platform, suffix in expected_suffixes.items():
+              entry = latest.get("platforms", {}).get(platform)
+              if entry is None:
+                  raise RuntimeError(f"Missing updater platform entry: {platform}")
+              url = entry.get("url", "")
+              if "api.github.com" in url or api_marker in url:
+                  raise RuntimeError(f"Updater URL is not public for {platform}: {url}")
+              if not url.endswith(suffix):
+                  raise RuntimeError(
+                      f"Updater asset does not match {platform}: {url}"
+                  )
 
           Path(latest_path).write_text(
               json.dumps(latest, ensure_ascii=False, indent=2) + "\n"
