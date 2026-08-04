@@ -37,8 +37,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -86,3 +84,69 @@ jobs:
           workflowArtifactNamePattern: "[platform]-[arch]-[bundle]"
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
+  finalize-updater:
+    name: Finalize updater manifest
+    needs: publish
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rewrite updater URLs to public release links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          release_tag="app-v$(jq -r '.version' package.json)"
+          release_json="$RUNNER_TEMP/release.json"
+          assets_json="$RUNNER_TEMP/assets.json"
+          latest_json="$RUNNER_TEMP/latest.json"
+
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" > "$release_json"
+          release_id="$(jq -r '.id' "$release_json")"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" > "$assets_json"
+          gh release download "$release_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP" \
+            --clobber
+
+          python3 - "$latest_json" "$assets_json" "$GITHUB_REPOSITORY" "$release_tag" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import quote
+
+          latest_path, assets_path, repository, release_tag = sys.argv[1:]
+          latest = json.loads(Path(latest_path).read_text())
+          assets = {
+              str(asset["id"]): asset["name"]
+              for asset in json.loads(Path(assets_path).read_text())
+          }
+
+          for platform, entry in latest.get("platforms", {}).items():
+              api_marker = "/releases/assets/"
+              url = entry.get("url", "")
+              if api_marker not in url:
+                  continue
+              asset_id = url.split(api_marker, 1)[1].split("?", 1)[0]
+              asset_name = assets.get(asset_id)
+              if asset_name is None:
+                  raise RuntimeError(
+                      f"Missing release asset for {platform}: {asset_id}"
+                  )
+              entry["url"] = (
+                  f"https://github.com/{repository}/releases/download/"
+                  f"{release_tag}/{quote(asset_name)}"
+              )
+
+          Path(latest_path).write_text(
+              json.dumps(latest, ensure_ascii=False, indent=2) + "\\n"
+          )
+          PY
+
+          gh release upload "$release_tag" "$latest_json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
