@@ -14,6 +14,20 @@ Antigravity 只提供了 Gemini 系列的模型以及较低版本的 claude 模�
 
 本项目就是为了解决这个问题，如果你有其他 AI 的订阅，或者其他中转服务，可以通过 AGY BYOK 应用将你的模型注入到 Antigravity IDE,APP或者 CLI 中使用。
 
+## ⭐ 推荐搭配：Antigravity IDE Cockpit
+
+如果你经常使用 Antigravity IDE，建议同时安装 [**Antigravity IDE Cockpit 插件**](https://open-vsx.org/extension/yuzhiqiang/antigravity-ide-cockpit)。它是你的 Antigravity 专属账号驾驶舱，把多账号、额度和会话管理集中到一个侧边栏面板中：
+
+- **多账号集中管理**：统一查看账号、当前激活账号、额度和 Token 用量；
+- **热切号**：优先尝试不重启切换账号，减少中断；
+- **自动智能切号**：按 Claude、Gemini 或当前模型的额度状态自动选择更合适的账号；
+- **额度与用量监控**：实时掌握 AI 配额、Token 消耗、费用估算和模型调用趋势；
+- **会话与模型诊断**：管理会话、检测模型可用性，并导出脱敏诊断报告。
+
+简单来说：**AGY BYOK 负责把你想用的模型接入 Antigravity，Antigravity IDE Cockpit 负责让你的账号、额度和会话更好管理。** 两者配合使用，让 Antigravity 的日常使用更顺手、更可控。
+
+👉 [立即在 Open VSX 安装 Antigravity IDE Cockpit](https://open-vsx.org/extension/yuzhiqiang/antigravity-ide-cockpit) · [访问官网 agycockpit.com](https://agycockpit.com)
+
 ---
 
 ## 交流群

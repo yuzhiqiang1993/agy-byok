@@ -14,6 +14,20 @@ Antigravity currently only provides models from the Gemini family and older Clau
 
 This project is intended to solve that problem. If you have subscriptions to other AI services or access to another model gateway, AGY BYOK can inject your models into Antigravity IDE, App, or CLI for use.
 
+## ⭐ Recommended companion: Antigravity IDE Cockpit
+
+If you use Antigravity IDE regularly, install the [**Antigravity IDE Cockpit extension**](https://open-vsx.org/extension/yuzhiqiang/antigravity-ide-cockpit) alongside AGY BYOK. It is a dedicated account cockpit for Antigravity that brings multi-account, quota, usage, and session management into one sidebar panel:
+
+- **Centralized multi-account management**: View all accounts, the active account, quota status, and token usage in one place;
+- **Hot account switching**: Switch accounts without restarting whenever the environment supports it, minimizing interruptions;
+- **Automatic intelligent switching**: Select a more suitable account based on Claude, Gemini, or the currently selected model’s quota status;
+- **Quota and usage monitoring**: Track AI quota, token consumption, estimated cost, and model usage trends in real time;
+- **Session and model diagnostics**: Manage sessions, check model availability, and export sanitized diagnostic reports.
+
+In short: **AGY BYOK connects the models you want to use to Antigravity, while Antigravity IDE Cockpit keeps your accounts, quotas, and sessions under control.** Together, they make everyday Antigravity work smoother and more predictable.
+
+👉 [Install Antigravity IDE Cockpit on Open VSX](https://open-vsx.org/extension/yuzhiqiang/antigravity-ide-cockpit) · [Visit agycockpit.com](https://agycockpit.com)
+
 ---
 
 ## Community
