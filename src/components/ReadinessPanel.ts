@@ -179,19 +179,6 @@ export function setupReadinessPanel(): void {
         void switchTab("tab-models");
         return;
       }
-      const proxyRunning = store.proxyStatus?.state === "running";
-      if (!proxyRunning) {
-        showNotice(t("overview.hostProxyRequired"), "error");
-        const proxyStepNode = document.querySelector("#readiness-proxy");
-        if (proxyStepNode) {
-          proxyStepNode.classList.remove("highlight-pulse");
-          void (proxyStepNode as HTMLElement).offsetWidth;
-          proxyStepNode.classList.add("highlight-pulse");
-          setTimeout(() => proxyStepNode.classList.remove("highlight-pulse"), 1250);
-        }
-        return;
-      }
-
       showNotice(t("overview.hostEntryPrompt"));
       const section = document.querySelector("#host-cards-section");
       if (section) {

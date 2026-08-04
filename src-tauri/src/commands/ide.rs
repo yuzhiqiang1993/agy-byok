@@ -31,9 +31,6 @@ pub(crate) async fn enable_ide_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    if !proxy_running {
-        return Err("请先启动 AGY BYOK 本地代理，再启用代理模式".to_string());
-    }
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
         let current =
@@ -85,7 +82,7 @@ pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), Str
                 "Antigravity IDE 当前不可启动，请检查安装状态或退出正在运行的 IDE".to_string(),
             );
         }
-        if current.integration_state != "disabled" && !proxy_running {
+        if matches!(current.integration_state, "managed" | "external") && !proxy_running {
             return Err("当前 IDE 已启用代理模式，请先启动 AGY BYOK 本地代理".to_string());
         }
         launch_ide_app()

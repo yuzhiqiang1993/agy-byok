@@ -55,6 +55,11 @@ export function renderApp(status: AppStatus): void {
 
   const modelCount = store.config?.virtual_models.length ?? 0;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  enableAppBtn.title = modelCount === 0
+    ? t("overview.hostModelsRequired", { count: 1 })
+    : !status.proxyRunning
+      ? t("overview.hostProxyRequired")
+      : "";
   setButtonUnavailable(enableAppBtn, !canEnable);
   setButtonUnavailable(launchAppBtn, !status.canLaunchApp);
   setButtonUnavailable(disableAppBtn, !status.canDisableIntegration);
@@ -87,10 +92,7 @@ export function setupAppCard(): void {
         void switchTab("tab-models");
         return;
       }
-      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
-        showNotice(t("overview.hostProxyRequired"), "error");
-        return;
-      }
+
       const current = store.appStatus;
       const isRunning = current?.appRunning ?? false;
       const needsReconfiguration = current?.integrationState === "mismatch"

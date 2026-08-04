@@ -48,6 +48,11 @@ export function renderCli(status: CliStatus): void {
 
   const modelCount = store.config?.virtual_models.length ?? 0;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  enableCliBtn.title = modelCount === 0
+    ? t("overview.hostModelsRequired", { count: 1 })
+    : !status.proxyRunning
+      ? t("overview.hostProxyRequired")
+      : "";
   setButtonUnavailable(enableCliBtn, !canEnable);
   setButtonUnavailable(disableCliBtn, !status.canDisableIntegration);
 }
@@ -78,10 +83,7 @@ export function setupCliCard(): void {
         void switchTab("tab-models");
         return;
       }
-      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
-        showNotice(t("overview.hostProxyRequired"), "error");
-        return;
-      }
+
       const current = store.cliStatus;
       const needsReconfiguration = current?.integrationState === "mismatch"
         || current?.configurationState === "needs_update";

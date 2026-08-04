@@ -24,9 +24,6 @@ pub(crate) async fn enable_app_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    if !proxy_running {
-        return Err("请先启动 AGY BYOK 本地代理，再启用 App 代理模式".to_string());
-    }
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_APP_PATH);
         let current = discover_app_sync(&endpoint, proxy_running)?;

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 const ENDPOINT: &str = "http://127.0.0.1:51234";
-const NEXT_ENDPOINT: &str = "http://127.0.0.1:54321";
+const NEXT_ENDPOINT: &str = "http://127.0.0.1:12345";
 
 struct Fixture {
     _temp: TempDir,
@@ -122,7 +122,7 @@ fn repeated_enable_and_disable_are_idempotent() {
 }
 
 #[test]
-fn matching_endpoint_without_ownership_is_external_and_unchanged() {
+fn matching_endpoint_without_ownership_is_external_and_restorable() {
     let fixture = Fixture::new();
     let original = format!("{{\n  \"jetski.cloudCodeUrl\": \"{ENDPOINT}\"\n}}\n");
     fixture.write_settings(&original);
@@ -141,11 +141,10 @@ fn matching_endpoint_without_ownership_is_external_and_unchanged() {
 
     let disabled =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
-    assert_eq!(disabled.state, IdeSettingsState::External);
-    assert_eq!(
-        fs::read_to_string(&fixture.settings_path).unwrap(),
-        original
-    );
+    assert_eq!(disabled.state, IdeSettingsState::Disabled);
+    assert!(!fs::read_to_string(&fixture.settings_path)
+        .unwrap()
+        .contains(IDE_CLOUD_CODE_SETTING));
 }
 
 #[test]
@@ -159,6 +158,38 @@ fn status_only_reads_the_target_value_from_valid_json5() {
         inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
 
     assert_eq!(status.state, IdeSettingsState::External);
+}
+
+#[test]
+fn local_endpoint_without_ownership_is_detected_as_external_mismatch() {
+    let fixture = Fixture::new();
+    let stale_endpoint = "http://127.0.0.1:54321";
+    fixture.write_settings(&format!(
+        "{{\n  \"jetski.cloudCodeUrl\": \"{stale_endpoint}\"\n}}\n"
+    ));
+
+    let status =
+        inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+
+    assert_eq!(status.state, IdeSettingsState::External);
+    assert!(!status.endpoint_matches);
+}
+
+#[test]
+fn external_local_endpoint_can_be_restored_to_official_settings() {
+    let fixture = Fixture::new();
+    let stale_endpoint = "http://127.0.0.1:54321";
+    fixture.write_settings(&format!(
+        "{{\n  \"jetski.cloudCodeUrl\": \"{stale_endpoint}\",\n  \"editor.fontSize\": 14\n}}\n"
+    ));
+
+    let restored =
+        disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+
+    assert_eq!(restored.state, IdeSettingsState::Disabled);
+    let settings = fs::read_to_string(&fixture.settings_path).unwrap();
+    assert!(!settings.contains(IDE_CLOUD_CODE_SETTING));
+    assert!(settings.contains("editor.fontSize"));
 }
 
 #[test]

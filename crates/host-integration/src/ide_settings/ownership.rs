@@ -14,20 +14,6 @@ pub(super) struct IdeSettingOwnership {
     pub(super) previous_trailing_comma: bool,
 }
 
-pub(super) fn read_matching_ownership_if_present(
-    ownership_path: &Path,
-    settings_path: &Path,
-    endpoint: &str,
-) -> Result<Option<IdeSettingOwnership>, HostIntegrationError> {
-    Ok(
-        read_ownership_record_if_present(ownership_path)?.filter(|ownership| {
-            ownership.schema_version == OWNERSHIP_SCHEMA_VERSION
-                && ownership.settings_path == settings_path
-                && ownership.managed_endpoint == endpoint
-        }),
-    )
-}
-
 pub(super) fn read_ownership_if_present(
     ownership_path: &Path,
     settings_path: &Path,

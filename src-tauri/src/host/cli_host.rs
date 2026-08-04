@@ -59,8 +59,7 @@ pub fn discover_cli_sync(
         ),
     };
 
-    let can_enable_integration = proxy_running
-        && status.installed
+    let can_enable_integration = status.installed
         && matches!(
             status.state,
             CliIntegrationState::Disabled
@@ -68,7 +67,8 @@ pub fn discover_cli_sync(
                 | CliIntegrationState::Managed
         );
     let can_disable_integration = status.state == CliIntegrationState::Managed
-        || (status.state == CliIntegrationState::Mismatch && status.has_ownership);
+        || (status.state == CliIntegrationState::Mismatch
+            && (status.has_ownership || !status.shell_configs_updated.is_empty()));
 
     Ok(CliStatus {
         installed: status.installed,

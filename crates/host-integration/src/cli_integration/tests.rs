@@ -49,6 +49,14 @@ fn test_last_shell_assignment_wins() {
 }
 
 #[test]
+fn test_external_endpoint_assignment_can_be_removed_without_touching_other_settings() {
+    let content =
+        "export CLOUD_CODE_URL=\"http://127.0.0.1:54321\"\nexport PATH=\"$PATH:~/.local/bin\"\n";
+    let cleaned = patch::remove_endpoint_assignments(content, false, "http://127.0.0.1:54321");
+    assert_eq!(cleaned, "export PATH=\"$PATH:~/.local/bin\"\n");
+}
+
+#[test]
 fn test_enable_and_disable_cli_integration() {
     let temp_dir = TempDir::new().unwrap();
     let zshrc = temp_dir.path().join(".zshrc");

@@ -59,6 +59,11 @@ export function renderIde(status: IdeStatus): void {
 
   const modelCount = store.config?.virtual_models.length ?? 0;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
+  enableIdeIntegrationButton.title = modelCount === 0
+    ? t("overview.hostModelsRequired", { count: 1 })
+    : !status.proxyRunning
+      ? t("overview.hostProxyRequired")
+      : "";
   setButtonUnavailable(enableIdeIntegrationButton, !canEnable);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);
@@ -91,10 +96,7 @@ export function setupIdeCard(): void {
         void switchTab("tab-models");
         return;
       }
-      if (!store.proxyStatus || store.proxyStatus.state !== "running") {
-        showNotice(t("overview.hostProxyRequired"), "error");
-        return;
-      }
+
       const current = store.ideStatus;
       const isRunning = current?.ideRunning ?? false;
       const needsReconfiguration = current?.integrationState === "mismatch"

@@ -172,12 +172,20 @@ pub(super) fn disable_cli_integration(
     let integration_root = integration_root.as_ref();
     let home = discovery::user_home_dir()
         .ok_or_else(|| HostIntegrationError::InvalidBundle("无法获取 Home 目录".to_string()))?;
+    let current = discovery::inspect_cli_integration(integration_root, target_endpoint)?;
+    let external_endpoint = (current.state == super::CliIntegrationState::Mismatch
+        && !current.has_ownership)
+        .then(|| current.configured_endpoint.clone())
+        .flatten();
 
     let candidate_files = discovery::candidate_shell_configs(&home);
     for file in &candidate_files {
         if file.is_file() {
             let is_fish = patch::is_fish_config(file);
             patch::remove_snippet_from_file(file, is_fish)?;
+            if let Some(endpoint) = external_endpoint.as_deref() {
+                patch::remove_endpoint_assignment_from_file(file, is_fish, endpoint)?;
+            }
         }
     }
 

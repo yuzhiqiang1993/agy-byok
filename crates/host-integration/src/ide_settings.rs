@@ -116,17 +116,16 @@ pub fn disable_ide_settings(
         return Ok(disabled_status(settings_path));
     };
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
-    let Some(ownership) = ownership::read_matching_ownership_if_present(
-        &ownership_path,
-        &settings_path,
-        configured_endpoint,
-    )?
-    else {
-        return Ok(if configured_endpoint == endpoint {
-            external_status(settings_path)
-        } else {
-            disabled_status(settings_path)
-        });
+    let ownership = ownership::read_ownership_if_present(&ownership_path, &settings_path)?;
+    let ownership = match ownership {
+        Some(ownership) if ownership.managed_endpoint == configured_endpoint => ownership,
+        Some(_) => return Ok(disabled_status(settings_path)),
+        None if configured_endpoint == endpoint || is_local_proxy_endpoint(configured_endpoint) => {
+            let updated = jsonc_editor::remove_setting(&current, false)?;
+            atomic_file::write_settings_file(&settings_path, &updated)?;
+            return Ok(disabled_status(settings_path));
+        }
+        None => return Ok(disabled_status(settings_path)),
     };
     let updated = match ownership.previous_value.as_ref() {
         Some(previous_value) => jsonc_editor::configure_setting_value(&current, previous_value)?,
@@ -140,14 +139,6 @@ pub fn disable_ide_settings(
 fn managed_status(settings_path: PathBuf) -> IdeSettingsStatus {
     IdeSettingsStatus {
         state: IdeSettingsState::Managed,
-        settings_path,
-        endpoint_matches: true,
-    }
-}
-
-fn external_status(settings_path: PathBuf) -> IdeSettingsStatus {
-    IdeSettingsStatus {
-        state: IdeSettingsState::External,
         settings_path,
         endpoint_matches: true,
     }
@@ -172,19 +163,31 @@ fn configured_setting_state(
     };
     atomic_file::validate_integration_root_if_present(integration_root)?;
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
-    if ownership::read_matching_ownership_if_present(
-        &ownership_path,
-        settings_path,
-        configured_endpoint,
-    )?
-    .is_some()
+    let ownership = ownership::read_ownership_if_present(&ownership_path, settings_path)?;
+    if ownership
+        .as_ref()
+        .is_some_and(|record| record.managed_endpoint == configured_endpoint)
     {
-        Ok(IdeSettingsState::Managed)
-    } else if configured_endpoint == current_endpoint {
+        return Ok(IdeSettingsState::Managed);
+    }
+    if ownership.is_some() {
+        return Ok(IdeSettingsState::Disabled);
+    }
+    if configured_endpoint == current_endpoint || is_local_proxy_endpoint(configured_endpoint) {
         Ok(IdeSettingsState::External)
     } else {
         Ok(IdeSettingsState::Disabled)
     }
+}
+
+fn is_local_proxy_endpoint(endpoint: &str) -> bool {
+    let Some(port) = endpoint.strip_prefix("http://127.0.0.1:") else {
+        return false;
+    };
+    let port = port.strip_suffix('/').unwrap_or(port);
+    !port.is_empty()
+        && port.chars().all(|character| character.is_ascii_digit())
+        && port.parse::<u16>().map(|value| value > 0).unwrap_or(false)
 }
 
 fn settings_conflict(message: impl Into<String>) -> HostIntegrationError {

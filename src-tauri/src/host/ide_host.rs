@@ -64,12 +64,19 @@ pub fn discover_ide_sync(
                     true,
                     true,
                 ),
-                IdeSettingsState::External => (
+                IdeSettingsState::External if status.endpoint_matches => (
                     "external",
                     format!(
-                        "当前相同 Endpoint {endpoint} 来自外部配置，不由 AGY BYOK 管理，无法在此停用"
+                        "当前相同 Endpoint {endpoint} 来自外部配置；可恢复官方模式"
                     ),
-                    false,
+                    true,
+                    true,
+                ),
+                IdeSettingsState::External => (
+                    "mismatch",
+                    "检测到 IDE 已配置其他本地代理地址，可重新设置为当前本地代理或恢复官方模式"
+                        .to_string(),
+                    true,
                     true,
                 ),
             },
@@ -184,7 +191,6 @@ pub fn discover_ide_sync(
     );
     let can_enable_integration = compatible
         && settings_valid
-        && proxy_running
         && (matches!(integration_state, "official" | "mismatch" | "managed")
             || (integration_state == "external" && configuration_state == "needs_update"));
     let can_launch_ide = compatible

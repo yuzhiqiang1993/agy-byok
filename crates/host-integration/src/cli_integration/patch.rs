@@ -82,6 +82,57 @@ pub(super) fn remove_snippet_from_file(
     Ok(())
 }
 
+pub(super) fn remove_endpoint_assignment_from_file(
+    file: &Path,
+    is_fish: bool,
+    endpoint: &str,
+) -> Result<(), HostIntegrationError> {
+    if !file.is_file() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(file).map_err(|e| io_error(file, e))?;
+    let cleaned = remove_endpoint_assignments(&content, is_fish, endpoint);
+    if cleaned != content {
+        fs::write(file, &cleaned).map_err(|e| io_error(file, e))?;
+    }
+    Ok(())
+}
+
+pub(super) fn remove_endpoint_assignments(content: &str, is_fish: bool, endpoint: &str) -> String {
+    let mut result = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let configured_endpoint = if is_fish {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            (parts.len() >= 4
+                && parts[0] == "set"
+                && parts[1] == "-gx"
+                && parts[2] == "CLOUD_CODE_URL")
+                .then(|| parts[3].trim_matches('"').trim_matches('\'').to_string())
+        } else if trimmed.starts_with("export CLOUD_CODE_URL=") {
+            Some(
+                trimmed
+                    .trim_start_matches("export CLOUD_CODE_URL=")
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        if configured_endpoint.as_deref() != Some(endpoint) {
+            result.push(line);
+        }
+    }
+
+    let mut cleaned = result.join("\n");
+    if content.ends_with('\n') && !cleaned.is_empty() {
+        cleaned.push('\n');
+    }
+    cleaned
+}
+
 pub(super) fn remove_snippet_lines(content: &str, is_fish: bool) -> String {
     let begin_marker = if is_fish {
         CLI_FISH_MARKER_BEGIN

@@ -23,9 +23,6 @@ pub(crate) async fn enable_cli_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    if !proxy_running {
-        return Err("请先启动 AGY BYOK 本地代理，再启用 CLI 代理模式".to_string());
-    }
     let integration_root = state.ide_integration_root.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let current = discover_cli_sync(&integration_root, &endpoint, proxy_running)?;

@@ -52,13 +52,8 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
                     match status.state {
                         AppIntegrationState::Disabled => (
                             "official",
-                            if proxy_running {
-                                "官方模式：App 不使用本地代理；可以启用代理模式".to_string()
-                            } else {
-                                "官方模式：App 不使用本地代理；请先启动本地代理再启用代理模式"
-                                    .to_string()
-                            },
-                            proxy_running,
+                            "官方模式：App 不使用本地代理；可以启用代理模式".to_string(),
+                            true,
                             false,
                         ),
                         AppIntegrationState::Managed => (
@@ -68,12 +63,10 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
                             } else {
                                 format!("{}；当前本地代理未运行", status.message)
                             },
-                            proxy_running,
+                            true,
                             true,
                         ),
-                        AppIntegrationState::Mismatch => {
-                            ("mismatch", status.message, proxy_running, true)
-                        }
+                        AppIntegrationState::Mismatch => ("mismatch", status.message, true, true),
                         AppIntegrationState::Conflict => ("conflict", status.message, false, false),
                     }
                 }
@@ -89,9 +82,7 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
         endpoint,
     );
     let can_enable_integration = can_enable_integration
-        || (integration_state == "managed"
-            && proxy_running
-            && configuration_state == "needs_update");
+        || (integration_state == "managed" && configuration_state == "needs_update");
     let can_launch_app = installed
         && !app_running
         && (integration_state == "official" || (integration_state == "managed" && proxy_running));
