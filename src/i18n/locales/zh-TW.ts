@@ -59,9 +59,9 @@ export const zhTW: TranslationDict = {
 
     ideTitle: "Antigravity IDE",
     ideDesc: "一鍵修改 settings.json 注入本地代理節點，無需解包或篡改可執行檔",
-    appTitle: "Antigravity.app (獨立應用)",
+    appTitle: "Antigravity App",
     appDesc: "注入本地代理迴環位址，接管桌面獨立應用 AI 模型網路請求",
-    cliTitle: "agy (命令行 CLI)",
+    cliTitle: "Antigravity CLI",
     cliDesc: "在終端環境變數中掛載代理服務，支援 CLI 命令行模式 AI 探針",
 
     running: "運行中",

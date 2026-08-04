@@ -59,9 +59,9 @@ export const ruRU: TranslationDict = {
 
     ideTitle: "Antigravity IDE",
     ideDesc: "Внедрение локального прокси в settings.json без изменения исполняемых файлов",
-    appTitle: "Antigravity.app (Приложение)",
+    appTitle: "Antigravity App",
     appDesc: "Перенаправление запросов ИИ из приложения через локальный прокси",
-    cliTitle: "agy (Интерфейс CLI)",
+    cliTitle: "Antigravity CLI",
     cliDesc: "Экспорт переменных окружения прокси для работы ИИ в терминале",
 
     running: "Работает",

@@ -59,9 +59,9 @@ export const jaJP: TranslationDict = {
 
     ideTitle: "Antigravity IDE",
     ideDesc: "バイナリを変更せずに settings.json にローカルプロキシを注入",
-    appTitle: "Antigravity.app (デスクトップアプリ)",
+    appTitle: "Antigravity App",
     appDesc: "ループバックプロキシを注入してアプリの AI リクエストを中継",
-    cliTitle: "agy (コマンドライン CLI)",
+    cliTitle: "Antigravity CLI",
     cliDesc: "ターミナル環境変数にプロキシを設定し CLI モードをサポート",
 
     running: "実行中",

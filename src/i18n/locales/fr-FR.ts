@@ -59,9 +59,9 @@ export const frFR: TranslationDict = {
 
     ideTitle: "Antigravity IDE",
     ideDesc: "Injectez le proxy local dans settings.json sans modifier les exécutables",
-    appTitle: "Antigravity.app (App de Bureau)",
+    appTitle: "Antigravity App",
     appDesc: "Redirigez les requêtes IA de l'application de bureau via le proxy local",
-    cliTitle: "agy (Ligne de Commande CLI)",
+    cliTitle: "Antigravity CLI",
     cliDesc: "Exportez les variables d'environnement proxy pour les sondes IA en CLI",
 
     running: "En cours",

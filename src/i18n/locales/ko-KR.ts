@@ -59,9 +59,9 @@ export const koKR: TranslationDict = {
 
     ideTitle: "Antigravity IDE",
     ideDesc: "실행 파일을 수정하지 않고 settings.json에 로컬 프록시 주입",
-    appTitle: "Antigravity.app (데스크톱 앱)",
+    appTitle: "Antigravity App",
     appDesc: "루프백 프록시를 주입하여 앱의 AI 모델 요청 전달",
-    cliTitle: "agy (터미널 CLI)",
+    cliTitle: "Antigravity CLI",
     cliDesc: "터미널 환경 변수에 프록시를 설정하여 CLI 모드 지원",
 
     running: "실행 중",
