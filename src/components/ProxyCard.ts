@@ -1,6 +1,7 @@
 import type { ProxyStatus } from "../types/proxy";
 import { element, errorMessage, setButtonUnavailable, withBusy } from "../utils/domUtils";
 import { store } from "../store/appStore";
+import { DEFAULT_PROXY_PORT } from "../types/config";
 import { startProxy as startProxyCommand, stopProxy as stopProxyCommand } from "../controllers/proxyController";
 import { refreshIde, refreshApp, refreshCli } from "../controllers/hostController";
 import { switchTab } from "./TabManager";
@@ -24,7 +25,7 @@ export function renderProxy(status: ProxyStatus): void {
   const running = status.state === "running";
   state.textContent = running ? t("overview.proxyRunning") : t("overview.proxyStopped");
   state.className = `status-pill ${running ? "success" : "neutral"}`;
-  address.textContent = status.address ?? `127.0.0.1:${store.config?.proxy_port ?? 54321}`;
+  address.textContent = status.address ?? `127.0.0.1:${store.config?.proxy_port ?? DEFAULT_PROXY_PORT}`;
 
   // 1. 代理状态微光脉冲呼吸灯
   const glowDot = document.querySelector("#proxy-glow-dot");

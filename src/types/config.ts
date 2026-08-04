@@ -1,5 +1,7 @@
 import type { ReasoningLevel, ReasoningMapping } from "./reasoning";
 
+export const DEFAULT_PROXY_PORT = 12345;
+
 export type ProviderProtocol =
   | "openai_chat_completions"
   | "openai_responses"

@@ -1,4 +1,4 @@
-import type { AppConfig } from "../types/config";
+import { DEFAULT_PROXY_PORT, type AppConfig } from "../types/config";
 import type { ProxyStatus } from "../types/proxy";
 import type { IdeStatus, AppStatus, CliStatus } from "../types/host";
 
@@ -7,7 +7,7 @@ type ConfigLoadState = "loading" | "ready" | "error";
 
 class AppStore {
   // Config
-  private _config: AppConfig = { proxy_port: 54321, providers: [], upstream_models: [], virtual_models: [] };
+  private _config: AppConfig = { proxy_port: DEFAULT_PROXY_PORT, providers: [], upstream_models: [], virtual_models: [] };
   private _configLoadState: ConfigLoadState = "loading";
   private _configLoadError: string | null = null;
   

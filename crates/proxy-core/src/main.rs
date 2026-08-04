@@ -1,5 +1,5 @@
 use agy_byok::proxy::{HttpServerOptions, LoopbackHttpServer, ProxyServer};
-use agy_byok::storage::{default_config_path, ConfigStore};
+use agy_byok::storage::{default_config_path, ConfigStore, DEFAULT_PROXY_PORT};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .update_config(config_store.get_config())
             .map_err(std::io::Error::other)?;
     }
-    let server = Arc::new(ProxyServer::new(config_store, 54321));
+    let server = Arc::new(ProxyServer::new(config_store, DEFAULT_PROXY_PORT));
     let options = HttpServerOptions {
         official_cloud_code_endpoint: Some("https://daily-cloudcode-pa.googleapis.com".to_string()),
         ..HttpServerOptions::default()
