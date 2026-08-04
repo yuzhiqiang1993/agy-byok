@@ -1,6 +1,6 @@
 [package]
 name = "agy-byok-desktop"
-version = "0.1.1"
+version = "1.0.0"
 description = "Desktop control plane for AGY BYOK"
 authors = ["yuzhiqiang"]
 edition = "2021"
