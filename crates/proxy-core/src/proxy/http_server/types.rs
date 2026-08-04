@@ -5,10 +5,18 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 pub(super) const LOCAL_TOKEN_HEADER: &str = "x-agy-byok-token";
+pub(super) const INTERNAL_PROBE_HEADER: &str = "x-agy-byok-internal-probe";
 
 pub(super) type HttpBody = BoxBody<Bytes, Infallible>;
 pub(super) type HttpResponse = hyper::Response<HttpBody>;
 pub(super) type HttpFrame = Result<Frame<Bytes>, Infallible>;
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct HttpActivityMetadata {
+    pub(super) response_summary: Option<String>,
+    pub(super) error_category: Option<String>,
+    pub(super) error_detail: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct HttpServerOptions {

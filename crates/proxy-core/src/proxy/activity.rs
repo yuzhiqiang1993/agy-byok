@@ -8,6 +8,13 @@ const MAX_ACTIVITY_ITEMS: usize = 200;
 #[serde(rename_all = "camelCase")]
 pub struct ActivityItem {
     pub id: String,
+    pub kind: String,
+    pub operation: String,
+    pub request_method: String,
+    pub request_path: String,
+    pub request_body_bytes: Option<u64>,
+    pub response_body_bytes: Option<u64>,
+    pub response_summary: Option<String>,
     pub timestamp_ms: u64,
     pub requested_virtual_model_id: String,
     pub virtual_model_id: String,

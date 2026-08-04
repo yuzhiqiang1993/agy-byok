@@ -57,6 +57,26 @@ function providerProtocolLabel(protocol: string | null): string {
   return protocol ?? t("activity.unknown");
 }
 
+function httpOperationLabel(operation: string): string {
+  const labels: Record<string, string> = {
+    health_check: t("activity.httpOperationHealth"),
+    list_models: t("activity.httpOperationModels"),
+    fetch_available_models: t("activity.httpOperationCatalog"),
+    cors_preflight: t("activity.httpOperationCors"),
+    generate: t("activity.httpOperationGenerate"),
+    stream_generate: t("activity.httpOperationStreamGenerate"),
+    passthrough: t("activity.httpOperationPassthrough"),
+  };
+  return labels[operation] ?? operation;
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null || value === undefined) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function resolveActivityContext(item: ActivityItem): {
   requestedName: string;
   actualRouteName: string;
@@ -149,9 +169,10 @@ export function renderActivityLog(): void {
 
   for (const item of visibleItems) {
     const failed = isActivityFailure(item);
-    const context = resolveActivityContext(item);
+    const isHttp = item.kind === "http";
+    const context = isHttp ? null : resolveActivityContext(item);
     const card = document.createElement("article");
-    card.className = `activity-item ${failed ? "error" : "success"}`;
+    card.className = `activity-item ${failed ? "error" : "success"} ${isHttp ? "http" : "chat"}`;
 
     const heading = document.createElement("div");
     heading.className = "activity-item-heading";
@@ -169,8 +190,12 @@ export function renderActivityLog(): void {
     path.className = "activity-path";
 
     const reqCode = document.createElement("code");
-    reqCode.textContent = context.requestedName;
-    reqCode.title = item.requestedVirtualModelId ?? item.virtualModelId;
+    reqCode.textContent = isHttp
+      ? `${item.requestMethod} ${item.requestPath}`
+      : context?.requestedName ?? item.requestedVirtualModelId;
+    reqCode.title = isHttp
+      ? item.requestPath
+      : item.requestedVirtualModelId ?? item.virtualModelId;
 
     const arrow = document.createElement("span");
     arrow.className = "activity-path-arrow";
@@ -178,11 +203,16 @@ export function renderActivityLog(): void {
 
     const targetCode = document.createElement("span");
     targetCode.className = "activity-path-target";
-    targetCode.textContent = `${context.providerName} (${context.upstreamName})`;
-    targetCode.title = t("activity.actualUpstream", {
-      model: context.upstreamName,
-      protocol: providerProtocolLabel(item.providerProtocol),
-    });
+    if (isHttp) {
+      targetCode.textContent = httpOperationLabel(item.operation);
+      targetCode.title = item.operation;
+    } else {
+      targetCode.textContent = `${context?.providerName ?? item.providerId} (${context?.upstreamName ?? item.upstreamModelId ?? "—"})`;
+      targetCode.title = t("activity.actualUpstream", {
+        model: context?.upstreamName ?? item.upstreamModelId ?? "—",
+        protocol: providerProtocolLabel(item.providerProtocol),
+      });
+    }
 
     path.append(reqCode, arrow, targetCode);
     mainGroup.append(timestamp, path);
@@ -210,40 +240,63 @@ export function renderActivityLog(): void {
     const pillsRow = document.createElement("div");
     pillsRow.className = "activity-pills-row";
 
-    const providerPill = document.createElement("span");
-    providerPill.className = "activity-pill";
-    providerPill.textContent = `${context.providerName} / ${providerProtocolLabel(item.providerProtocol)}`;
-
-    const typePill = document.createElement("span");
-    typePill.className = "activity-pill";
-    typePill.textContent = item.stream ? t("activity.stream") : t("activity.nonStream");
-
-    const countPill = document.createElement("span");
-    countPill.className = "activity-pill";
-    countPill.textContent = `${t("activity.messageCount", { count: item.messageCount })} · ${t("activity.toolCount", { count: item.toolCount })}`;
-
-    pillsRow.append(providerPill, typePill, countPill);
-
-    if (item.promptTokens !== null || item.completionTokens !== null) {
-      const tokenPill = document.createElement("span");
-      tokenPill.className = "activity-pill accent";
-      const pFormat = formatNumberCompact(item.promptTokens);
-      const cFormat = formatNumberCompact(item.completionTokens);
-      tokenPill.textContent = t("activity.tokenLabel", { input: pFormat, output: cFormat });
-      tokenPill.title = t("activity.tokenTitle", {
-        input: item.promptTokens ?? "—",
-        output: item.completionTokens ?? "—",
+    if (isHttp) {
+      const requestBytesPill = document.createElement("span");
+      requestBytesPill.className = "activity-pill";
+      requestBytesPill.textContent = t("activity.requestBytes", {
+        value: formatBytes(item.requestBodyBytes),
       });
-      pillsRow.append(tokenPill);
-    }
 
-    if (item.fallbackAttempted) {
-      const fbPill = document.createElement("span");
-      fbPill.className = `activity-pill ${item.fallbackSucceeded ? "accent" : "warning"}`;
-      fbPill.textContent = item.fallbackSucceeded
-        ? t("activity.fallbackSuccess")
-        : t("activity.fallbackFailure");
-      pillsRow.append(fbPill);
+      const responseBytesPill = document.createElement("span");
+      responseBytesPill.className = "activity-pill";
+      responseBytesPill.textContent = t("activity.responseBytes", {
+        value: formatBytes(item.responseBodyBytes),
+      });
+
+      pillsRow.append(requestBytesPill, responseBytesPill);
+      if (item.responseSummary) {
+        const summaryPill = document.createElement("span");
+        summaryPill.className = "activity-pill accent activity-summary-pill";
+        summaryPill.textContent = item.responseSummary;
+        summaryPill.title = item.responseSummary;
+        pillsRow.append(summaryPill);
+      }
+    } else {
+      const providerPill = document.createElement("span");
+      providerPill.className = "activity-pill";
+      providerPill.textContent = `${context?.providerName ?? item.providerId} / ${providerProtocolLabel(item.providerProtocol)}`;
+
+      const typePill = document.createElement("span");
+      typePill.className = "activity-pill";
+      typePill.textContent = item.stream ? t("activity.stream") : t("activity.nonStream");
+
+      const countPill = document.createElement("span");
+      countPill.className = "activity-pill";
+      countPill.textContent = `${t("activity.messageCount", { count: item.messageCount })} · ${t("activity.toolCount", { count: item.toolCount })}`;
+
+      pillsRow.append(providerPill, typePill, countPill);
+
+      if (item.promptTokens !== null || item.completionTokens !== null) {
+        const tokenPill = document.createElement("span");
+        tokenPill.className = "activity-pill accent";
+        const pFormat = formatNumberCompact(item.promptTokens);
+        const cFormat = formatNumberCompact(item.completionTokens);
+        tokenPill.textContent = t("activity.tokenLabel", { input: pFormat, output: cFormat });
+        tokenPill.title = t("activity.tokenTitle", {
+          input: item.promptTokens ?? "—",
+          output: item.completionTokens ?? "—",
+        });
+        pillsRow.append(tokenPill);
+      }
+
+      if (item.fallbackAttempted) {
+        const fbPill = document.createElement("span");
+        fbPill.className = `activity-pill ${item.fallbackSucceeded ? "accent" : "warning"}`;
+        fbPill.textContent = item.fallbackSucceeded
+          ? t("activity.fallbackSuccess")
+          : t("activity.fallbackFailure");
+        pillsRow.append(fbPill);
+      }
     }
 
     card.append(heading, pillsRow);
@@ -262,11 +315,22 @@ export function renderActivityLog(): void {
       copy.addEventListener("click", () => {
         const text = [
           `${t("activity.timeLabel")}: ${formattedTime.label}`,
-          `${t("activity.requestModelLabel")}: ${context.requestedName}`,
-          `${t("activity.routeLabel")}: ${context.actualRouteName}`,
-          `${t("activity.upstreamModelLabel")}: ${context.upstreamName}`,
-          `${t("activity.providerLabel")}: ${context.providerName}`,
+          isHttp
+            ? `${t("activity.httpRequestLabel")}: ${item.requestMethod} ${item.requestPath}`
+            : `${t("activity.requestModelLabel")}: ${context?.requestedName ?? item.requestedVirtualModelId}`,
+          isHttp
+            ? `${t("activity.httpOperationLabel")}: ${httpOperationLabel(item.operation)}`
+            : `${t("activity.routeLabel")}: ${context?.actualRouteName ?? item.virtualModelId}`,
+          ...(isHttp ? [] : [
+            `${t("activity.upstreamModelLabel")}: ${context?.upstreamName ?? item.upstreamModelId ?? "—"}`,
+            `${t("activity.providerLabel")}: ${context?.providerName ?? item.providerId}`,
+          ]),
           t("activity.httpLabel", { code: item.statusCode || t("activity.noResponse") }),
+          ...(isHttp ? [
+            `${t("activity.requestBytesLabel")}: ${formatBytes(item.requestBodyBytes)}`,
+            `${t("activity.responseBytesLabel")}: ${formatBytes(item.responseBodyBytes)}`,
+            ...(item.responseSummary ? [`${t("activity.responseSummaryLabel")}: ${item.responseSummary}`] : []),
+          ] : []),
           `${t("activity.errorCategoryLabel")}: ${item.errorCategory ?? t("activity.unclassifiedError")}`,
           `${t("activity.errorDetailLabel")}: ${item.errorDetail ?? t("activity.missingErrorDetail")}`,
         ].join("\n");

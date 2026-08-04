@@ -1321,6 +1321,17 @@ button.danger-confirm { background: #9d493e; color: #fff; }
   border-left-color: #ef4444;
   background: #fffcfc;
 }
+.activity-item.http {
+  border-left-color: #3b82f6;
+}
+.activity-item.http.error {
+  border-left-color: #ef4444;
+}
+.activity-summary-pill {
+  max-width: min(520px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .activity-item-heading {
   display: flex;

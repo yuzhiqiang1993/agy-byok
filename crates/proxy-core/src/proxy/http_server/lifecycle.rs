@@ -1,6 +1,6 @@
 use super::forwarding::validate_official_endpoint;
 use super::routing::handle_request;
-use super::types::HttpServerOptions;
+use super::types::{HttpServerOptions, INTERNAL_PROBE_HEADER};
 use crate::domain::{ErrorCategory, ProxyError};
 use crate::proxy::server::ProxyServer;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -241,6 +241,7 @@ async fn probe_health(local_addr: SocketAddr) -> Result<(), ProxyError> {
         })?;
     let response = client
         .get(format!("http://{local_addr}/health"))
+        .header(INTERNAL_PROBE_HEADER, "1")
         .send()
         .await
         .map_err(|error| {

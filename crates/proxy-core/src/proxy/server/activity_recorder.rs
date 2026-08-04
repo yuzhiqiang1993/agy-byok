@@ -57,6 +57,21 @@ impl ProxyServer {
     ) {
         self.activity_log.record(ActivityItem {
             id: uuid::Uuid::new_v4().to_string(),
+            kind: "chat".to_string(),
+            operation: if stream {
+                "stream_generate".to_string()
+            } else {
+                "generate".to_string()
+            },
+            request_method: "POST".to_string(),
+            request_path: if stream {
+                "/v1internal:streamGenerateContent".to_string()
+            } else {
+                "/v1internal:generateContent".to_string()
+            },
+            request_body_bytes: None,
+            response_body_bytes: None,
+            response_summary: None,
             timestamp_ms: Self::current_time_ms(),
             requested_virtual_model_id: model_id.to_string(),
             virtual_model_id: model_id.to_string(),
@@ -112,6 +127,21 @@ impl ProxyServer {
 
         self.activity_log.record(ActivityItem {
             id: uuid::Uuid::new_v4().to_string(),
+            kind: "chat".to_string(),
+            operation: if request.stream {
+                "stream_generate".to_string()
+            } else {
+                "generate".to_string()
+            },
+            request_method: "POST".to_string(),
+            request_path: if request.stream {
+                "/v1internal:streamGenerateContent".to_string()
+            } else {
+                "/v1internal:generateContent".to_string()
+            },
+            request_body_bytes: None,
+            response_body_bytes: None,
+            response_summary: None,
             timestamp_ms: now_ms,
             requested_virtual_model_id: request.virtual_model_id.clone(),
             virtual_model_id,
@@ -133,6 +163,49 @@ impl ProxyServer {
             fallback_succeeded: outcome.fallback_succeeded,
             prompt_tokens: outcome.usage.map(|usage| usage.prompt_tokens),
             completion_tokens: outcome.usage.map(|usage| usage.completion_tokens),
+        });
+    }
+
+    pub fn record_http_activity(
+        &self,
+        operation: &str,
+        request_method: &str,
+        request_path: &str,
+        request_body_bytes: Option<u64>,
+        status_code: u16,
+        duration_ms: u64,
+        response_body_bytes: Option<u64>,
+        response_summary: Option<&str>,
+        error_category: Option<&str>,
+        error_detail: Option<&str>,
+    ) {
+        self.activity_log.record(ActivityItem {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: "http".to_string(),
+            operation: operation.to_string(),
+            request_method: request_method.to_string(),
+            request_path: Self::sanitize_log_text(request_path),
+            request_body_bytes,
+            response_body_bytes,
+            response_summary: response_summary.map(Self::sanitize_log_text),
+            timestamp_ms: Self::current_time_ms(),
+            requested_virtual_model_id: request_path.to_string(),
+            virtual_model_id: request_path.to_string(),
+            upstream_model_id: None,
+            provider_id: "local-proxy".to_string(),
+            provider_protocol: Some("http".to_string()),
+            status_code,
+            duration_ms,
+            error_category: error_category.map(Self::sanitize_log_text),
+            error_detail: error_detail.map(Self::sanitize_log_text),
+            stream: false,
+            message_count: 0,
+            tool_count: 0,
+            used_fallback: false,
+            fallback_attempted: false,
+            fallback_succeeded: false,
+            prompt_tokens: None,
+            completion_tokens: None,
         });
     }
 

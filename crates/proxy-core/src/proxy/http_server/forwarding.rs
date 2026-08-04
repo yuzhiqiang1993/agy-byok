@@ -1,7 +1,8 @@
 use super::request::read_request;
 use super::responses::{
-    bytes_response, error_response, fetch_models_fallback_response, full_response, is_cors_header,
-    is_hop_by_hop_header,
+    bytes_response, error_response, fetch_models_fallback_response,
+    fetch_models_fallback_response_with_summary, full_response, is_cors_header,
+    is_hop_by_hop_header, with_response_summary,
 };
 use super::types::{HttpResponse, HttpServerOptions, LOCAL_TOKEN_HEADER};
 use crate::domain::{ErrorCategory, ProxyError};
@@ -75,7 +76,12 @@ pub(super) async fn handle_fetch_models_request(
     };
     let response = match send_forward_request(&parts, body, &proxy, endpoint).await {
         Ok(response) => response,
-        Err(_) => return fetch_models_fallback_response(&proxy),
+        Err(_) => {
+            return fetch_models_fallback_response_with_summary(
+                &proxy,
+                "source=custom; official=unavailable",
+            )
+        }
     };
     let status = response.status();
     if !status.is_success() {
@@ -83,24 +89,58 @@ pub(super) async fn handle_fetch_models_request(
             "Official model catalog returned status {}, falling back to custom models",
             status
         );
-        return fetch_models_fallback_response(&proxy);
+        return fetch_models_fallback_response_with_summary(
+            &proxy,
+            format!("source=custom; official_status={}", status.as_u16()),
+        );
     }
     let body = match read_limited_response_body(response, options.max_body_bytes).await {
         Ok(body) if !body.is_truncated() => body.into_bytes(),
-        Ok(_) | Err(_) => return fetch_models_fallback_response(&proxy),
+        Ok(_) => {
+            return fetch_models_fallback_response_with_summary(
+                &proxy,
+                "source=custom; official_body=too_large",
+            )
+        }
+        Err(_) => {
+            return fetch_models_fallback_response_with_summary(
+                &proxy,
+                "source=custom; official_body=unreadable",
+            )
+        }
     };
     let mut upstream_models: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(models) => models,
-        Err(_) => return fetch_models_fallback_response(&proxy),
+        Err(_) => {
+            return fetch_models_fallback_response_with_summary(
+                &proxy,
+                "source=custom; official_body=invalid_json",
+            )
+        }
     };
     if let Some(obj) = upstream_models.as_object_mut() {
         obj.remove("error");
     }
     let models = proxy.handle_model_list(upstream_models);
+    let catalog_count = models
+        .get("models")
+        .and_then(serde_json::Value::as_object)
+        .map_or_else(
+            || {
+                models
+                    .get("models")
+                    .and_then(serde_json::Value::as_array)
+                    .map_or(0, Vec::len)
+            },
+            serde_json::Map::len,
+        );
     let models_str = models.to_string();
     let proxy_target = get_proxy_target_host(&parts, &proxy);
     let rewritten_models_str = rewrite_official_urls_str(&models_str, &proxy_target);
-    full_response(StatusCode::OK, "application/json", rewritten_models_str)
+    with_response_summary(
+        full_response(StatusCode::OK, "application/json", rewritten_models_str),
+        format!("catalog_models={catalog_count}; source=official"),
+    )
 }
 
 pub(super) async fn forward_native_request(
@@ -123,7 +163,10 @@ pub(super) async fn forward_native_request(
         return match read_limited_response_body(response, options.max_response_body_bytes).await {
             Ok(body) if !body.is_truncated() => {
                 let bytes = rewrite_official_urls(Bytes::from(body.into_bytes()), &parts, &proxy);
-                bytes_response(status, &headers, bytes)
+                with_response_summary(
+                    bytes_response(status, &headers, bytes),
+                    "source=official; forwarded=true",
+                )
             }
             Ok(_) => error_response(
                 StatusCode::BAD_GATEWAY,
@@ -167,11 +210,12 @@ pub(super) async fn forward_native_request(
             builder = builder.header(name, value);
         }
     }
-    builder
+    let response = builder
         .body(BodyExt::boxed(StreamBody::new(ReceiverStream::new(
             receiver,
         ))))
-        .expect("valid forwarded streaming response")
+        .expect("valid forwarded streaming response");
+    with_response_summary(response, "source=official; forwarded=true; stream=true")
 }
 
 async fn send_forward_request(

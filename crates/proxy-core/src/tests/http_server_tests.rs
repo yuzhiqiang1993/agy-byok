@@ -70,7 +70,7 @@ mod tests {
     async fn loopback_server_exposes_safe_health_and_protected_models() {
         let config = model_config("http://127.0.0.1/generate".to_string());
         let (proxy, token) = create_proxy(config, 0).await;
-        let handle = LoopbackHttpServer::start(proxy, test_options())
+        let handle = LoopbackHttpServer::start(proxy.clone(), test_options())
             .await
             .unwrap();
         let base_url = format!("http://{}", handle.local_addr());
@@ -111,6 +111,33 @@ mod tests {
         assert_eq!(models.status(), reqwest::StatusCode::OK);
         let models_json: serde_json::Value = models.json().await.unwrap();
         assert_eq!(models_json["models"][0]["id"], "virtual-1");
+
+        let activities = proxy.activity_log().get_recent();
+        assert_eq!(activities.len(), 4);
+        assert!(activities.iter().any(|item| {
+            item.kind == "http"
+                && item.operation == "health_check"
+                && item.request_path == "/health"
+                && item.response_summary.as_deref() == Some("status=ok")
+        }));
+        assert!(activities.iter().any(|item| {
+            item.kind == "http" && item.operation == "list_models" && item.status_code == 401
+        }));
+        assert!(activities.iter().any(|item| {
+            item.kind == "http"
+                && item.operation == "list_models"
+                && item.status_code == 200
+                && item.response_summary.as_deref() == Some("models=1")
+        }));
+        assert!(activities.iter().any(|item| {
+            item.kind == "http"
+                && item.operation == "fetch_available_models"
+                && item.request_path == "/v1internal:fetchAvailableModels"
+                && item
+                    .response_summary
+                    .as_deref()
+                    .is_some_and(|summary| summary.starts_with("catalog_models=1;"))
+        }));
 
         drop(client);
         handle.shutdown().await.unwrap();

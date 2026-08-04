@@ -1,4 +1,4 @@
-use super::types::HttpResponse;
+use super::types::{HttpActivityMetadata, HttpResponse};
 use crate::domain::ProxyError;
 use crate::proxy::server::ProxyServer;
 use bytes::Bytes;
@@ -48,36 +48,72 @@ pub(super) fn bytes_response(
         }
     }
     builder
+        .header(hyper::header::CONTENT_LENGTH, body.len().to_string())
         .body(Full::new(body).boxed())
         .expect("valid forwarded HTTP response")
 }
 
 pub(super) fn health_response() -> HttpResponse {
-    full_response(
-        StatusCode::OK,
-        "application/json",
-        json!({
-            "status": "ok",
-            "product": "agy-byok",
-            "version": env!("CARGO_PKG_VERSION"),
-            "capabilities": {
-                "models": true,
-                "generate": true,
-                "stream": true
-            }
-        })
-        .to_string(),
+    with_response_summary(
+        full_response(
+            StatusCode::OK,
+            "application/json",
+            json!({
+                "status": "ok",
+                "product": "agy-byok",
+                "version": env!("CARGO_PKG_VERSION"),
+                "capabilities": {
+                    "models": true,
+                    "generate": true,
+                    "stream": true
+                }
+            })
+            .to_string(),
+        ),
+        "status=ok",
     )
 }
 
 pub(super) fn model_list_response(proxy: &ProxyServer) -> HttpResponse {
     let models = proxy.handle_model_list(json!({ "models": [] }));
-    full_response(StatusCode::OK, "application/json", models.to_string())
+    let count = models
+        .get("models")
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    with_response_summary(
+        full_response(StatusCode::OK, "application/json", models.to_string()),
+        format!("models={count}"),
+    )
 }
 
 pub(super) fn fetch_models_fallback_response(proxy: &ProxyServer) -> HttpResponse {
+    fetch_models_fallback_response_with_summary(proxy, "source=custom")
+}
+
+pub(super) fn fetch_models_fallback_response_with_summary(
+    proxy: &ProxyServer,
+    source_summary: impl Into<String>,
+) -> HttpResponse {
     let models = proxy.handle_model_list(json!({ "models": {} }));
-    full_response(StatusCode::OK, "application/json", models.to_string())
+    let count = models
+        .get("models")
+        .and_then(serde_json::Value::as_object)
+        .map_or(0, serde_json::Map::len);
+    with_response_summary(
+        full_response(StatusCode::OK, "application/json", models.to_string()),
+        format!("catalog_models={count}; {}", source_summary.into()),
+    )
+}
+
+pub(super) fn with_response_summary(
+    mut response: HttpResponse,
+    summary: impl Into<String>,
+) -> HttpResponse {
+    response.extensions_mut().insert(HttpActivityMetadata {
+        response_summary: Some(summary.into()),
+        ..HttpActivityMetadata::default()
+    });
+    response
 }
 
 pub(super) fn proxy_error_response(error: &ProxyError) -> HttpResponse {
@@ -87,7 +123,7 @@ pub(super) fn proxy_error_response(error: &ProxyError) -> HttpResponse {
 }
 
 pub(super) fn error_response(status: StatusCode, message: &str, category: &str) -> HttpResponse {
-    full_response(
+    let mut response = full_response(
         status,
         "application/json",
         json!({
@@ -98,7 +134,13 @@ pub(super) fn error_response(status: StatusCode, message: &str, category: &str) 
             }
         })
         .to_string(),
-    )
+    );
+    response.extensions_mut().insert(HttpActivityMetadata {
+        response_summary: None,
+        error_category: Some(category.to_string()),
+        error_detail: Some(message.to_string()),
+    });
+    response
 }
 
 pub(super) fn full_response(
@@ -106,10 +148,12 @@ pub(super) fn full_response(
     content_type: &'static str,
     body: impl Into<Bytes>,
 ) -> HttpResponse {
+    let body = body.into();
     Response::builder()
         .status(status)
         .header(CONTENT_TYPE, content_type)
-        .body(Full::new(body.into()).boxed())
+        .header(hyper::header::CONTENT_LENGTH, body.len().to_string())
+        .body(Full::new(body).boxed())
         .expect("valid HTTP response")
 }
 

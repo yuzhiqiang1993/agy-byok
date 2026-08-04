@@ -1,5 +1,12 @@
 export interface ActivityItem {
   id: string;
+  kind: string;
+  operation: string;
+  requestMethod: string;
+  requestPath: string;
+  requestBodyBytes: number | null;
+  responseBodyBytes: number | null;
+  responseSummary: string | null;
   timestampMs: number;
   requestedVirtualModelId: string;
   virtualModelId: string;
