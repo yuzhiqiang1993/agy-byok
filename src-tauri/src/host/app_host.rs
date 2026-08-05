@@ -1,6 +1,6 @@
 use crate::host::process::{
-    command_argument, is_app_running, resolve_host_executable, terminate_process,
-    wait_for_app_state, wait_for_process_state,
+    command_argument, is_app_running, is_process_running, resolve_host_executable,
+    terminate_process, wait_for_app_state, wait_for_process_state,
 };
 use host_integration::AppIntegrationState;
 use serde::Serialize;
@@ -109,45 +109,73 @@ pub fn discover_app_sync(endpoint: &str, proxy_running: bool) -> Result<AppStatu
     })
 }
 
+// 返回值只表示宿主主进程是否需要重启，残留语言服务不会触发重新打开 App。
 pub fn stop_app_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool, String> {
-    if !is_app_running(app_path, label)? {
-        return Ok(false);
-    }
+    let app_was_running = is_app_running(app_path, label)?;
+    if app_was_running {
+        let script = if label == "Antigravity IDE" {
+            format!(
+                "tell application id \"{}\" to quit",
+                crate::host::ide_host::ANTIGRAVITY_IDE_BUNDLE_ID
+            )
+        } else {
+            format!("tell application \"{label}\" to quit")
+        };
+        let status = Command::new("/usr/bin/osascript")
+            .args(["-e", &script])
+            .status()
+            .map_err(|error| format!("无法请求 {label} 退出：{error}"))?;
+        if !status.success() {
+            return Err(format!("请求 {label} 退出失败：{status}"));
+        }
 
-    let script = if label == "Antigravity IDE" {
-        format!(
-            "tell application id \"{}\" to quit",
-            crate::host::ide_host::ANTIGRAVITY_IDE_BUNDLE_ID
-        )
-    } else {
-        format!("tell application \"{label}\" to quit")
-    };
-    let status = Command::new("/usr/bin/osascript")
-        .args(["-e", &script])
-        .status()
-        .map_err(|error| format!("无法请求 {label} 退出：{error}"))?;
-    if !status.success() {
-        return Err(format!("请求 {label} 退出失败：{status}"));
-    }
-
-    if let Err(error) = wait_for_app_state(app_path, label, false) {
-        terminate_process(&resolve_host_executable(app_path), label)
-            .map_err(|force_error| format!("{error}；强制结束 {label} 失败：{force_error}"))?;
-    }
-    let language_server = app_path.join("Contents/Resources/bin/language_server.real");
-    if language_server.is_file() {
-        if let Err(error) =
-            wait_for_process_state(&language_server, "Antigravity Language Server", false)
-        {
-            terminate_process(&language_server, "Antigravity Language Server").map_err(
-                |force_error| {
-                    format!("{error}；强制结束 Antigravity Language Server 失败：{force_error}")
-                },
-            )?;
+        if let Err(error) = wait_for_app_state(app_path, label, false) {
+            terminate_process(&resolve_host_executable(app_path), label)
+                .map_err(|force_error| format!("{error}；强制结束 {label} 失败：{force_error}"))?;
         }
     }
-    std::thread::sleep(Duration::from_millis(800));
-    Ok(true)
+
+    // App 主进程退出后，仍可能残留由官方入口或 AGY BYOK Wrapper 启动的语言服务。
+    let language_server_stopped = stop_app_language_servers(app_path, app_was_running)?;
+    if app_was_running || language_server_stopped {
+        std::thread::sleep(Duration::from_millis(800));
+    }
+    Ok(app_was_running)
+}
+
+fn stop_app_language_servers(
+    app_path: &Path,
+    wait_for_graceful_shutdown: bool,
+) -> Result<bool, String> {
+    let language_servers = [
+        app_path.join("Contents/Resources/bin/language_server"),
+        app_path.join("Contents/Resources/bin/language_server.real"),
+    ];
+    let mut stopped = false;
+    for language_server in language_servers {
+        if !language_server.is_file()
+            || !is_process_running(&language_server, "Antigravity Language Server")?
+        {
+            continue;
+        }
+
+        if wait_for_graceful_shutdown {
+            if let Err(error) =
+                wait_for_process_state(&language_server, "Antigravity Language Server", false)
+            {
+                terminate_process(&language_server, "Antigravity Language Server").map_err(
+                    |force_error| {
+                        format!("{error}；强制结束 Antigravity Language Server 失败：{force_error}")
+                    },
+                )?;
+                stopped = true;
+            }
+        } else {
+            terminate_process(&language_server, "Antigravity Language Server")?;
+            stopped = true;
+        }
+    }
+    Ok(stopped)
 }
 
 pub fn restart_app_app(app_path: &Path) -> Result<(), String> {

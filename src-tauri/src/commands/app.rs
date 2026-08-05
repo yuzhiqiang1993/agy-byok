@@ -33,11 +33,7 @@ pub(crate) async fn enable_app_integration(
         if !current.can_enable_integration {
             return Err(current.integration_message);
         }
-        let restart_app = if current.app_running {
-            stop_app_for_reconfiguration(app_path, "Antigravity")?
-        } else {
-            false
-        };
+        let restart_app = stop_app_for_reconfiguration(app_path, "Antigravity")?;
         if let Err(error) = host_integration::enable_app_integration(app_path, &endpoint) {
             if restart_app {
                 let _ = launch_app_app(app_path);
@@ -81,12 +77,8 @@ pub(crate) async fn disable_app_integration(
     let proxy_running = snapshot.running;
     tauri::async_runtime::spawn_blocking(move || {
         let app_path = Path::new(ANTIGRAVITY_APP_PATH);
-        let current = discover_app_sync(&endpoint, proxy_running)?;
-        let restart_app = if current.app_running {
-            stop_app_for_reconfiguration(app_path, "Antigravity")?
-        } else {
-            false
-        };
+        let _current = discover_app_sync(&endpoint, proxy_running)?;
+        let restart_app = stop_app_for_reconfiguration(app_path, "Antigravity")?;
         if let Err(error) = host_integration::disable_app_integration(app_path, &endpoint) {
             if restart_app {
                 let _ = launch_app_app(app_path);

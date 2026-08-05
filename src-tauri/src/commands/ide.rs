@@ -112,11 +112,7 @@ pub(crate) async fn disable_ide_integration(
             return Err(current.integration_message);
         }
 
-        let restart_ide = if current.ide_running {
-            stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?
-        } else {
-            false
-        };
+        let restart_ide = stop_ide_for_reconfiguration(app_path, "Antigravity IDE")?;
         if let Err(error) = disable_ide_settings(&settings_path, &integration_root, &endpoint) {
             if restart_ide {
                 let _ = launch_ide_app();
