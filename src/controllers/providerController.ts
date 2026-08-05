@@ -1,7 +1,7 @@
 import type { AppConfig, Provider } from "../types/config";
 import type { ModelConnectionTestResult } from "../types/proxy";
 import type { ProviderCatalogModel } from "../types/catalog";
-import type { ReasoningLevel } from "../types/reasoning";
+import type { ReasoningLevel, ReasoningMapping } from "../types/reasoning";
 import { configService } from "../services/configService";
 import { providerService } from "../services/providerService";
 import { store } from "../store/appStore";
@@ -45,11 +45,13 @@ export async function testProviderModelConnection(
   upstreamModelId: string,
   reasoningLevel: ReasoningLevel | null,
   customReasoningValue: string | null,
+  reasoningMapping: ReasoningMapping | null,
 ): Promise<ModelConnectionTestResult> {
   return providerService.testProviderModelConnection(
     provider,
     upstreamModelId,
     reasoningLevel,
     customReasoningValue,
+    reasoningMapping,
   );
 }

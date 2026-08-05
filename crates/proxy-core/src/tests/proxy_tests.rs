@@ -35,6 +35,7 @@ mod tests {
                 upstream_model_id: "gpt-test".to_string(),
                 display_name: "Connection Model".to_string(),
                 capabilities: ModelCapabilities::default(),
+                token_limits: ModelTokenLimits::default(),
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -48,6 +49,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
+            official_model_settings: OfficialModelSettings::default(),
         }
     }
 
@@ -276,7 +278,7 @@ mod tests {
         let default_catalog = ProxyServer::new(ConfigStore::in_memory(config.clone()), 0)
             .handle_model_list(json!({ "models": {} }));
         let default_model = &default_catalog["models"]["custom-vm-connection"];
-        assert_eq!(default_model["reasoningEffort"], "auto");
+        assert!(default_model.get("reasoningEffort").is_none());
         assert!(default_model.get("thinkingBudget").is_none());
 
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
@@ -317,6 +319,40 @@ mod tests {
         assert_eq!(body["model"], "gpt-test");
         assert_eq!(body["max_tokens"], 8);
         assert_eq!(body["stream"], false);
+    }
+
+    #[tokio::test]
+    async fn model_connection_test_preserves_reasoning_mapping() {
+        let response = json!({
+            "id": "chatcmpl-reasoning-connection",
+            "model": "gpt-test",
+            "choices": [{
+                "message": { "role": "assistant", "content": "OK" },
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string();
+        let (mock_url, _handle, recorded) =
+            MockProviderServer::start_recording(200, &response).await;
+        let mut config = connection_test_config(format!("{mock_url}/v1/chat"));
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([(
+                ReasoningLevel::High,
+                ReasoningMapping::Effort("high".to_string()),
+            )]),
+        };
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        server
+            .test_model_connection_with_reasoning("vm-connection", ReasoningLevel::High)
+            .await
+            .unwrap();
+
+        let body: serde_json::Value =
+            serde_json::from_slice(&recorded.await.unwrap().body).unwrap();
+        assert_eq!(body["reasoning_effort"], "high");
+        assert!(body.get("max_tokens").is_none());
     }
 
     #[tokio::test]
@@ -537,6 +573,7 @@ mod tests {
             upstream_model_id: "gpt-4o".to_string(),
             display_name: "GPT-4o".to_string(),
             capabilities: ModelCapabilities::default(),
+            token_limits: ModelTokenLimits::default(),
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         };
@@ -557,6 +594,7 @@ mod tests {
             providers: vec![provider],
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
+            official_model_settings: OfficialModelSettings::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);
@@ -680,6 +718,7 @@ mod tests {
                     tools: true,
                     reasoning: ReasoningCapability::default(),
                 },
+                token_limits: ModelTokenLimits::default(),
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -693,6 +732,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
+            official_model_settings: OfficialModelSettings::default(),
         };
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
         let request = NeutralChatRequest {
@@ -761,6 +801,7 @@ mod tests {
                         )]),
                     },
                 },
+                token_limits: ModelTokenLimits::default(),
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -774,6 +815,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
+            official_model_settings: OfficialModelSettings::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);
@@ -809,6 +851,7 @@ mod tests {
             upstream_model_id: "gpt-test".to_string(),
             display_name: "GPT Test".to_string(),
             capabilities: ModelCapabilities::default(),
+            token_limits: ModelTokenLimits::default(),
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         }];

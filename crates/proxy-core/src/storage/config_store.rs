@@ -1,4 +1,4 @@
-use crate::domain::{Provider, UpstreamModel, VirtualModel};
+use crate::domain::{OfficialModelSettings, Provider, UpstreamModel, VirtualModel};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub providers: Vec<Provider>,
     pub upstream_models: Vec<UpstreamModel>,
     pub virtual_models: Vec<VirtualModel>,
+    #[serde(default)]
+    pub official_model_settings: OfficialModelSettings,
 }
 
 impl Default for AppConfig {
@@ -25,6 +27,7 @@ impl Default for AppConfig {
             providers: Vec::new(),
             upstream_models: Vec::new(),
             virtual_models: Vec::new(),
+            official_model_settings: OfficialModelSettings::default(),
         }
     }
 }
@@ -34,6 +37,7 @@ impl AppConfig {
         if self.proxy_port == 0 {
             return Err("Proxy port must be between 1 and 65535".to_string());
         }
+        self.official_model_settings.validate()?;
         let mut provider_ids = HashSet::new();
         for provider in &self.providers {
             validate_id("Provider", &provider.id)?;
@@ -68,6 +72,10 @@ impl AppConfig {
                     model.id
                 ));
             }
+            model
+                .token_limits
+                .validate()
+                .map_err(|error| format!("UpstreamModel {}: {error}", model.id))?;
         }
 
         let mut virtual_ids = HashSet::new();
@@ -261,7 +269,9 @@ fn validate_endpoint(label: &str, endpoint: &str, required: bool) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{ModelCapabilities, ParameterOverrides, ProviderProtocol};
+    use crate::domain::{
+        ModelCapabilities, ModelTokenLimits, ParameterOverrides, ProviderProtocol,
+    };
     use std::collections::HashMap;
 
     fn sample_config() -> AppConfig {
@@ -287,6 +297,7 @@ mod tests {
                 upstream_model_id: "gpt-test".to_string(),
                 display_name: "GPT Test".to_string(),
                 capabilities: ModelCapabilities::default(),
+                token_limits: ModelTokenLimits::default(),
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -300,6 +311,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
+            official_model_settings: OfficialModelSettings::default(),
         }
     }
 
@@ -355,6 +367,32 @@ mod tests {
         let config: AppConfig = serde_json::from_value(value).unwrap();
 
         assert!(config.providers[0].api_key.is_empty());
+    }
+
+    #[test]
+    fn legacy_config_defaults_missing_model_token_limits() {
+        let mut value = serde_json::to_value(sample_config()).unwrap();
+        value["upstream_models"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("token_limits");
+
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            config.upstream_models[0].token_limits,
+            ModelTokenLimits::legacy_default()
+        );
+    }
+
+    #[test]
+    fn config_validation_rejects_zero_model_token_limits() {
+        let mut config = sample_config();
+        config.upstream_models[0].token_limits.input_token_limit = Some(0);
+
+        let error = config.validate().unwrap_err();
+
+        assert!(error.contains("input_token_limit must be greater than 0"));
     }
 
     #[test]

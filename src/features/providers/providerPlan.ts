@@ -1,6 +1,7 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
   AppConfig,
+  ModelTokenLimits,
   Provider,
   UpstreamModel,
   VirtualModel,
@@ -15,8 +16,8 @@ import {
 } from "../../utils/modelUtils";
 import {
   catalogReasoningLevelsForModel,
+  catalogReasoningMappingsForModel,
   customReasoningMapping,
-  reasoningLevels,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
 
@@ -31,10 +32,25 @@ export interface ProviderSavePlanInput {
   catalogVisionEnabledModelIds: ReadonlySet<string>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
+  catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
+  changedCatalogTokenLimitModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   legacyCatalogModelIds: ReadonlySet<string>;
   createId: () => string;
+}
+
+function tokenLimitsFromCatalog(
+  model: ProviderCatalogModel,
+  existing: ModelTokenLimits | undefined,
+  selected: ModelTokenLimits | undefined,
+): ModelTokenLimits {
+  const configured = selected ?? existing;
+  return {
+    // 供应商目录值优先；目录缺少某一字段时才沿用用户手动配置或历史值。
+    input_token_limit: model.inputTokenLimit ?? configured?.input_token_limit ?? null,
+    output_token_limit: model.outputTokenLimit ?? configured?.output_token_limit ?? null,
+  };
 }
 
 export function summarizeProviderChanges(
@@ -95,6 +111,8 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     catalogVisionEnabledModelIds,
     catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds,
+    catalogTokenLimitsByModel,
+    changedCatalogTokenLimitModelIds,
     changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds,
     legacyCatalogModelIds,
@@ -162,12 +180,20 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     const upstreamId = existingUpstream?.id ?? `upstream-${id}`;
 
     if (existingUpstream && !reasoningChanged) {
-      nextUpstreams.push(capabilitiesChanged
-        ? {
-            ...existingUpstream,
-            capabilities: { ...existingUpstream.capabilities, vision, tools },
-          }
-        : existingUpstream);
+      nextUpstreams.push({
+        ...existingUpstream,
+        capabilities: {
+          ...existingUpstream.capabilities,
+          ...(capabilitiesChanged ? { vision, tools } : {}),
+        },
+        token_limits: tokenLimitsFromCatalog(
+          model,
+          existingUpstream.token_limits,
+          changedCatalogTokenLimitModelIds.has(model.id)
+            ? catalogTokenLimitsByModel.get(model.id)
+            : undefined,
+        ),
+      });
       for (const virtualModel of existingVirtuals) {
         occupiedHostModelIds.add(effectiveHostModelId(virtualModel));
         nextVirtuals.push(virtualModel);
@@ -189,8 +215,9 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
 
     const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id);
     const selectedReasoningLevels = reasoningLevelsForModel(model.id);
-    const availableMappings = reasoningLevels(provider.protocol);
+    const availableMappings = catalogReasoningMappingsForModel(model, provider.protocol);
     const availableReasoningLevels = catalogReasoningLevelsForModel(model, provider.protocol, existingUpstream);
+    const explicitCatalogMappings = model.reasoning?.mappings ?? {};
     const customReasoningValue = catalogCustomReasoningByModel.get(model.id);
     const customMapping = customReasoningValue
       ? customReasoningMapping(provider.protocol, customReasoningValue)
@@ -207,7 +234,11 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     for (const level of enabledLevels) {
       const mapping = level === "auto"
         ? customMapping
-        : (protocolChanged ? undefined : existingUpstream?.capabilities.reasoning.levels[level])
+        : (explicitCatalogMappings[level] !== undefined
+            ? explicitCatalogMappings[level]
+            : (protocolChanged
+                ? undefined
+                : existingUpstream?.capabilities.reasoning.levels[level]))
           ?? availableMappings[level];
       if (mapping) levels[level] = mapping;
     }
@@ -224,6 +255,13 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
       ? {
           ...existingUpstream,
           capabilities: { ...existingUpstream.capabilities, vision, tools, reasoning },
+          token_limits: tokenLimitsFromCatalog(
+            model,
+            existingUpstream.token_limits,
+            changedCatalogTokenLimitModelIds.has(model.id)
+              ? catalogTokenLimitsByModel.get(model.id)
+              : undefined,
+          ),
         }
       : {
           id: upstreamId,
@@ -231,6 +269,13 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
           upstream_model_id: model.id,
           display_name: model.displayName,
           capabilities: { vision, tools, reasoning },
+          token_limits: tokenLimitsFromCatalog(
+            model,
+            undefined,
+            changedCatalogTokenLimitModelIds.has(model.id)
+              ? catalogTokenLimitsByModel.get(model.id)
+              : undefined,
+          ),
           parameter_overrides: emptyParameters(),
           enabled: true,
         });
@@ -277,6 +322,7 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     providers,
     upstream_models: [...remainingUpstreams, ...nextUpstreams],
     virtual_models: [...remainingVirtuals, ...providerVirtuals],
+    official_model_settings: currentConfig.official_model_settings,
   };
   const summary = summarizeProviderChanges(
     currentConfig,

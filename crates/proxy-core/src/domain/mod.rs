@@ -6,8 +6,8 @@ pub mod response;
 
 pub use error::{ErrorCategory, ProxyError};
 pub use model::{
-    ModelCapabilities, ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel,
-    VirtualModel,
+    ModelCapabilities, ModelTokenLimits, OfficialCompressionProfile, OfficialModelSettings,
+    ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
 };
 pub use provider::{ParameterOverrides, Provider, ProviderProtocol};
 pub use request::{

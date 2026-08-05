@@ -168,6 +168,17 @@ pub(super) fn build_request_payload(
             Some(ReasoningMapping::Adaptive) => {
                 payload["thinking"] = json!({ "type": "adaptive" });
             }
+            Some(ReasoningMapping::Effort(effort)) => {
+                payload["thinking"] = json!({ "type": "adaptive" });
+                match payload.get_mut("output_config") {
+                    Some(Value::Object(output_config)) => {
+                        output_config.insert("effort".to_string(), json!(effort));
+                    }
+                    _ => {
+                        payload["output_config"] = json!({ "effort": effort });
+                    }
+                }
+            }
             Some(ReasoningMapping::Disabled) => {
                 payload["thinking"] = json!({ "type": "disabled" });
             }

@@ -1,7 +1,8 @@
 use crate::state::DesktopState;
 use agy_byok::domain::{
-    ErrorCategory, ModelCapabilities, ParameterOverrides, Provider, ProviderProtocol, ProxyError,
-    ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
+    ErrorCategory, ModelCapabilities, ModelTokenLimits, ParameterOverrides, Provider,
+    ProviderProtocol, ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping,
+    UpstreamModel, VirtualModel,
 };
 use agy_byok::providers::{fetch_provider_models, ProviderCatalogModel};
 use agy_byok::proxy::ProxyServer;
@@ -57,6 +58,7 @@ pub(crate) async fn test_provider_model_connection(
     upstream_model_id: String,
     reasoning_level: Option<ReasoningLevel>,
     custom_reasoning_value: Option<String>,
+    reasoning_mapping: Option<ReasoningMapping>,
 ) -> Result<ModelConnectionTestResult, String> {
     let started = Instant::now();
     let config = preview_model_config(
@@ -64,9 +66,17 @@ pub(crate) async fn test_provider_model_connection(
         upstream_model_id,
         reasoning_level,
         custom_reasoning_value.as_deref(),
+        reasoning_mapping.as_ref(),
     )?;
     let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
-    let result = server.test_model_connection("preview-model").await;
+    let result = match reasoning_level {
+        Some(level) => {
+            server
+                .test_model_connection_with_reasoning("preview-model", level)
+                .await
+        }
+        None => server.test_model_connection("preview-model").await,
+    };
     let duration_ms = started.elapsed().as_millis() as u64;
 
     Ok(match result {
@@ -87,7 +97,11 @@ fn preview_reasoning_mapping(
     protocol: &ProviderProtocol,
     level: ReasoningLevel,
     custom_value: Option<&str>,
+    catalog_mapping: Option<&ReasoningMapping>,
 ) -> Result<ReasoningMapping, String> {
+    if let Some(mapping) = catalog_mapping {
+        return Ok(mapping.clone());
+    }
     if level == ReasoningLevel::Auto {
         let value = custom_value
             .map(str::trim)
@@ -97,50 +111,32 @@ fn preview_reasoning_mapping(
             ProviderProtocol::OpenaiChatCompletions | ProviderProtocol::OpenaiResponses => {
                 Ok(ReasoningMapping::Effort(value.to_string()))
             }
-            ProviderProtocol::AnthropicMessages | ProviderProtocol::GeminiGenerateContent => {
-                let tokens = value
-                    .parse::<u32>()
-                    .map_err(|_| "自定义 thinking budget 必须是整数".to_string())?;
-                if tokens < 1024 {
-                    return Err("自定义 thinking budget 不能小于 1024".to_string());
+            ProviderProtocol::AnthropicMessages => {
+                if let Ok(tokens) = value.parse::<u32>() {
+                    if tokens < 1024 {
+                        return Err("自定义 thinking budget 不能小于 1024".to_string());
+                    }
+                    Ok(ReasoningMapping::BudgetTokens(tokens))
+                } else {
+                    Ok(ReasoningMapping::Effort(value.to_string()))
                 }
-                Ok(ReasoningMapping::BudgetTokens(tokens))
+            }
+            ProviderProtocol::GeminiGenerateContent => {
+                if let Ok(tokens) = value.parse::<u32>() {
+                    if tokens < 1024 {
+                        return Err("自定义 thinking budget 不能小于 1024".to_string());
+                    }
+                    Ok(ReasoningMapping::BudgetTokens(tokens))
+                } else {
+                    Ok(ReasoningMapping::NativeLevel(value.to_string()))
+                }
             }
         };
     }
 
-    match protocol {
-        ProviderProtocol::AnthropicMessages => Ok(ReasoningMapping::BudgetTokens(match level {
-            ReasoningLevel::Low => 1024,
-            ReasoningLevel::Medium => 4096,
-            ReasoningLevel::High => 8192,
-            ReasoningLevel::XHigh => 16384,
-            ReasoningLevel::Max => 32768,
-            _ => return Err("当前等级不支持 Claude 思考测试".to_string()),
-        })),
-        ProviderProtocol::GeminiGenerateContent => Ok(ReasoningMapping::NativeLevel(
-            match level {
-                ReasoningLevel::Low => "low",
-                ReasoningLevel::Medium => "medium",
-                ReasoningLevel::High => "high",
-                _ => return Err("Gemini 只支持 Low、Medium、High 思考测试".to_string()),
-            }
-            .to_string(),
-        )),
-        ProviderProtocol::OpenaiChatCompletions | ProviderProtocol::OpenaiResponses => {
-            Ok(ReasoningMapping::Effort(
-                match level {
-                    ReasoningLevel::Low => "low",
-                    ReasoningLevel::Medium => "medium",
-                    ReasoningLevel::High => "high",
-                    ReasoningLevel::XHigh => "xhigh",
-                    ReasoningLevel::Max => "max",
-                    _ => return Err("当前等级不支持 OpenAI 思考测试".to_string()),
-                }
-                .to_string(),
-            ))
-        }
-    }
+    let _ = protocol;
+    let _ = level;
+    Err("模型目录没有提供当前思考等级的可用映射，请重新获取模型目录".to_string())
 }
 
 fn preview_model_config(
@@ -148,13 +144,19 @@ fn preview_model_config(
     upstream_model_id: String,
     reasoning_level: Option<ReasoningLevel>,
     custom_reasoning_value: Option<&str>,
+    catalog_mapping: Option<&ReasoningMapping>,
 ) -> Result<AppConfig, String> {
     let provider_id = provider.id.clone();
     let mut reasoning = ReasoningCapability::default();
     if let Some(level) = reasoning_level {
         reasoning.levels.insert(
             level,
-            preview_reasoning_mapping(&provider.protocol, level, custom_reasoning_value)?,
+            preview_reasoning_mapping(
+                &provider.protocol,
+                level,
+                custom_reasoning_value,
+                catalog_mapping,
+            )?,
         );
     }
     let default_reasoning_level = reasoning_level;
@@ -170,6 +172,7 @@ fn preview_model_config(
                 reasoning,
                 ..ModelCapabilities::default()
             },
+            token_limits: ModelTokenLimits::default(),
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         }],
@@ -183,6 +186,7 @@ fn preview_model_config(
             fallback_virtual_model_id: None,
             enabled: true,
         }],
+        official_model_settings: Default::default(),
     })
 }
 

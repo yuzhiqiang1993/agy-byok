@@ -164,6 +164,8 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
     catalogVisionEnabledModelIds: catalog.catalogVisionEnabledModelIds,
     catalogToolsEnabledModelIds: catalog.catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds: catalog.catalogReasoningEnabledModelIds,
+    catalogTokenLimitsByModel: catalog.catalogTokenLimitsByModel,
+    changedCatalogTokenLimitModelIds: catalog.changedCatalogTokenLimitModelIds,
     changedCatalogCapabilityModelIds: catalog.changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds: catalog.changedCatalogReasoningModelIds,
     legacyCatalogModelIds: catalog.legacyCatalogModelIds,

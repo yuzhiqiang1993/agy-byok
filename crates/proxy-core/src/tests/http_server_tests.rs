@@ -44,6 +44,7 @@ mod tests {
                     tools: true,
                     reasoning: ReasoningCapability::default(),
                 },
+                token_limits: ModelTokenLimits::default(),
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -57,6 +58,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
+            official_model_settings: OfficialModelSettings::default(),
         }
     }
 

@@ -97,6 +97,7 @@ mod tests {
             upstream_model_id: "gpt-5".to_string(),
             display_name: "GPT-5".to_string(),
             capabilities: Default::default(),
+            token_limits: Default::default(),
             parameter_overrides: Default::default(),
             enabled: true,
         };

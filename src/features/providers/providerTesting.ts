@@ -1,8 +1,9 @@
-import type { Provider } from "../../types/config";
+import type { Provider, UpstreamModel } from "../../types/config";
+import type { ProviderCatalogModel } from "../../types/catalog";
 import type { ModelConnectionTestResult } from "../../types/proxy";
-import type { ConfigurableReasoningLevel, ReasoningLevel } from "../../types/reasoning";
+import type { ConfigurableReasoningLevel, ReasoningLevel, ReasoningMapping } from "../../types/reasoning";
 import { testProviderModelConnection as testProviderModelConnectionCommand } from "../../controllers/providerController";
-import { reasoningLevelLabel, sortReasoningLevels } from "../../utils/reasoningUtils";
+import { catalogReasoningMappingsForModel, reasoningLevelLabel, sortReasoningLevels } from "../../utils/reasoningUtils";
 import { t } from "../../i18n";
 
 export async function testProviderModelConnection(
@@ -10,12 +11,14 @@ export async function testProviderModelConnection(
   upstreamModelId: string,
   reasoningLevel: ReasoningLevel | null,
   customReasoningValue: string | null,
+  reasoningMapping: ReasoningMapping | null = null,
 ): Promise<ModelConnectionTestResult> {
   return testProviderModelConnectionCommand(
     provider,
     upstreamModelId,
     reasoningLevel,
     customReasoningValue,
+    reasoningMapping,
   );
 }
 
@@ -23,6 +26,8 @@ export interface CatalogModelTestContext {
   button: HTMLButtonElement;
   result: HTMLSpanElement;
   modelId: string;
+  model: ProviderCatalogModel;
+  existingUpstream?: UpstreamModel;
   providerFromForm: () => Provider;
   isReasoningEnabled: () => boolean;
   selectedReasoningLevels: () => ReadonlySet<ConfigurableReasoningLevel>;
@@ -39,14 +44,19 @@ export function runCatalogModelTests(context: CatalogModelTestContext): void {
     const testCases: Array<{
       label: string;
       reasoningLevel: ReasoningLevel | null;
+      mapping: ReasoningMapping | null;
     }> = [];
     if (context.isReasoningEnabled()) {
       for (const level of sortReasoningLevels(context.selectedReasoningLevels())) {
-        testCases.push({ label: reasoningLevelLabel(level), reasoningLevel: level });
+        const mapping = context.model.reasoning?.mappings?.[level]
+          ?? context.existingUpstream?.capabilities.reasoning.levels[level]
+          ?? catalogReasoningMappingsForModel(context.model, provider.protocol)[level]
+          ?? null;
+        testCases.push({ label: reasoningLevelLabel(level), reasoningLevel: level, mapping });
       }
     }
     if (testCases.length === 0) {
-      testCases.push({ label: t("models.normalRequest"), reasoningLevel: null });
+      testCases.push({ label: t("models.normalRequest"), reasoningLevel: null, mapping: null });
     }
 
     const results: string[] = [];
@@ -64,6 +74,7 @@ export function runCatalogModelTests(context: CatalogModelTestContext): void {
         context.modelId,
         testCase.reasoningLevel,
         null,
+        testCase.mapping,
       );
       allSucceeded = allSucceeded && response.success;
       if (!response.success) failedCount += 1;

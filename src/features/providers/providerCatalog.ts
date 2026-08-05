@@ -1,11 +1,13 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type { Provider, ProviderProtocol } from "../../types/config";
+import type { ModelTokenLimits, Provider, ProviderProtocol } from "../../types/config";
 import type { ConfigurableReasoningLevel } from "../../types/reasoning";
 import { store } from "../../store/appStore";
 import { fetchProviderCatalog as fetchProviderCatalogCommand } from "../../controllers/providerController";
 import { element } from "../../utils/domUtils";
 import {
+  catalogReasoningLevelsForModel,
   catalogReasoningMetadataLabel,
+  catalogReasoningIsAuthoritative,
   customReasoningValueFromUpstream,
   reasoningLevelLabel,
   reasoningLevelsForVirtualModels,
@@ -14,6 +16,13 @@ import {
 import { openReasoningModal } from "../../components/ReasoningModal";
 import { t } from "../../i18n";
 import { runCatalogModelTests, testProviderModelConnection } from "./providerTesting";
+import {
+  formatTokenLimit,
+  presetIdForTokenLimits,
+  resolveCatalogTokenLimits,
+  TOKEN_LIMIT_PRESETS,
+  tokenLimitsForPreset,
+} from "./tokenLimits";
 
 export let catalogModels: ProviderCatalogModel[] = [];
 export let selectedCatalogModelIds = new Set<string>();
@@ -22,6 +31,8 @@ export let catalogCustomReasoningByModel = new Map<string, string>();
 export let catalogVisionEnabledModelIds = new Set<string>();
 export let catalogToolsEnabledModelIds = new Set<string>();
 export let catalogReasoningEnabledModelIds = new Set<string>();
+export let catalogTokenLimitsByModel = new Map<string, ModelTokenLimits>();
+export let changedCatalogTokenLimitModelIds = new Set<string>();
 export let changedCatalogCapabilityModelIds = new Set<string>();
 export let changedCatalogReasoningModelIds = new Set<string>();
 export let legacyCatalogModelIds = new Set<string>();
@@ -36,6 +47,8 @@ export interface ProviderCatalogState {
   catalogVisionEnabledModelIds: ReadonlySet<string>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
+  catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
+  changedCatalogTokenLimitModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   legacyCatalogModelIds: ReadonlySet<string>;
@@ -50,6 +63,8 @@ export function getProviderCatalogState(): ProviderCatalogState {
     catalogVisionEnabledModelIds,
     catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds,
+    catalogTokenLimitsByModel,
+    changedCatalogTokenLimitModelIds,
     changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds,
     legacyCatalogModelIds,
@@ -92,6 +107,8 @@ export function resetCatalogResults(): void {
   catalogVisionEnabledModelIds = new Set();
   catalogToolsEnabledModelIds = new Set();
   catalogReasoningEnabledModelIds = new Set();
+  catalogTokenLimitsByModel = new Map();
+  changedCatalogTokenLimitModelIds = new Set();
   changedCatalogCapabilityModelIds = new Set();
   changedCatalogReasoningModelIds = new Set();
   legacyCatalogModelIds = new Set();
@@ -133,10 +150,17 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   selectedCatalogModelIds = new Set(
     existingUpstreams.map((item) => item.upstream_model_id),
   );
+  changedCatalogTokenLimitModelIds = new Set();
   changedCatalogCapabilityModelIds = new Set();
   changedCatalogReasoningModelIds = new Set();
   const existingUpstreamsByModelId = new Map(
     existingUpstreams.map((upstream) => [upstream.upstream_model_id, upstream]),
+  );
+  catalogTokenLimitsByModel = new Map(
+    catalogModels.map((model) => [
+      model.id,
+      resolveCatalogTokenLimits(model, existingUpstreamsByModelId.get(model.id)?.token_limits),
+    ]),
   );
   catalogVisionEnabledModelIds = new Set(
     catalogModels
@@ -152,19 +176,24 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
     catalogModels
       .filter((model) => {
         const upstream = existingUpstreamsByModelId.get(model.id);
-        return upstream
-          ? Object.keys(upstream.capabilities.reasoning.levels).length > 0
-          : false;
+        const hasConcreteCatalogReasoning = catalogReasoningIsAuthoritative(model);
+        if (!upstream) return hasConcreteCatalogReasoning;
+        return Object.keys(upstream.capabilities.reasoning.levels).length > 0;
       })
       .map((model) => model.id),
   );
   catalogReasoningLevelsByModel = new Map(catalogModels.map((model) => {
     const upstream = existingUpstreamsByModelId.get(model.id);
-    if (!upstream) return [model.id, new Set<ConfigurableReasoningLevel>()];
+    const catalogLevels = catalogReasoningLevelsForModel(model, provider.protocol, upstream);
+    const hasConcreteCatalogReasoning = catalogReasoningIsAuthoritative(model);
+    if (!upstream) {
+      return [model.id, new Set(hasConcreteCatalogReasoning ? catalogLevels : [])];
+    }
     const virtualModels = store.config.virtual_models.filter(
       (item) => item.upstream_model_id === upstream.id,
     );
-    return [model.id, reasoningLevelsForVirtualModels(provider.protocol, virtualModels)];
+    const existingLevels = reasoningLevelsForVirtualModels(provider.protocol, virtualModels);
+    return [model.id, new Set(existingLevels)];
   }));
   catalogCustomReasoningByModel = new Map(
     catalogModels.flatMap((model) => {
@@ -218,6 +247,184 @@ function catalogCapabilityToggle(
   copy.textContent = label;
   toggle.append(checkbox, copy);
   return toggle;
+}
+
+function tokenPresetName(id: string): string {
+  const labels: Record<string, string> = {
+    catalog: t("models.tokenPresetCatalog"),
+    chatgpt_default: t("models.tokenPresetChatgptDefault"),
+    chatgpt_thinking: t("models.tokenPresetChatgptThinking"),
+    gpt5_api: t("models.tokenPresetGpt5Api"),
+    gemini_long: t("models.tokenPresetGeminiLong"),
+    claude_long: t("models.tokenPresetClaudeLong"),
+    compatibility: t("models.tokenPresetCompatibility"),
+    custom: t("models.tokenPresetCustom"),
+  };
+  return labels[id] ?? id;
+}
+
+function createTokenLimitControls(
+  model: ProviderCatalogModel,
+  selected: boolean,
+  context: ProviderCatalogContext,
+): HTMLDivElement {
+  const control = document.createElement("div");
+  control.className = "catalog-token-controls";
+
+  const currentLimits = catalogTokenLimitsByModel.get(model.id)
+    ?? resolveCatalogTokenLimits(model);
+  const hasCatalogInput = model.inputTokenLimit !== undefined;
+  const hasCatalogOutput = model.outputTokenLimit !== undefined;
+  const titleRow = document.createElement("div");
+  titleRow.className = "catalog-token-heading";
+  const title = document.createElement("span");
+  title.className = "catalog-token-title";
+  title.textContent = t("models.tokenLimitTitle");
+  const sourceNote = document.createElement("span");
+  sourceNote.className = `catalog-token-source-note${hasCatalogInput || hasCatalogOutput ? " reported" : " missing"}`;
+  sourceNote.textContent = hasCatalogInput || hasCatalogOutput
+    ? t("models.tokenLimitCatalogValue")
+    : t("models.tokenLimitMissing");
+  titleRow.append(title, sourceNote);
+  const updateSummary = (summary: HTMLElement) => {
+    const displayedLimits = catalogTokenLimitsByModel.get(model.id) ?? currentLimits;
+    summary.textContent = t("models.tokenLimitSummary", {
+      input: formatTokenLimit(displayedLimits.input_token_limit),
+      output: formatTokenLimit(displayedLimits.output_token_limit),
+    });
+  };
+  const updateManualLimit = (
+    field: "input_token_limit" | "output_token_limit",
+    value: string,
+    summary: HTMLElement,
+  ) => {
+    const trimmed = value.trim();
+    const parsed = trimmed.length === 0 ? null : Number(trimmed);
+    if (parsed !== null && (!Number.isInteger(parsed) || parsed <= 0 || parsed > 0x7fffffff)) {
+      return;
+    }
+    const next = {
+      ...(catalogTokenLimitsByModel.get(model.id) ?? currentLimits),
+      [field]: parsed,
+    };
+    catalogTokenLimitsByModel.set(model.id, next);
+    changedCatalogTokenLimitModelIds.add(model.id);
+    updateSummary(summary);
+    context.setProviderEditorDirty(true);
+    context.refreshProviderEditorControls();
+  };
+
+  const fields = document.createElement("div");
+  fields.className = "catalog-token-fields";
+  const summary = document.createElement("span");
+  summary.className = "catalog-token-summary";
+  updateSummary(summary);
+  const contextSummary = document.createElement("span");
+  contextSummary.className = "catalog-token-context";
+  const contextLimit = model.contextWindow ?? model.contextLength;
+  const contextParts: string[] = [];
+  if (contextLimit !== undefined) {
+    contextParts.push(t("models.tokenContextSummary", {
+      context: formatTokenLimit(contextLimit),
+    }));
+  }
+  if (model.maxContextWindow !== undefined && model.maxContextWindow !== contextLimit) {
+    contextParts.push(t("models.tokenNativeContextSummary", {
+      context: formatTokenLimit(model.maxContextWindow),
+    }));
+  }
+  if (model.autoCompactTokenLimit !== undefined) {
+    contextParts.push(t("models.tokenAutoCompactSummary", {
+      context: formatTokenLimit(model.autoCompactTokenLimit),
+    }));
+  } else if (contextLimit !== undefined) {
+    contextParts.push(t("models.tokenAutoCompactMissing"));
+  }
+  if (contextParts.length > 0) {
+    contextSummary.textContent = contextParts.join(" · ");
+  }
+
+  const appendField = (
+    field: "input_token_limit" | "output_token_limit",
+    reportedValue: number | undefined,
+    labelKey: "tokenInputLimit" | "tokenOutputLimit",
+  ) => {
+    const fieldRow = document.createElement("label");
+    fieldRow.className = "catalog-token-field";
+    const fieldLabel = document.createElement("span");
+    fieldLabel.textContent = t(`models.${labelKey}`);
+    fieldRow.append(fieldLabel);
+    if (reportedValue !== undefined) {
+      const value = document.createElement("span");
+      value.className = "catalog-token-value readonly";
+      value.textContent = formatTokenLimit(reportedValue);
+      value.title = t("models.tokenLimitCatalogValue");
+      const source = document.createElement("span");
+      source.className = "catalog-token-source";
+      source.textContent = t("models.tokenLimitCatalogValue");
+      fieldRow.append(value, source);
+    } else {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.step = "1";
+      input.className = "catalog-token-input";
+      const displayedValue = catalogTokenLimitsByModel.get(model.id)?.[field] ?? currentLimits[field];
+      input.value = displayedValue === null ? "" : String(displayedValue);
+      input.disabled = !selected;
+      input.placeholder = t("models.tokenLimitManualValue");
+      input.title = t("models.tokenLimitManualValue");
+      input.addEventListener("change", () => updateManualLimit(field, input.value, summary));
+      const source = document.createElement("span");
+      source.className = "catalog-token-source manual";
+      source.textContent = t("models.tokenLimitManualValue");
+      fieldRow.append(input, source);
+    }
+    fields.append(fieldRow);
+  };
+
+  appendField("input_token_limit", model.inputTokenLimit, "tokenInputLimit");
+  appendField("output_token_limit", model.outputTokenLimit, "tokenOutputLimit");
+
+  if (!hasCatalogInput && !hasCatalogOutput) {
+    const preset = document.createElement("select");
+    preset.className = "catalog-token-preset";
+    for (const item of TOKEN_LIMIT_PRESETS) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = tokenPresetName(item.id);
+      preset.append(option);
+    }
+    const currentPreset = presetIdForTokenLimits(currentLimits);
+    if (currentPreset === "custom") {
+      const customOption = document.createElement("option");
+      customOption.value = "custom";
+      customOption.textContent = tokenPresetName("custom");
+      customOption.disabled = true;
+      preset.append(customOption);
+    }
+    preset.value = currentPreset;
+    preset.disabled = !selected;
+    preset.title = t("models.tokenLimitPresetHint");
+    preset.addEventListener("change", () => {
+      const nextLimits = tokenLimitsForPreset(preset.value);
+      if (!nextLimits) return;
+      catalogTokenLimitsByModel.set(model.id, nextLimits);
+      changedCatalogTokenLimitModelIds.add(model.id);
+      updateSummary(summary);
+      fields.querySelectorAll<HTMLInputElement>(".catalog-token-input").forEach((input, index) => {
+        const field = index === 0 ? "input_token_limit" : "output_token_limit";
+        const value = nextLimits[field];
+        input.value = value === null ? "" : String(value);
+      });
+      context.setProviderEditorDirty(true);
+      context.refreshProviderEditorControls();
+    });
+    control.append(titleRow, preset, fields, summary, contextSummary);
+  } else {
+    control.append(titleRow, fields, summary, contextSummary);
+  }
+  return control;
 }
 
 export function renderCatalogModels(context: ProviderCatalogContext): void {
@@ -275,6 +482,11 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
     const capabilities = document.createElement("div");
     capabilities.className = "catalog-model-capabilities";
     const selectedLevels = catalogReasoningLevelsByModel.get(model.id);
+    const availableReasoningLevels = catalogReasoningLevelsForModel(
+      model,
+      context.selectedProtocol(),
+      existingUpstream,
+    );
     const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id) && (selectedLevels?.size ?? 0) > 0;
     const reasoningBtn = document.createElement("button");
     reasoningBtn.type = "button";
@@ -287,7 +499,7 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
       : t("models.configureReasoning");
     const reasoningToggleLabel = catalogReasoningMetadataLabel(model);
     reasoningBtn.title = reasoningToggleLabel ?? t("models.configureReasoningHint");
-    reasoningBtn.disabled = !selected || (model.reasoning?.supported === false && !existingUpstream);
+    reasoningBtn.disabled = !selected || availableReasoningLevels.length === 0;
     reasoningBtn.addEventListener("click", () => {
       openReasoningModal(model, {
         providerProtocol: context.selectedProtocol(),
@@ -297,6 +509,10 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
         testProviderModelConnection,
         runBusy: context.withProviderEditorBusy,
         onConfirm: (modelId, levels) => {
+          const previousLevels = catalogReasoningLevelsByModel.get(modelId)
+            ?? new Set<ConfigurableReasoningLevel>();
+          const levelsChanged = previousLevels.size !== levels.size
+            || [...previousLevels].some((level) => !levels.has(level));
           if (levels.size > 0) {
             catalogReasoningEnabledModelIds.add(modelId);
             catalogReasoningLevelsByModel.set(modelId, levels);
@@ -304,8 +520,10 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
             catalogReasoningEnabledModelIds.delete(modelId);
             catalogReasoningLevelsByModel.delete(modelId);
           }
-          changedCatalogReasoningModelIds.add(modelId);
-          context.setProviderEditorDirty(true);
+          if (levelsChanged) {
+            changedCatalogReasoningModelIds.add(modelId);
+            context.setProviderEditorDirty(true);
+          }
           renderCatalogModels(context);
         },
       });
@@ -339,6 +557,8 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
         button: test,
         result,
         modelId: model.id,
+        model,
+        existingUpstream,
         providerFromForm: context.providerFromForm,
         isReasoningEnabled: () => catalogReasoningEnabledModelIds.has(model.id),
         selectedReasoningLevels: () => catalogReasoningLevelsByModel.get(model.id) ?? new Set<ConfigurableReasoningLevel>(),
@@ -348,11 +568,22 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
     const testArea = document.createElement("div");
     testArea.className = "catalog-model-test-area";
     testArea.append(test, result);
+    const header = document.createElement("div");
+    header.className = "catalog-model-header";
+    header.append(select, testArea);
+
+    const capabilityGroup = document.createElement("div");
+    capabilityGroup.className = "catalog-capability-group";
+    const capabilityTitle = document.createElement("span");
+    capabilityTitle.className = "catalog-capability-title";
+    capabilityTitle.textContent = t("models.capabilityColumn");
+    capabilityGroup.append(capabilityTitle, capabilities);
+
     const actions = document.createElement("div");
     actions.className = "catalog-model-actions";
-    actions.append(capabilities);
-    actions.append(testArea);
-    row.append(select, actions);
+    actions.append(createTokenLimitControls(model, selected, context));
+    actions.append(capabilityGroup);
+    row.append(header, actions);
     catalogModelList.append(row);
   }
 

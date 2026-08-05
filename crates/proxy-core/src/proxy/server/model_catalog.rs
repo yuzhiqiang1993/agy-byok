@@ -61,6 +61,10 @@ impl ProxyServer {
                 virtual_model
             })
             .collect::<Vec<_>>();
+        AntigravityModelDescriptor::apply_official_model_overrides(
+            &mut base_json,
+            &config.official_model_settings,
+        );
         AntigravityModelDescriptor::inject_into_model_list(
             &mut base_json,
             &catalog_virtual_models,

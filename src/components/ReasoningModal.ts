@@ -2,8 +2,13 @@ import { element } from "../utils/domUtils";
 import type { ProviderCatalogModel } from "../types/catalog";
 import type { Provider, ProviderProtocol, UpstreamModel } from "../types/config";
 import type { ModelConnectionTestResult } from "../types/proxy";
-import type { ConfigurableReasoningLevel } from "../types/reasoning";
-import { catalogReasoningLevelsForModel, reasoningLevelLabel, sortReasoningLevels } from "../utils/reasoningUtils";
+import type { ConfigurableReasoningLevel, ReasoningMapping } from "../types/reasoning";
+import {
+  catalogReasoningLevelsForModel,
+  catalogReasoningMappingsForModel,
+  reasoningLevelLabel,
+  sortReasoningLevels,
+} from "../utils/reasoningUtils";
 import { t, subscribeLanguage } from "../i18n";
 
 export interface ReasoningModalContext {
@@ -16,6 +21,7 @@ export interface ReasoningModalContext {
     upstreamModelId: string,
     reasoningLevel: ConfigurableReasoningLevel,
     customReasoningValue: string | null,
+    reasoningMapping: ReasoningMapping | null,
   ) => Promise<ModelConnectionTestResult>;
   runBusy: (
     button: HTMLButtonElement,
@@ -45,6 +51,8 @@ subscribeLanguage(() => {
   document.querySelectorAll<HTMLButtonElement>("#reasoning-modal-levels button").forEach((button) => {
     button.textContent = t("models.testConnection");
   });
+  const readOnlyNote = document.querySelector<HTMLElement>("#reasoning-modal-levels .reasoning-modal-readonly-note");
+  if (readOnlyNote) readOnlyNote.textContent = t("models.reasoningLevelsReadOnly");
 });
 
 export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
@@ -62,6 +70,15 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
     context.providerProtocol,
     context.existingUpstream,
   );
+  const hasCatalogReasoningLevels =
+    (model.reasoning?.levels ?? []).some((level) => level !== "off" && level !== "auto")
+    || Object.keys(model.reasoning?.mappings ?? {}).some((level) => level !== "off" && level !== "auto");
+  if (hasCatalogReasoningLevels) {
+    const note = document.createElement("p");
+    note.className = "reasoning-modal-readonly-note";
+    note.textContent = t("models.reasoningLevelsReadOnly");
+    reasoningModalLevelsContainer.append(note);
+  }
   for (const level of supportedLevels) {
     const row = document.createElement("div");
     row.className = "reasoning-modal-level-row";
@@ -71,6 +88,7 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = draftReasoningLevels.has(level);
+    // 上游返回的是可用选项，勾选状态由用户决定。
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) draftReasoningLevels.add(level);
       else draftReasoningLevels.delete(level);
@@ -100,6 +118,10 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
           model.id,
           level,
           null,
+          model.reasoning?.mappings?.[level]
+            ?? currentContext.existingUpstream?.capabilities.reasoning.levels[level]
+            ?? catalogReasoningMappingsForModel(model, currentContext.providerProtocol)[level]
+            ?? null,
         );
         if (response.success) {
           result.className = "reasoning-level-test-result success";

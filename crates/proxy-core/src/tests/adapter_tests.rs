@@ -44,6 +44,7 @@ mod tests {
                 tools: true,
                 reasoning,
             },
+            token_limits: ModelTokenLimits::default(),
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         }
@@ -201,6 +202,7 @@ mod tests {
             providers: vec![provider],
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
+            official_model_settings: OfficialModelSettings::default(),
         };
         let request = basic_request();
 
@@ -246,6 +248,7 @@ mod tests {
                 ),
             ]))],
             virtual_models: vec![create_virtual_model(Some(ReasoningLevel::High))],
+            official_model_settings: OfficialModelSettings::default(),
         };
         let mut request = basic_request();
         request.reasoning_level = Some(ReasoningLevel::Low);
@@ -265,6 +268,7 @@ mod tests {
                 ReasoningMapping::Effort("high".to_string()),
             )]))],
             virtual_models: vec![create_virtual_model(None)],
+            official_model_settings: OfficialModelSettings::default(),
         };
         let mut request = basic_request();
         request.reasoning_level = Some(ReasoningLevel::Max);
@@ -460,6 +464,28 @@ mod tests {
         assert_eq!(payload["thinking"]["type"], "enabled");
         assert_eq!(payload["thinking"]["budget_tokens"], 4096);
         assert_eq!(payload["max_tokens"], 8192);
+    }
+
+    #[test]
+    fn anthropic_reasoning_payload_uses_effort_without_inventing_budget() {
+        let adapter = AnthropicAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::AnthropicMessages,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+        route.final_parameters.extra_body = Some(HashMap::from([(
+            "output_config".to_string(),
+            json!({ "format": "text" }),
+        )]));
+
+        let payload = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(payload["thinking"]["type"], "adaptive");
+        assert_eq!(payload["output_config"]["effort"], "high");
+        assert_eq!(payload["output_config"]["format"], "text");
+        assert_eq!(payload["max_tokens"], 2048);
     }
 
     #[test]

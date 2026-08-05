@@ -3,6 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+const GEMINI_CONTEXT_WINDOW_LIMIT: u32 = 1_048_576;
+const GEMINI_SAFE_TOKEN_THRESHOLD: u32 = 430_000;
+const GEMINI_SAFE_MAX_TOKEN_LIMIT: u32 = 512_000;
+const GEMINI_BALANCED_TOKEN_THRESHOLD: u32 = 640_000;
+const GEMINI_BALANCED_MAX_TOKEN_LIMIT: u32 = 768_000;
+const GEMINI_AGGRESSIVE_TOKEN_THRESHOLD: u32 = 760_000;
+const GEMINI_AGGRESSIVE_MAX_TOKEN_LIMIT: u32 = 900_000;
+const DEFAULT_GEMINI_MAX_OUTPUT_TOKENS: u32 = 16_384;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningLevel {
@@ -23,6 +32,84 @@ pub enum ReasoningMapping {
     BudgetTokens(u32),
     Adaptive,
     NativeLevel(String),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OfficialCompressionProfile {
+    #[default]
+    Official,
+    Safe,
+    Balanced,
+    Aggressive,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct OfficialModelSettings {
+    /// 是否沿用官方模型目录中的检查点配置；其他档位会覆盖官方 Gemini 条目。
+    pub gemini_compression_profile: OfficialCompressionProfile,
+    pub gemini_token_threshold: u32,
+    pub gemini_max_token_limit: u32,
+    pub gemini_max_output_tokens: u32,
+}
+
+impl Default for OfficialModelSettings {
+    fn default() -> Self {
+        Self {
+            gemini_compression_profile: OfficialCompressionProfile::Official,
+            gemini_token_threshold: GEMINI_BALANCED_TOKEN_THRESHOLD,
+            gemini_max_token_limit: GEMINI_BALANCED_MAX_TOKEN_LIMIT,
+            gemini_max_output_tokens: DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+        }
+    }
+}
+
+impl OfficialModelSettings {
+    /// 返回需要写入 Antigravity 模型目录的检查点参数；官方档位不覆盖上游值。
+    pub fn gemini_checkpoint_limits(&self) -> Option<(u32, u32, u32)> {
+        let (threshold, max_limit) = match self.gemini_compression_profile {
+            OfficialCompressionProfile::Official => return None,
+            OfficialCompressionProfile::Safe => {
+                (GEMINI_SAFE_TOKEN_THRESHOLD, GEMINI_SAFE_MAX_TOKEN_LIMIT)
+            }
+            OfficialCompressionProfile::Balanced => (
+                GEMINI_BALANCED_TOKEN_THRESHOLD,
+                GEMINI_BALANCED_MAX_TOKEN_LIMIT,
+            ),
+            OfficialCompressionProfile::Aggressive => (
+                GEMINI_AGGRESSIVE_TOKEN_THRESHOLD,
+                GEMINI_AGGRESSIVE_MAX_TOKEN_LIMIT,
+            ),
+            OfficialCompressionProfile::Custom => {
+                (self.gemini_token_threshold, self.gemini_max_token_limit)
+            }
+        };
+        Some((threshold, max_limit, self.gemini_max_output_tokens))
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let Some((threshold, max_limit, max_output)) = self.gemini_checkpoint_limits() else {
+            return Ok(());
+        };
+        if threshold == 0 || max_limit == 0 || max_output == 0 {
+            return Err("官方 Gemini 检查点限制必须大于 0".to_string());
+        }
+        if threshold >= max_limit {
+            return Err("官方 Gemini 压缩阈值必须小于检查点硬上限".to_string());
+        }
+        if max_limit > GEMINI_CONTEXT_WINDOW_LIMIT {
+            return Err(format!(
+                "官方 Gemini 检查点硬上限不能超过 {}",
+                GEMINI_CONTEXT_WINDOW_LIMIT
+            ));
+        }
+        if max_output >= max_limit {
+            return Err("官方 Gemini 摘要输出预留必须小于检查点硬上限".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -47,6 +134,39 @@ pub struct ModelCapabilities {
     pub reasoning: ReasoningCapability,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ModelTokenLimits {
+    /// 模型允许的最大输入 Token；缺省时由 Antigravity 适配层使用通用大上下文默认值。
+    #[serde(default)]
+    pub input_token_limit: Option<u32>,
+    /// 模型允许的最大输出 Token；它独立于请求参数中的单次输出覆盖值。
+    #[serde(default)]
+    pub output_token_limit: Option<u32>,
+}
+
+impl ModelTokenLimits {
+    pub const fn legacy_default() -> Self {
+        Self {
+            input_token_limit: Some(128_000),
+            output_token_limit: Some(8_192),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.input_token_limit == Some(0) {
+            return Err("input_token_limit must be greater than 0");
+        }
+        if self.output_token_limit == Some(0) {
+            return Err("output_token_limit must be greater than 0");
+        }
+        Ok(())
+    }
+}
+
+fn legacy_model_token_limits() -> ModelTokenLimits {
+    ModelTokenLimits::legacy_default()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamModel {
     pub id: String,
@@ -54,6 +174,8 @@ pub struct UpstreamModel {
     pub upstream_model_id: String,
     pub display_name: String,
     pub capabilities: ModelCapabilities,
+    #[serde(default = "legacy_model_token_limits")]
+    pub token_limits: ModelTokenLimits,
     pub parameter_overrides: ParameterOverrides,
     pub enabled: bool,
 }

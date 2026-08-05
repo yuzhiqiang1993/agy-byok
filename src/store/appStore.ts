@@ -7,7 +7,18 @@ type ConfigLoadState = "loading" | "ready" | "error";
 
 class AppStore {
   // Config
-  private _config: AppConfig = { proxy_port: DEFAULT_PROXY_PORT, providers: [], upstream_models: [], virtual_models: [] };
+  private _config: AppConfig = {
+    proxy_port: DEFAULT_PROXY_PORT,
+    providers: [],
+    upstream_models: [],
+    virtual_models: [],
+    official_model_settings: {
+      gemini_compression_profile: "official",
+      gemini_token_threshold: 640_000,
+      gemini_max_token_limit: 768_000,
+      gemini_max_output_tokens: 16_384,
+    },
+  };
   private _configLoadState: ConfigLoadState = "loading";
   private _configLoadError: string | null = null;
   

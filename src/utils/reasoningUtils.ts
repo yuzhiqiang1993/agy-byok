@@ -45,26 +45,43 @@ export function configurableReasoningLevels(protocol: ProviderProtocol): Configu
     : ["low", "medium", "high", "x_high", "max"];
 }
 
+export function catalogReasoningIsAuthoritative(model: ProviderCatalogModel): boolean {
+  return (model.reasoning?.levels ?? []).some((level) => level !== "off" && level !== "auto")
+    || Object.keys(model.reasoning?.mappings ?? {}).some((level) => level !== "off" && level !== "auto");
+}
+
 export function catalogReasoningLevelsForModel(
   model: ProviderCatalogModel,
   protocol: ProviderProtocol,
   existingUpstream?: UpstreamModel,
 ): ConfigurableReasoningLevel[] {
-  if (model.reasoning?.supported === false && !existingUpstream) return [];
-  const explicit = (model.reasoning?.levels ?? []).filter(
-    (level): level is ConfigurableReasoningLevel =>
-      configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
-  );
-  if (explicit.length > 0) return sortReasoningLevels([...new Set(explicit)]);
+  const configurable = configurableReasoningLevels(protocol);
   const existing = existingUpstream
     ? (Object.keys(existingUpstream.capabilities.reasoning.levels) as ReasoningLevel[]).filter(
-        (level): level is ConfigurableReasoningLevel =>
-          configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
+        (level): level is ConfigurableReasoningLevel => configurable.includes(level as ConfigurableReasoningLevel),
       )
     : [];
-  return sortReasoningLevels(
-    existing.length > 0 ? [...new Set(existing)] : configurableReasoningLevels(protocol),
+
+  if (model.reasoning?.supported === false) return sortReasoningLevels([...new Set(existing)]);
+
+  const explicit = (model.reasoning?.levels ?? []).filter(
+    (level): level is ConfigurableReasoningLevel =>
+      configurable.includes(level as ConfigurableReasoningLevel),
   );
+  if (explicit.length > 0) {
+    return sortReasoningLevels([...new Set([...existing, ...explicit])]);
+  }
+
+  const mappings = catalogReasoningMappingsForModel(model, protocol);
+  const mappedLevels = configurable.filter((level) => mappings[level] !== undefined);
+  if (mappedLevels.length > 0) {
+    return sortReasoningLevels([...new Set([...existing, ...mappedLevels])]);
+  }
+
+  if (existing.length > 0) return sortReasoningLevels([...new Set(existing)]);
+
+  // 未声明具体等级时保留手动配置入口，避免把“目录未返回”误当成“不支持”。
+  return configurable;
 }
 
 export function catalogReasoningMetadataLabel(model: ProviderCatalogModel): string | null {
@@ -81,30 +98,60 @@ export function catalogReasoningMetadataLabel(model: ProviderCatalogModel): stri
   return t("models.reasoningUndeclared");
 }
 
-export function reasoningLevels(protocol: ProviderProtocol): Partial<Record<ReasoningLevel, ReasoningMapping>> {
+function defaultReasoningMapping(
+  protocol: ProviderProtocol,
+  level: ConfigurableReasoningLevel,
+): ReasoningMapping | null {
   if (protocol === "anthropic_messages") {
-    return {
-      low: { kind: "budget_tokens", value: 1024 },
-      medium: { kind: "budget_tokens", value: 4096 },
-      high: { kind: "budget_tokens", value: 8192 },
-      x_high: { kind: "budget_tokens", value: 16384 },
-      max: { kind: "budget_tokens", value: 32768 },
-    };
+    const budgetTokens = {
+      low: 1_024,
+      medium: 4_096,
+      high: 8_192,
+      x_high: 16_384,
+      max: 32_768,
+    }[level];
+    return { kind: "budget_tokens", value: budgetTokens };
   }
   if (protocol === "gemini_generate_content") {
-    return {
-      low: { kind: "native_level", value: "low" },
-      medium: { kind: "native_level", value: "medium" },
-      high: { kind: "native_level", value: "high" },
-    };
+    return { kind: "native_level", value: level === "x_high" ? "xhigh" : level };
   }
-  return {
-    low: { kind: "effort", value: "low" },
-    medium: { kind: "effort", value: "medium" },
-    high: { kind: "effort", value: "high" },
-    x_high: { kind: "effort", value: "xhigh" },
-    max: { kind: "effort", value: "max" },
+  return { kind: "effort", value: level === "x_high" ? "xhigh" : level };
+}
+
+export function reasoningLevels(
+  protocol: ProviderProtocol,
+): Partial<Record<ReasoningLevel, ReasoningMapping>> {
+  const levels = configurableReasoningLevels(protocol);
+  return Object.fromEntries(
+    levels.flatMap((level) => {
+      const mapping = defaultReasoningMapping(protocol, level);
+      return mapping ? [[level, mapping]] : [];
+    }),
+  ) as Partial<Record<ReasoningLevel, ReasoningMapping>>;
+}
+
+export function catalogReasoningMappingsForModel(
+  model: ProviderCatalogModel,
+  protocol: ProviderProtocol,
+): Partial<Record<ReasoningLevel, ReasoningMapping>> {
+  const mappings: Partial<Record<ReasoningLevel, ReasoningMapping>> = {
+    ...(model.reasoning?.mappings ?? {}),
   };
+  if (model.reasoning?.supported === false) return mappings;
+
+  const defaults = reasoningLevels(protocol);
+  const declaredLevels = (model.reasoning?.levels ?? []).filter(
+    (level): level is ConfigurableReasoningLevel => configurableReasoningLevels(protocol).includes(level as ConfigurableReasoningLevel),
+  );
+  const levels = declaredLevels.length > 0
+    ? declaredLevels
+    : configurableReasoningLevels(protocol);
+  for (const level of levels) {
+    if (mappings[level] !== undefined) continue;
+    const mapping = defaults[level as ConfigurableReasoningLevel];
+    if (mapping) mappings[level] = mapping;
+  }
+  return mappings;
 }
 
 export function customReasoningMapping(protocol: ProviderProtocol, value: string): ReasoningMapping | null {
@@ -114,8 +161,18 @@ export function customReasoningMapping(protocol: ProviderProtocol, value: string
     return { kind: "effort", value: normalized };
   }
   const budgetTokens = Number(normalized);
-  if (!Number.isInteger(budgetTokens) || budgetTokens < 1024) return null;
-  return { kind: "budget_tokens", value: budgetTokens };
+  if (Number.isInteger(budgetTokens) && /^\d+$/.test(normalized)) {
+    return budgetTokens >= 1024
+      ? { kind: "budget_tokens", value: budgetTokens }
+      : null;
+  }
+  if (protocol === "anthropic_messages") {
+    return { kind: "effort", value: normalized };
+  }
+  if (protocol === "gemini_generate_content") {
+    return { kind: "native_level", value: normalized };
+  }
+  return null;
 }
 
 export function reasoningLevelsForVirtualModels(

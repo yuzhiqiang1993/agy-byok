@@ -16,6 +16,25 @@ export interface ParameterOverrides {
   extra_body: Record<string, unknown> | null;
 }
 
+export interface ModelTokenLimits {
+  input_token_limit: number | null;
+  output_token_limit: number | null;
+}
+
+export type OfficialCompressionProfile =
+  | "official"
+  | "safe"
+  | "balanced"
+  | "aggressive"
+  | "custom";
+
+export interface OfficialModelSettings {
+  gemini_compression_profile: OfficialCompressionProfile;
+  gemini_token_threshold: number;
+  gemini_max_token_limit: number;
+  gemini_max_output_tokens: number;
+}
+
 export interface Provider {
   id: string;
   name: string;
@@ -41,6 +60,7 @@ export interface UpstreamModel {
     tools: boolean;
     reasoning: { levels: Partial<Record<ReasoningLevel, ReasoningMapping>> };
   };
+  token_limits: ModelTokenLimits;
   parameter_overrides: ParameterOverrides;
   enabled: boolean;
 }
@@ -61,4 +81,5 @@ export interface AppConfig {
   providers: Provider[];
   upstream_models: UpstreamModel[];
   virtual_models: VirtualModel[];
+  official_model_settings: OfficialModelSettings;
 }
