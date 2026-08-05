@@ -33,7 +33,8 @@ pub(super) async fn handle_request(
     request: Request<Incoming>,
     proxy: Arc<ProxyServer>,
     options: HttpServerOptions,
-    semaphore: Arc<Semaphore>,
+    generation_semaphore: Arc<Semaphore>,
+    control_plane_semaphore: Arc<Semaphore>,
 ) -> Result<HttpResponse, Infallible> {
     let started = Instant::now();
     let method = request.method().as_str().to_string();
@@ -103,6 +104,12 @@ pub(super) async fn handle_request(
                     "authentication",
                 ))
             } else {
+                let semaphore = if matches!(route, RouteKind::Generate | RouteKind::StreamGenerate)
+                {
+                    generation_semaphore
+                } else {
+                    control_plane_semaphore
+                };
                 let permit = match semaphore.try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {

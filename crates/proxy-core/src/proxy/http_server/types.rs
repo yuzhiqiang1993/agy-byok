@@ -25,6 +25,8 @@ pub struct HttpServerOptions {
     pub fallback_to_random_port_on_bind_error: bool,
     pub max_body_bytes: usize,
     pub max_concurrent_requests: usize,
+    /// 为模型目录和其他控制面请求预留的并发槽位，避免被长生成请求占满。
+    pub control_plane_concurrency: usize,
     pub stream_buffer_capacity: usize,
     pub graceful_shutdown_timeout: Duration,
     pub official_cloud_code_endpoint: Option<String>,
@@ -38,6 +40,7 @@ impl Default for HttpServerOptions {
             fallback_to_random_port_on_bind_error: false,
             max_body_bytes: 4 * 1024 * 1024,
             max_concurrent_requests: 64,
+            control_plane_concurrency: 8,
             stream_buffer_capacity: 32,
             graceful_shutdown_timeout: Duration::from_secs(15),
             official_cloud_code_endpoint: None,

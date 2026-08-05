@@ -90,6 +90,8 @@ impl LoopbackHttpServer {
     ) -> Result<HttpServerHandle, ProxyError> {
         if options.max_body_bytes == 0
             || options.max_concurrent_requests == 0
+            || options.control_plane_concurrency == 0
+            || options.control_plane_concurrency >= options.max_concurrent_requests
             || options.stream_buffer_capacity == 0
         {
             return Err(ProxyError::new(
@@ -147,7 +149,10 @@ impl LoopbackHttpServer {
             ));
         }
 
-        let semaphore = Arc::new(Semaphore::new(options.max_concurrent_requests));
+        let generation_semaphore = Arc::new(Semaphore::new(
+            options.max_concurrent_requests - options.control_plane_concurrency,
+        ));
+        let control_plane_semaphore = Arc::new(Semaphore::new(options.control_plane_concurrency));
         let (shutdown_sender, mut shutdown_receiver) = oneshot::channel();
         let task_options = options.clone();
         let task = tokio::spawn(async move {
@@ -170,14 +175,16 @@ impl LoopbackHttpServer {
 
                         let proxy = proxy.clone();
                         let options = task_options.clone();
-                        let semaphore = semaphore.clone();
+                        let generation_semaphore = generation_semaphore.clone();
+                        let control_plane_semaphore = control_plane_semaphore.clone();
                         connections.spawn(async move {
                             let service = hyper::service::service_fn(move |request| {
                                 handle_request(
                                     request,
                                     proxy.clone(),
                                     options.clone(),
-                                    semaphore.clone(),
+                                    generation_semaphore.clone(),
+                                    control_plane_semaphore.clone(),
                                 )
                             });
                             if let Err(error) = hyper_util::server::conn::auto::Builder::new(
