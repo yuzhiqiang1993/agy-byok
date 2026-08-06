@@ -39,20 +39,35 @@ fn parse_index(value: &Value, fallback: usize) -> u32 {
 }
 
 fn parse_usage(value: &Value) -> Option<UsageInfo> {
-    value.as_object().map(|usage| UsageInfo {
-        prompt_tokens: usage
-            .get("prompt_tokens")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-        completion_tokens: usage
-            .get("completion_tokens")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-        total_tokens: usage
-            .get("total_tokens")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-    })
+    let usage = value.as_object()?;
+    let token = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_u64)
+            .and_then(|tokens| u32::try_from(tokens).ok())
+    };
+    let prompt_tokens = token(usage.get("prompt_tokens")).unwrap_or(0);
+    let completion_tokens = token(usage.get("completion_tokens")).unwrap_or(0);
+    let cache_read_tokens = token(
+        usage
+            .get("prompt_tokens_details")
+            .and_then(Value::as_object)
+            .and_then(|details| details.get("cached_tokens")),
+    );
+    let reasoning_tokens = token(
+        usage
+            .get("completion_tokens_details")
+            .and_then(Value::as_object)
+            .and_then(|details| details.get("reasoning_tokens")),
+    );
+
+    Some(UsageInfo::from_aggregate_totals(
+        prompt_tokens,
+        completion_tokens,
+        token(usage.get("total_tokens")),
+        cache_read_tokens,
+        None,
+        reasoning_tokens,
+    ))
 }
 
 #[async_trait]

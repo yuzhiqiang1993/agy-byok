@@ -1,5 +1,5 @@
 use super::{normalize_finish_reason, parse_index, parse_usage};
-use crate::domain::{ErrorCategory, NeutralStreamEvent, ProxyError, UpstreamModel};
+use crate::domain::{ErrorCategory, NeutralStreamEvent, ProxyError, UpstreamModel, UsageInfo};
 use crate::providers::traits::ProviderStreamDecoder;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -22,6 +22,7 @@ struct OpenAIStreamDecoder {
     tools: HashMap<ToolCallKey, OpenAIToolCallState>,
     tool_order: Vec<ToolCallKey>,
     finished_choices: HashSet<u32>,
+    usage: Option<UsageInfo>,
 }
 
 impl OpenAIStreamDecoder {
@@ -33,6 +34,7 @@ impl OpenAIStreamDecoder {
             tools: HashMap::new(),
             tool_order: Vec::new(),
             finished_choices: HashSet::new(),
+            usage: None,
         }
     }
 
@@ -171,7 +173,9 @@ impl OpenAIStreamDecoder {
         let mut events = Vec::new();
         self.close_tool_keys(&keys, &mut events)?;
         self.response_ended = true;
-        events.push(NeutralStreamEvent::ResponseEnd);
+        events.push(NeutralStreamEvent::ResponseEnd {
+            usage: self.usage.clone(),
+        });
         Ok(events)
     }
 }
@@ -247,7 +251,7 @@ impl ProviderStreamDecoder for OpenAIStreamDecoder {
         }
 
         if let Some(usage) = parse_usage(&value["usage"]) {
-            events.push(NeutralStreamEvent::UsageUpdate(usage));
+            self.usage = Some(usage);
         }
 
         for (choice_index, raw_finish_reason) in finishes {

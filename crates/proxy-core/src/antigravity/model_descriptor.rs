@@ -1,9 +1,10 @@
 use crate::domain::{OfficialModelSettings, ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
-// 供应商目录没有提供限制时使用主流长上下文模型的回退值；它不会写回模型配置。
+// 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
 // 只要目录返回了模型级限制，token_limits() 就会优先使用真实值。
-const DEFAULT_INPUT_TOKEN_LIMIT: u32 = 400_000;
+const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
+const DEFAULT_INPUT_TOKEN_LIMIT: u32 = 128_000;
 const DEFAULT_OUTPUT_TOKEN_LIMIT: u32 = 128_000;
 
 pub struct AntigravityModelDescriptor;
@@ -16,13 +17,14 @@ impl AntigravityModelDescriptor {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
         let supported_mime_types = supported_mime_types(caps.vision);
-        let (input_token_limit, output_token_limit) = token_limits(upstream_model);
+        let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
             "id": virtual_model.id,
             "name": format!("models/{host_model_id}"),
             "displayName": virtual_model.display_name,
             "description": format!("Custom BYOK Model (Provider: {})", upstream_model.provider_id),
+            "contextWindow": context_window,
             "inputTokenLimit": input_token_limit,
             "outputTokenLimit": output_token_limit,
             "supportsImages": caps.vision,
@@ -50,11 +52,12 @@ impl AntigravityModelDescriptor {
         } else {
             vec!["text"]
         };
-        let (input_token_limit, output_token_limit) = token_limits(upstream_model);
+        let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
             "displayName": virtual_model.display_name,
             // Antigravity 的 maxTokens 是 planner 输入预算，不是请求的输出参数。
+            "contextWindow": context_window,
             "maxTokens": input_token_limit,
             "maxOutputTokens": output_token_limit,
             "model": host_model_id,
@@ -279,8 +282,12 @@ fn apply_checkpoint_override(
     }
 }
 
-fn token_limits(upstream_model: &UpstreamModel) -> (u32, u32) {
+fn token_limits(upstream_model: &UpstreamModel) -> (u32, u32, u32) {
     (
+        upstream_model
+            .token_limits
+            .context_window
+            .unwrap_or(DEFAULT_CONTEXT_WINDOW),
         upstream_model
             .token_limits
             .input_token_limit
@@ -423,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_mainstream_defaults_when_limits_are_missing() {
+    fn uses_experience_defaults_when_limits_are_missing() {
         let (virtual_model, upstream_model) = models();
 
         let descriptor =
@@ -433,8 +440,10 @@ mod tests {
             &upstream_model,
         );
 
+        assert_eq!(descriptor["contextWindow"], DEFAULT_CONTEXT_WINDOW);
         assert_eq!(descriptor["inputTokenLimit"], DEFAULT_INPUT_TOKEN_LIMIT);
         assert_eq!(descriptor["outputTokenLimit"], DEFAULT_OUTPUT_TOKEN_LIMIT);
+        assert_eq!(catalog["contextWindow"], DEFAULT_CONTEXT_WINDOW);
         assert_eq!(catalog["maxTokens"], DEFAULT_INPUT_TOKEN_LIMIT);
         assert_eq!(catalog["maxOutputTokens"], DEFAULT_OUTPUT_TOKEN_LIMIT);
     }
@@ -443,6 +452,7 @@ mod tests {
     fn uses_explicit_model_limits_in_both_descriptors() {
         let (virtual_model, mut upstream_model) = models();
         upstream_model.token_limits = ModelTokenLimits {
+            context_window: Some(1_000_000),
             input_token_limit: Some(1_000_000),
             output_token_limit: Some(65_536),
         };
@@ -454,10 +464,41 @@ mod tests {
             &upstream_model,
         );
 
+        assert_eq!(descriptor["contextWindow"], 1_000_000);
         assert_eq!(descriptor["inputTokenLimit"], 1_000_000);
         assert_eq!(descriptor["outputTokenLimit"], 65_536);
+        assert_eq!(catalog["contextWindow"], 1_000_000);
         assert_eq!(catalog["maxTokens"], 1_000_000);
         assert_eq!(catalog["maxOutputTokens"], 65_536);
+    }
+
+    #[test]
+    fn applies_percentage_to_custom_model_checkpoint_threshold() {
+        let settings = OfficialModelSettings {
+            custom_model_threshold_percent: Some(80),
+            ..OfficialModelSettings::default()
+        };
+
+        assert_eq!(
+            settings.custom_model_checkpoint_limits(372_000, 128_000),
+            Some((297_600, 372_000, 16_384))
+        );
+    }
+
+    #[test]
+    fn does_not_add_checkpoint_experiments_to_custom_catalog_entries() {
+        let (virtual_model, upstream_model) = models();
+        let mut catalog = json!({ "models": {} });
+
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut catalog,
+            &[virtual_model],
+            &[upstream_model],
+        );
+
+        assert!(catalog["models"]["custom-model"]
+            .get("modelExperiments")
+            .is_none());
     }
 
     #[test]

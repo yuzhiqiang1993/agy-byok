@@ -1,7 +1,8 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type { ModelTokenLimits } from "../../types/config";
+import type { ModelTokenLimits, OfficialModelSettings } from "../../types/config";
 
 export type TokenLimitPresetId =
+  | "estimated_default"
   | "chatgpt_default"
   | "chatgpt_thinking"
   | "gpt5_api"
@@ -16,7 +17,88 @@ export interface TokenLimitPreset {
   output_token_limit: number;
 }
 
+export const DEFAULT_TOKEN_LIMIT = 128_000;
+export const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+export const CONTEXT_WINDOW_OPTIONS = [
+  128_000,
+  200_000,
+  256_000,
+  500_000,
+  1_000_000,
+  1_048_576,
+] as const;
+
+export const TOKEN_INPUT_LIMIT_OPTIONS = [
+  128_000,
+  256_000,
+  400_000,
+  512_000,
+  1_000_000,
+  1_050_000,
+] as const;
+
+export const TOKEN_OUTPUT_LIMIT_OPTIONS = [
+  8_192,
+  16_384,
+  32_768,
+  65_536,
+  128_000,
+] as const;
+
+export interface CustomModelCheckpointLimits {
+  threshold: number;
+  max_token_limit: number;
+  max_output_tokens: number;
+  threshold_percent: string;
+}
+
+export function customModelCheckpointLimits(
+  settings: Partial<OfficialModelSettings> | undefined,
+  inputTokenLimit: number | null | undefined,
+  outputTokenLimit: number | null | undefined,
+): CustomModelCheckpointLimits | null {
+  const inputLimit = inputTokenLimit ?? DEFAULT_TOKEN_LIMIT;
+  const outputLimit = outputTokenLimit ?? DEFAULT_TOKEN_LIMIT;
+  const profile = settings?.gemini_compression_profile;
+  const profileValues = profile === "safe"
+    ? { threshold: 430_000, maxTokenLimit: 512_000 }
+    : profile === "aggressive"
+      ? { threshold: 760_000, maxTokenLimit: 900_000 }
+      : profile === "custom"
+        ? {
+            threshold: settings?.gemini_token_threshold ?? 640_000,
+            maxTokenLimit: settings?.gemini_max_token_limit ?? 768_000,
+          }
+        : { threshold: 640_000, maxTokenLimit: 768_000 };
+  const maxTokenLimit = Math.min(profileValues.maxTokenLimit, inputLimit);
+  const maxOutputTokens = Math.min(
+    profile === "custom" ? settings?.gemini_max_output_tokens ?? 16_384 : 16_384,
+    outputLimit,
+    Math.max(maxTokenLimit - 1, 0),
+  );
+  const customPercent = settings?.custom_model_threshold_percent;
+  const threshold = Math.min(
+    customPercent !== null && customPercent !== undefined && customPercent >= 1 && customPercent <= 100
+      ? Math.floor(maxTokenLimit * customPercent / 100)
+      : profileValues.threshold,
+    Math.max(maxTokenLimit - maxOutputTokens, 0),
+  );
+  if (threshold <= 0 || maxOutputTokens <= 0 || threshold >= maxTokenLimit) return null;
+  return {
+    threshold,
+    max_token_limit: maxTokenLimit,
+    max_output_tokens: maxOutputTokens,
+    threshold_percent: `${Math.round((threshold / maxTokenLimit) * 1000) / 10}%`,
+  };
+}
+
 export const TOKEN_LIMIT_PRESETS: readonly TokenLimitPreset[] = [
+  {
+    id: "estimated_default",
+    input_token_limit: DEFAULT_TOKEN_LIMIT,
+    output_token_limit: DEFAULT_TOKEN_LIMIT,
+  },
   {
     id: "chatgpt_default",
     input_token_limit: 400_000,
@@ -53,10 +135,15 @@ export function tokenLimitsForPreset(id: string): ModelTokenLimits | null {
   const preset = TOKEN_LIMIT_PRESETS.find((item) => item.id === id);
   return preset
     ? {
+        context_window: null,
         input_token_limit: preset.input_token_limit,
         output_token_limit: preset.output_token_limit,
       }
     : null;
+}
+
+export function catalogContextWindow(model: ProviderCatalogModel): number | undefined {
+  return model.contextWindow ?? model.contextLength ?? model.maxContextWindow;
 }
 
 export function resolveCatalogTokenLimits(
@@ -64,9 +151,10 @@ export function resolveCatalogTokenLimits(
   existing?: ModelTokenLimits,
 ): ModelTokenLimits {
   return {
-    // 目录是本次同步得到的事实；只有目录没有返回某个字段时才沿用已保存值。
-    input_token_limit: model.inputTokenLimit ?? existing?.input_token_limit ?? null,
-    output_token_limit: model.outputTokenLimit ?? existing?.output_token_limit ?? null,
+    // 目录是本次同步得到的事实；目录缺失时沿用已保存值，否则使用保守的经验默认值。
+    context_window: catalogContextWindow(model) ?? existing?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    input_token_limit: model.inputTokenLimit ?? existing?.input_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    output_token_limit: model.outputTokenLimit ?? existing?.output_token_limit ?? DEFAULT_TOKEN_LIMIT,
   };
 }
 

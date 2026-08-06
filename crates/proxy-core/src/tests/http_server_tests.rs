@@ -244,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn loopback_server_streams_sse_to_http_client() {
         let upstream_sse = format!(
-            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+            "data: {}\n\ndata: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
             json!({
                 "id": "stream-1",
                 "model": "gpt-test",
@@ -260,6 +260,16 @@ mod tests {
                     "delta": {},
                     "finish_reason": "stop"
                 }]
+            }),
+            json!({
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                    "prompt_tokens_details": { "cached_tokens": 4 },
+                    "completion_tokens_details": { "reasoning_tokens": 3 }
+                }
             })
         );
         let midpoint = upstream_sse.len() / 2;
@@ -301,6 +311,21 @@ mod tests {
         assert!(body.contains("streamed"));
         assert!(body.contains("\"response\""));
         assert!(body.contains("\"finishReason\":\"STOP\""));
+        assert_eq!(body.matches("\"usageMetadata\"").count(), 1);
+        assert!(body.contains("\"promptTokenCount\":11"));
+        assert!(body.contains("\"candidatesTokenCount\":4"));
+        assert!(body.contains("\"cachedContentTokenCount\":4"));
+        assert!(body.contains("\"thoughtsTokenCount\":3"));
+        let usage_frame = body
+            .split("\n\n")
+            .find(|frame| frame.contains("\"usageMetadata\""))
+            .unwrap();
+        let payload: serde_json::Value =
+            serde_json::from_str(usage_frame.strip_prefix("data: ").unwrap()).unwrap();
+        assert!(!payload["response"]["candidates"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert!(!body.contains("data: [DONE]"));
 
         drop(client);

@@ -1,4 +1,4 @@
-use super::normalize_finish_reason;
+use super::{normalize_finish_reason, parse_usage};
 use crate::domain::{ErrorCategory, NeutralStreamEvent, ProxyError, UpstreamModel, UsageInfo};
 use crate::providers::traits::ProviderStreamDecoder;
 use serde_json::Value;
@@ -11,6 +11,7 @@ pub(super) struct GeminiStreamDecoder {
     emitted_tool_calls: HashSet<(u32, u32)>,
     emitted_thinking_signatures: HashSet<(u32, u32)>,
     finished_choices: HashSet<u32>,
+    usage: Option<UsageInfo>,
 }
 
 impl GeminiStreamDecoder {
@@ -22,6 +23,7 @@ impl GeminiStreamDecoder {
             emitted_tool_calls: HashSet::new(),
             emitted_thinking_signatures: HashSet::new(),
             finished_choices: HashSet::new(),
+            usage: None,
         }
     }
 
@@ -30,7 +32,9 @@ impl GeminiStreamDecoder {
             Vec::new()
         } else {
             self.response_ended = true;
-            vec![NeutralStreamEvent::ResponseEnd]
+            vec![NeutralStreamEvent::ResponseEnd {
+                usage: self.usage.clone(),
+            }]
         }
     }
 }
@@ -161,21 +165,31 @@ impl ProviderStreamDecoder for GeminiStreamDecoder {
             }
         }
 
-        if let Some(usage) = value.get("usageMetadata").and_then(Value::as_object) {
-            events.push(NeutralStreamEvent::UsageUpdate(UsageInfo {
-                prompt_tokens: usage
-                    .get("promptTokenCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-                completion_tokens: usage
-                    .get("candidatesTokenCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-                total_tokens: usage
-                    .get("totalTokenCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-            }));
+        let has_candidates = value
+            .get("candidates")
+            .and_then(Value::as_array)
+            .is_some_and(|candidates| !candidates.is_empty());
+        if !has_candidates {
+            if let Some(reason) = value
+                .get("promptFeedback")
+                .and_then(|feedback| feedback.get("blockReason"))
+                .and_then(Value::as_str)
+            {
+                if self.finished_choices.insert(0) {
+                    finish_events.push(NeutralStreamEvent::Finish {
+                        choice_index: 0,
+                        reason: normalize_finish_reason(reason),
+                        raw_finish_reason: Some(reason.to_string()),
+                    });
+                }
+            }
+        }
+
+        if let Some(usage) = value
+            .get("usageMetadata")
+            .and_then(|usage| parse_usage(usage, self.usage.as_ref()))
+        {
+            self.usage = Some(usage);
         }
 
         events.extend(finish_events);

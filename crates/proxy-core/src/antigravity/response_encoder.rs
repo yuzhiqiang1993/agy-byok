@@ -1,6 +1,6 @@
 use crate::domain::{
     ErrorCategory, FinishReason, NeutralChatResponse, NeutralContentBlock, NeutralStreamEvent,
-    ProxyError,
+    ProxyError, UsageInfo,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -16,6 +16,21 @@ impl AntigravityResponseEncoder {
             FinishReason::ContentFilter => "SAFETY",
             FinishReason::Other => "OTHER",
         }
+    }
+
+    fn encode_usage_metadata(usage: &UsageInfo) -> Value {
+        let mut metadata = json!({
+            "promptTokenCount": usage.prompt_tokens(),
+            "candidatesTokenCount": usage.output_tokens,
+            "totalTokenCount": usage.total_tokens
+        });
+        if let Some(tokens) = usage.cache_read_tokens {
+            metadata["cachedContentTokenCount"] = json!(tokens);
+        }
+        if let Some(tokens) = usage.reasoning_tokens {
+            metadata["thoughtsTokenCount"] = json!(tokens);
+        }
+        metadata
     }
 
     fn encode_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
@@ -74,11 +89,7 @@ impl AntigravityResponseEncoder {
 
         let mut payload = json!({ "candidates": candidates });
         if let Some(ref usage) = resp.usage {
-            payload["usageMetadata"] = json!({
-                "promptTokenCount": usage.prompt_tokens,
-                "candidatesTokenCount": usage.completion_tokens,
-                "totalTokenCount": usage.total_tokens
-            });
+            payload["usageMetadata"] = Self::encode_usage_metadata(usage);
         }
 
         payload.to_string()
@@ -92,9 +103,16 @@ struct PendingToolCall {
     arguments: String,
 }
 
+#[derive(Debug)]
+struct PendingFinish {
+    choice_index: u32,
+    reason: FinishReason,
+}
+
 #[derive(Debug, Default)]
 pub struct AntigravityStreamEncoder {
     pending_tool_calls: HashMap<(u32, u32), PendingToolCall>,
+    pending_finishes: Vec<PendingFinish>,
     response_ended: bool,
 }
 
@@ -106,7 +124,7 @@ impl AntigravityStreamEncoder {
     pub fn encode_event(&mut self, event: &NeutralStreamEvent) -> Result<Vec<String>, ProxyError> {
         if self.response_ended {
             return match event {
-                NeutralStreamEvent::ResponseEnd => Ok(Vec::new()),
+                NeutralStreamEvent::ResponseEnd { .. } => Ok(Vec::new()),
                 _ => Err(Self::stream_error(
                     "Received stream event after response end",
                 )),
@@ -226,29 +244,31 @@ impl AntigravityStreamEncoder {
                     }]
                 }))])
             }
-            NeutralStreamEvent::UsageUpdate(_) => Ok(vec![]),
             NeutralStreamEvent::Finish {
                 choice_index,
                 reason,
                 ..
-            } => Ok(vec![Self::sse(json!({
-                "candidates": [{
-                    "index": choice_index,
-                    "content": {
-                        "role": "model",
-                        "parts": [{ "text": "" }]
-                    },
-                    "finishReason": AntigravityResponseEncoder::finish_reason_value(*reason)
-                }]
-            }))]),
-            NeutralStreamEvent::ResponseEnd => {
+            } => {
+                self.pending_finishes.push(PendingFinish {
+                    choice_index: *choice_index,
+                    reason: *reason,
+                });
+                Ok(Vec::new())
+            }
+            NeutralStreamEvent::ResponseEnd { usage } => {
                 if !self.pending_tool_calls.is_empty() {
                     return Err(Self::stream_error(
                         "Response ended while tool calls were still open",
                     ));
                 }
+
+                let mut frames = self
+                    .take_final_frame(usage.as_ref(), usage.is_some())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                frames.push("data: [DONE]\n\n".to_string());
                 self.response_ended = true;
-                Ok(vec!["data: [DONE]\n\n".to_string()])
+                Ok(frames)
             }
             NeutralStreamEvent::Error { message, code } => Ok(vec![Self::sse(json!({
                 "error": {
@@ -257,6 +277,56 @@ impl AntigravityStreamEncoder {
                 }
             }))]),
         }
+    }
+
+    pub fn abort(&mut self) -> Vec<String> {
+        if self.response_ended || !self.pending_tool_calls.is_empty() {
+            return Vec::new();
+        }
+        self.response_ended = true;
+        self.take_final_frame(None, false).into_iter().collect()
+    }
+
+    fn take_final_frame(
+        &mut self,
+        usage: Option<&UsageInfo>,
+        synthesize_candidate: bool,
+    ) -> Option<String> {
+        let mut candidates = self
+            .pending_finishes
+            .drain(..)
+            .map(|finish| {
+                json!({
+                    "index": finish.choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{ "text": "" }]
+                    },
+                    "finishReason": AntigravityResponseEncoder::finish_reason_value(finish.reason)
+                })
+            })
+            .collect::<Vec<_>>();
+        if candidates.is_empty() && synthesize_candidate {
+            candidates.push(json!({
+                "index": 0,
+                "content": {
+                    "role": "model",
+                    "parts": [{ "text": "" }]
+                },
+                "finishReason": AntigravityResponseEncoder::finish_reason_value(
+                    FinishReason::Other,
+                )
+            }));
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let mut payload = json!({ "candidates": candidates });
+        if let Some(usage) = usage {
+            payload["usageMetadata"] = AntigravityResponseEncoder::encode_usage_metadata(usage);
+        }
+        Some(Self::sse(payload))
     }
 
     fn sse(payload: Value) -> String {

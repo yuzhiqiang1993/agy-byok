@@ -6,9 +6,11 @@ use super::traits::{ProviderAdapter, ProviderStreamDecoder};
 use crate::domain::response::FinishReason;
 #[cfg(test)]
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralContentBlock, NeutralMessage, NeutralStreamEvent, UsageInfo,
+    ErrorCategory, MessageRole, NeutralContentBlock, NeutralMessage, NeutralStreamEvent,
 };
-use crate::domain::{NeutralChatRequest, NeutralChatResponse, Provider, ProxyError, UpstreamModel};
+use crate::domain::{
+    NeutralChatRequest, NeutralChatResponse, Provider, ProxyError, UpstreamModel, UsageInfo,
+};
 use crate::routing::ResolvedRoute;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -44,6 +46,37 @@ fn normalize_finish_reason(reason: &str) -> FinishReason {
         | "IMAGE_PROHIBITED_CONTENT" => FinishReason::ContentFilter,
         _ => FinishReason::Other,
     }
+}
+
+fn parse_usage(value: &Value, current: Option<&UsageInfo>) -> Option<UsageInfo> {
+    let usage = value.as_object()?;
+    let token = |field: &str| {
+        usage
+            .get(field)
+            .and_then(Value::as_u64)
+            .and_then(|tokens| u32::try_from(tokens).ok())
+    };
+    let cache_read_tokens = token("cachedContentTokenCount")
+        .or_else(|| current.and_then(|usage| usage.cache_read_tokens));
+    let reasoning_tokens =
+        token("thoughtsTokenCount").or_else(|| current.and_then(|usage| usage.reasoning_tokens));
+    let prompt_tokens = token("promptTokenCount")
+        .or_else(|| current.map(UsageInfo::prompt_tokens))
+        .unwrap_or(0);
+    let completion_tokens = token("candidatesTokenCount")
+        .or_else(|| current.map(|usage| usage.output_tokens))
+        .unwrap_or(0)
+        .saturating_add(reasoning_tokens.unwrap_or(0));
+    let total_tokens = token("totalTokenCount").or_else(|| current.map(|usage| usage.total_tokens));
+
+    Some(UsageInfo::from_aggregate_totals(
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        cache_read_tokens,
+        None,
+        reasoning_tokens,
+    ))
 }
 
 #[async_trait]
@@ -145,10 +178,10 @@ mod tests {
     }
 
     #[test]
-    fn decoder_emits_all_candidates_with_usage_before_finish() {
+    fn decoder_emits_all_candidates_and_attaches_usage_to_response_end() {
         let mut decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
 
-        let events = decoder
+        let mut events = decoder
             .decode_data(
                 r#"{
                     "responseId":"response-1",
@@ -175,6 +208,7 @@ mod tests {
                 }"#,
             )
             .unwrap();
+        events.extend(decoder.decode_data("[DONE]").unwrap());
 
         assert_eq!(
             events,
@@ -210,11 +244,6 @@ mod tests {
                     choice_index: 1,
                     text: "alternative".to_string(),
                 },
-                NeutralStreamEvent::UsageUpdate(UsageInfo {
-                    prompt_tokens: 3,
-                    completion_tokens: 5,
-                    total_tokens: 8,
-                }),
                 NeutralStreamEvent::Finish {
                     choice_index: 4,
                     reason: FinishReason::ToolCall,
@@ -224,6 +253,55 @@ mod tests {
                     choice_index: 1,
                     reason: FinishReason::MaxTokens,
                     raw_finish_reason: Some("MAX_TOKENS".to_string()),
+                },
+                NeutralStreamEvent::ResponseEnd {
+                    usage: Some(UsageInfo {
+                        input_tokens: 3,
+                        output_tokens: 5,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        reasoning_tokens: None,
+                        total_tokens: 8,
+                    }),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn decoder_maps_blocked_prompt_to_content_filter_finish() {
+        let mut decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
+        let mut events = decoder
+            .decode_data(
+                r#"{
+                    "promptFeedback":{"blockReason":"SAFETY"},
+                    "usageMetadata":{"promptTokenCount":4,"totalTokenCount":4}
+                }"#,
+            )
+            .unwrap();
+        events.extend(decoder.finish().unwrap());
+
+        assert_eq!(
+            events,
+            vec![
+                NeutralStreamEvent::ResponseStart {
+                    response_id: None,
+                    model: "gemini-upstream".to_string(),
+                },
+                NeutralStreamEvent::Finish {
+                    choice_index: 0,
+                    reason: FinishReason::ContentFilter,
+                    raw_finish_reason: Some("SAFETY".to_string()),
+                },
+                NeutralStreamEvent::ResponseEnd {
+                    usage: Some(UsageInfo {
+                        input_tokens: 4,
+                        output_tokens: 0,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        reasoning_tokens: None,
+                        total_tokens: 4,
+                    }),
                 },
             ]
         );
@@ -254,7 +332,7 @@ mod tests {
         let mut done_decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
         assert_eq!(
             done_decoder.decode_data("[DONE]").unwrap(),
-            vec![NeutralStreamEvent::ResponseEnd]
+            vec![NeutralStreamEvent::ResponseEnd { usage: None }]
         );
         assert!(done_decoder.decode_data("{}").unwrap().is_empty());
         assert!(done_decoder.finish().unwrap().is_empty());
@@ -262,7 +340,7 @@ mod tests {
         let mut eof_decoder = GeminiStreamDecoder::new("gemini-upstream".to_string());
         assert_eq!(
             eof_decoder.finish().unwrap(),
-            vec![NeutralStreamEvent::ResponseEnd]
+            vec![NeutralStreamEvent::ResponseEnd { usage: None }]
         );
         assert!(eof_decoder.finish().unwrap().is_empty());
     }

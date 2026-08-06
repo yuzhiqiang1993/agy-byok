@@ -276,15 +276,19 @@ export function renderActivityLog(): void {
 
       pillsRow.append(providerPill, typePill, countPill);
 
-      if (item.promptTokens !== null || item.completionTokens !== null) {
+      if (item.totalTokens !== null) {
         const tokenPill = document.createElement("span");
         tokenPill.className = "activity-pill accent";
-        const pFormat = formatNumberCompact(item.promptTokens);
-        const cFormat = formatNumberCompact(item.completionTokens);
-        tokenPill.textContent = t("activity.tokenLabel", { input: pFormat, output: cFormat });
+        tokenPill.textContent = t("activity.tokenLabel", {
+          total: formatNumberCompact(item.totalTokens),
+        });
         tokenPill.title = t("activity.tokenTitle", {
-          input: item.promptTokens ?? "—",
-          output: item.completionTokens ?? "—",
+          input: item.inputTokens ?? "—",
+          output: item.outputTokens ?? "—",
+          cacheRead: item.cacheReadTokens ?? "—",
+          cacheWrite: item.cacheWriteTokens ?? "—",
+          reasoning: item.reasoningTokens ?? "—",
+          total: item.totalTokens,
         });
         pillsRow.append(tokenPill);
       }

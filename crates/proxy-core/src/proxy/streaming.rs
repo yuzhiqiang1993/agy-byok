@@ -188,6 +188,10 @@ impl SseFrameDecoder {
 #[async_trait]
 pub(crate) trait NeutralEventSink: Send {
     async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError>;
+
+    async fn abort(&mut self) -> Result<(), ProxyError> {
+        Ok(())
+    }
 }
 
 struct CallbackNeutralEventSink<F> {
@@ -221,6 +225,21 @@ impl StreamPipe {
     }
 
     pub(crate) async fn process_stream_to(
+        response: Response,
+        idle_timeout_ms: u64,
+        provider_decoder: &mut dyn ProviderStreamDecoder,
+        event_sink: &mut dyn NeutralEventSink,
+    ) -> Result<(), ProxyError> {
+        let result =
+            Self::process_stream_inner(response, idle_timeout_ms, provider_decoder, event_sink)
+                .await;
+        if result.is_err() {
+            let _ = event_sink.abort().await;
+        }
+        result
+    }
+
+    async fn process_stream_inner(
         mut response: Response,
         idle_timeout_ms: u64,
         provider_decoder: &mut dyn ProviderStreamDecoder,
@@ -238,7 +257,8 @@ impl StreamPipe {
                 Ok(Ok(Some(bytes))) => {
                     for frame in sse_decoder.push(&bytes)? {
                         for event in provider_decoder.decode_data(&frame.data)? {
-                            let response_ended = matches!(event, NeutralStreamEvent::ResponseEnd);
+                            let response_ended =
+                                matches!(event, NeutralStreamEvent::ResponseEnd { .. });
                             event_sink.send(event).await?;
                             if response_ended {
                                 return Ok(());
@@ -249,7 +269,8 @@ impl StreamPipe {
                 Ok(Ok(None)) => {
                     for frame in sse_decoder.finish()? {
                         for event in provider_decoder.decode_data(&frame.data)? {
-                            let response_ended = matches!(event, NeutralStreamEvent::ResponseEnd);
+                            let response_ended =
+                                matches!(event, NeutralStreamEvent::ResponseEnd { .. });
                             event_sink.send(event).await?;
                             if response_ended {
                                 return Ok(());

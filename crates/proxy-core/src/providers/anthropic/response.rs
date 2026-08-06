@@ -73,12 +73,30 @@ pub(super) fn parse_response(
         }
     }
 
-    let usage = val["usage"].as_object().map(|u| UsageInfo {
-        prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        total_tokens: (u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0)
-            + u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0))
-            as u32,
+    let usage = val["usage"].as_object().map(|usage| {
+        let token = |field: &str| {
+            usage
+                .get(field)
+                .and_then(Value::as_u64)
+                .and_then(|tokens| u32::try_from(tokens).ok())
+        };
+        let input_tokens = token("input_tokens").unwrap_or(0);
+        let output_tokens = token("output_tokens").unwrap_or(0);
+        let cache_read_tokens = token("cache_read_input_tokens");
+        let cache_write_tokens = token("cache_creation_input_tokens");
+        let total_tokens = input_tokens
+            .saturating_add(output_tokens)
+            .saturating_add(cache_read_tokens.unwrap_or(0))
+            .saturating_add(cache_write_tokens.unwrap_or(0));
+
+        UsageInfo {
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+            reasoning_tokens: None,
+            total_tokens,
+        }
     });
 
     Ok(NeutralChatResponse {

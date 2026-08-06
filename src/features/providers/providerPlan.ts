@@ -15,6 +15,11 @@ import {
   stripConfiguredModelSuffix,
 } from "../../utils/modelUtils";
 import {
+  catalogContextWindow,
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_TOKEN_LIMIT,
+} from "./tokenLimits";
+import {
   catalogReasoningLevelsForModel,
   catalogReasoningMappingsForModel,
   customReasoningMapping,
@@ -47,9 +52,10 @@ function tokenLimitsFromCatalog(
 ): ModelTokenLimits {
   const configured = selected ?? existing;
   return {
-    // 供应商目录值优先；目录缺少某一字段时才沿用用户手动配置或历史值。
-    input_token_limit: model.inputTokenLimit ?? configured?.input_token_limit ?? null,
-    output_token_limit: model.outputTokenLimit ?? configured?.output_token_limit ?? null,
+    // 供应商目录值优先；目录缺失时沿用历史值，否则使用经验默认值。
+    context_window: catalogContextWindow(model) ?? configured?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    input_token_limit: model.inputTokenLimit ?? configured?.input_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    output_token_limit: model.outputTokenLimit ?? configured?.output_token_limit ?? DEFAULT_TOKEN_LIMIT,
   };
 }
 

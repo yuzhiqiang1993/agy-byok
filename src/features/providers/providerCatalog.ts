@@ -17,10 +17,17 @@ import { openReasoningModal } from "../../components/ReasoningModal";
 import { t } from "../../i18n";
 import { runCatalogModelTests, testProviderModelConnection } from "./providerTesting";
 import {
+  catalogContextWindow,
+  customModelCheckpointLimits,
+  CONTEXT_WINDOW_OPTIONS,
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_TOKEN_LIMIT,
   formatTokenLimit,
   presetIdForTokenLimits,
   resolveCatalogTokenLimits,
+  TOKEN_INPUT_LIMIT_OPTIONS,
   TOKEN_LIMIT_PRESETS,
+  TOKEN_OUTPUT_LIMIT_OPTIONS,
   tokenLimitsForPreset,
 } from "./tokenLimits";
 
@@ -252,6 +259,7 @@ function catalogCapabilityToggle(
 function tokenPresetName(id: string): string {
   const labels: Record<string, string> = {
     catalog: t("models.tokenPresetCatalog"),
+    estimated_default: t("models.tokenPresetEstimatedDefault"),
     chatgpt_default: t("models.tokenPresetChatgptDefault"),
     chatgpt_thinking: t("models.tokenPresetChatgptThinking"),
     gpt5_api: t("models.tokenPresetGpt5Api"),
@@ -273,6 +281,8 @@ function createTokenLimitControls(
 
   const currentLimits = catalogTokenLimitsByModel.get(model.id)
     ?? resolveCatalogTokenLimits(model);
+  const catalogContextLimit = catalogContextWindow(model);
+  const hasCatalogContext = catalogContextLimit !== undefined;
   const hasCatalogInput = model.inputTokenLimit !== undefined;
   const hasCatalogOutput = model.outputTokenLimit !== undefined;
   const titleRow = document.createElement("div");
@@ -280,12 +290,22 @@ function createTokenLimitControls(
   const title = document.createElement("span");
   title.className = "catalog-token-title";
   title.textContent = t("models.tokenLimitTitle");
-  const sourceNote = document.createElement("span");
-  sourceNote.className = `catalog-token-source-note${hasCatalogInput || hasCatalogOutput ? " reported" : " missing"}`;
-  sourceNote.textContent = hasCatalogInput || hasCatalogOutput
+  const sourceState = hasCatalogInput && hasCatalogOutput
+    ? "reported"
+    : hasCatalogInput || hasCatalogOutput
+      ? "partial"
+      : "experience";
+  const sourceBadge = document.createElement("span");
+  sourceBadge.className = `catalog-token-source-badge ${sourceState}`;
+  sourceBadge.textContent = sourceState === "reported"
+    ? t("models.tokenLimitSourceReported")
+    : sourceState === "partial"
+      ? t("models.tokenLimitSourcePartial")
+      : t("models.tokenLimitSourceExperience");
+  sourceBadge.title = sourceState === "reported"
     ? t("models.tokenLimitCatalogValue")
-    : t("models.tokenLimitMissing");
-  titleRow.append(title, sourceNote);
+    : t("models.tokenLimitExperienceHint");
+  titleRow.append(title, sourceBadge);
   const updateSummary = (summary: HTMLElement) => {
     const displayedLimits = catalogTokenLimitsByModel.get(model.id) ?? currentLimits;
     summary.textContent = t("models.tokenLimitSummary", {
@@ -293,23 +313,23 @@ function createTokenLimitControls(
       output: formatTokenLimit(displayedLimits.output_token_limit),
     });
   };
-  const updateManualLimit = (
-    field: "input_token_limit" | "output_token_limit",
+  const updateTokenLimit = (
+    field: "context_window" | "input_token_limit" | "output_token_limit",
     value: string,
-    summary: HTMLElement,
+    summary?: HTMLElement,
   ) => {
     const trimmed = value.trim();
     const parsed = trimmed.length === 0 ? null : Number(trimmed);
     if (parsed !== null && (!Number.isInteger(parsed) || parsed <= 0 || parsed > 0x7fffffff)) {
       return;
     }
-    const next = {
+    const next: ModelTokenLimits = {
       ...(catalogTokenLimitsByModel.get(model.id) ?? currentLimits),
       [field]: parsed,
     };
     catalogTokenLimitsByModel.set(model.id, next);
     changedCatalogTokenLimitModelIds.add(model.id);
-    updateSummary(summary);
+    if (summary) updateSummary(summary);
     context.setProviderEditorDirty(true);
     context.refreshProviderEditorControls();
   };
@@ -321,14 +341,24 @@ function createTokenLimitControls(
   updateSummary(summary);
   const contextSummary = document.createElement("span");
   contextSummary.className = "catalog-token-context";
-  const contextLimit = model.contextWindow ?? model.contextLength;
   const contextParts: string[] = [];
-  if (contextLimit !== undefined) {
+  const localCheckpoint = customModelCheckpointLimits(
+    store.config.official_model_settings,
+    currentLimits.input_token_limit,
+    currentLimits.output_token_limit,
+  );
+  if (catalogContextLimit !== undefined) {
     contextParts.push(t("models.tokenContextSummary", {
-      context: formatTokenLimit(contextLimit),
+      context: formatTokenLimit(catalogContextLimit),
     }));
   }
-  if (model.maxContextWindow !== undefined && model.maxContextWindow !== contextLimit) {
+  if (localCheckpoint) {
+    contextParts.push(t("models.tokenLocalCheckpointSummary", {
+      threshold: formatTokenLimit(localCheckpoint.threshold),
+      percent: localCheckpoint.threshold_percent,
+    }));
+  }
+  if (model.maxContextWindow !== undefined && model.maxContextWindow !== catalogContextLimit) {
     contextParts.push(t("models.tokenNativeContextSummary", {
       context: formatTokenLimit(model.maxContextWindow),
     }));
@@ -337,12 +367,16 @@ function createTokenLimitControls(
     contextParts.push(t("models.tokenAutoCompactSummary", {
       context: formatTokenLimit(model.autoCompactTokenLimit),
     }));
-  } else if (contextLimit !== undefined) {
+  } else if (catalogContextLimit !== undefined) {
     contextParts.push(t("models.tokenAutoCompactMissing"));
   }
   if (contextParts.length > 0) {
     contextSummary.textContent = contextParts.join(" · ");
   }
+  const tokenMeta = document.createElement("div");
+  tokenMeta.className = "catalog-token-meta";
+  tokenMeta.append(summary);
+  if (contextParts.length > 0) tokenMeta.append(contextSummary);
 
   const appendField = (
     field: "input_token_limit" | "output_token_limit",
@@ -360,31 +394,79 @@ function createTokenLimitControls(
       value.textContent = formatTokenLimit(reportedValue);
       value.title = t("models.tokenLimitCatalogValue");
       const source = document.createElement("span");
-      source.className = "catalog-token-source";
-      source.textContent = t("models.tokenLimitCatalogValue");
+      source.className = "catalog-token-source-badge reported";
+      source.textContent = t("models.tokenLimitFieldReported");
+      source.title = t("models.tokenLimitCatalogValue");
       fieldRow.append(value, source);
     } else {
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = "1";
-      input.step = "1";
-      input.className = "catalog-token-input";
+      const select = document.createElement("select");
+      select.className = "catalog-token-input catalog-token-select catalog-token-limit-select";
+      const experienceValues: readonly number[] = field === "input_token_limit"
+        ? TOKEN_INPUT_LIMIT_OPTIONS
+        : TOKEN_OUTPUT_LIMIT_OPTIONS;
+      for (const value of experienceValues) {
+        const option = document.createElement("option");
+        option.value = String(value);
+        option.textContent = formatTokenLimit(value);
+        select.append(option);
+      }
       const displayedValue = catalogTokenLimitsByModel.get(model.id)?.[field] ?? currentLimits[field];
-      input.value = displayedValue === null ? "" : String(displayedValue);
-      input.disabled = !selected;
-      input.placeholder = t("models.tokenLimitManualValue");
-      input.title = t("models.tokenLimitManualValue");
-      input.addEventListener("change", () => updateManualLimit(field, input.value, summary));
+      const selectedValue = displayedValue ?? DEFAULT_TOKEN_LIMIT;
+      if (!experienceValues.includes(selectedValue)) {
+        const customOption = document.createElement("option");
+        customOption.value = String(selectedValue);
+        customOption.textContent = `${formatTokenLimit(selectedValue)} · ${t("models.tokenPresetCustom")}`;
+        select.append(customOption);
+      }
+      select.value = String(selectedValue);
+      select.disabled = !selected;
+      select.title = t("models.tokenLimitExperienceHint");
+      select.addEventListener("change", () => updateTokenLimit(field, select.value, summary));
       const source = document.createElement("span");
-      source.className = "catalog-token-source manual";
-      source.textContent = t("models.tokenLimitManualValue");
-      fieldRow.append(input, source);
+      source.className = "catalog-token-source-badge experience";
+      source.textContent = t("models.tokenLimitFieldExperience");
+      source.title = t("models.tokenLimitExperienceHint");
+      fieldRow.append(select, source);
     }
     fields.append(fieldRow);
   };
 
   appendField("input_token_limit", model.inputTokenLimit, "tokenInputLimit");
   appendField("output_token_limit", model.outputTokenLimit, "tokenOutputLimit");
+
+  if (!hasCatalogContext) {
+    const fieldRow = document.createElement("label");
+    fieldRow.className = "catalog-token-field catalog-context-field";
+    const fieldLabel = document.createElement("span");
+    fieldLabel.textContent = t("models.tokenContextWindow");
+    const select = document.createElement("select");
+    select.className = "catalog-token-input catalog-context-select";
+    for (const value of CONTEXT_WINDOW_OPTIONS) {
+      const option = document.createElement("option");
+      option.value = String(value);
+      option.textContent = formatTokenLimit(value);
+      select.append(option);
+    }
+    const displayedValue = catalogTokenLimitsByModel.get(model.id)?.context_window
+      ?? currentLimits.context_window;
+    const selectedValue = displayedValue ?? DEFAULT_CONTEXT_WINDOW;
+    if (!CONTEXT_WINDOW_OPTIONS.includes(selectedValue as (typeof CONTEXT_WINDOW_OPTIONS)[number])) {
+      const customOption = document.createElement("option");
+      customOption.value = String(selectedValue);
+      customOption.textContent = `${formatTokenLimit(selectedValue)} · ${t("models.tokenPresetCustom")}`;
+      select.append(customOption);
+    }
+    select.value = String(selectedValue);
+    select.disabled = !selected;
+    select.title = t("models.tokenContextExperienceHint");
+    select.addEventListener("change", () => updateTokenLimit("context_window", select.value));
+    const source = document.createElement("span");
+    source.className = "catalog-token-source-badge experience";
+    source.textContent = t("models.tokenContextFieldExperience");
+    source.title = t("models.tokenContextExperienceHint");
+    fieldRow.append(fieldLabel, select, source);
+    fields.append(fieldRow);
+  }
 
   if (!hasCatalogInput && !hasCatalogOutput) {
     const preset = document.createElement("select");
@@ -409,20 +491,26 @@ function createTokenLimitControls(
     preset.addEventListener("change", () => {
       const nextLimits = tokenLimitsForPreset(preset.value);
       if (!nextLimits) return;
-      catalogTokenLimitsByModel.set(model.id, nextLimits);
+      const currentContextWindow = catalogTokenLimitsByModel.get(model.id)?.context_window
+        ?? currentLimits.context_window
+        ?? DEFAULT_CONTEXT_WINDOW;
+      catalogTokenLimitsByModel.set(model.id, {
+        ...nextLimits,
+        context_window: currentContextWindow,
+      });
       changedCatalogTokenLimitModelIds.add(model.id);
       updateSummary(summary);
-      fields.querySelectorAll<HTMLInputElement>(".catalog-token-input").forEach((input, index) => {
+      fields.querySelectorAll<HTMLSelectElement>(".catalog-token-limit-select").forEach((select, index) => {
         const field = index === 0 ? "input_token_limit" : "output_token_limit";
         const value = nextLimits[field];
-        input.value = value === null ? "" : String(value);
+        if (value !== null) select.value = String(value);
       });
       context.setProviderEditorDirty(true);
       context.refreshProviderEditorControls();
     });
-    control.append(titleRow, preset, fields, summary, contextSummary);
+    control.append(titleRow, preset, fields, tokenMeta);
   } else {
-    control.append(titleRow, fields, summary, contextSummary);
+    control.append(titleRow, fields, tokenMeta);
   }
   return control;
 }

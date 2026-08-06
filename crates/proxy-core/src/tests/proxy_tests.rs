@@ -466,8 +466,9 @@ mod tests {
         assert!(activities[0].used_fallback);
         assert!(activities[0].fallback_attempted);
         assert!(activities[0].fallback_succeeded);
-        assert_eq!(activities[0].prompt_tokens, Some(5));
-        assert_eq!(activities[0].completion_tokens, Some(2));
+        assert_eq!(activities[0].input_tokens, Some(5));
+        assert_eq!(activities[0].output_tokens, Some(2));
+        assert_eq!(activities[0].total_tokens, Some(7));
     }
 
     #[tokio::test]
@@ -634,8 +635,9 @@ mod tests {
         assert!(!activities[0].used_fallback);
         assert!(!activities[0].fallback_attempted);
         assert!(!activities[0].fallback_succeeded);
-        assert_eq!(activities[0].prompt_tokens, Some(7));
-        assert_eq!(activities[0].completion_tokens, Some(4));
+        assert_eq!(activities[0].input_tokens, Some(7));
+        assert_eq!(activities[0].output_tokens, Some(4));
+        assert_eq!(activities[0].total_tokens, Some(11));
         assert!(activities[0].error_detail.is_none());
     }
 
@@ -677,9 +679,11 @@ mod tests {
                     "finish_reason": "tool_calls"
                 }],
                 "usage": {
-                    "prompt_tokens": 2,
-                    "completion_tokens": 3,
-                    "total_tokens": 5
+                    "prompt_tokens": 12,
+                    "completion_tokens": 9,
+                    "total_tokens": 21,
+                    "prompt_tokens_details": { "cached_tokens": 5 },
+                    "completion_tokens_details": { "reasoning_tokens": 4 }
                 }
             })
         );
@@ -755,17 +759,29 @@ mod tests {
         assert!(response.contains("\"id\":\"call-9\""));
         assert!(response.contains("\"args\":{\"id\":1}"));
         assert_eq!(response.matches("data: [DONE]").count(), 1);
+        assert_eq!(response.matches("\"usageMetadata\"").count(), 1);
+        assert!(response.contains("\"promptTokenCount\":12"));
+        assert!(response.contains("\"candidatesTokenCount\":5"));
+        assert!(response.contains("\"cachedContentTokenCount\":5"));
+        assert!(response.contains("\"thoughtsTokenCount\":4"));
         assert!(
             response.find("\"functionCall\"").unwrap()
                 < response.find("\"finishReason\":\"TOOL_CALL\"").unwrap()
+        );
+        assert!(
+            response.find("\"usageMetadata\"").unwrap() < response.find("data: [DONE]").unwrap()
         );
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
         assert_eq!(activities[0].status_code, 200);
         assert!(activities[0].stream);
         assert_eq!(activities[0].message_count, 1);
-        assert_eq!(activities[0].prompt_tokens, Some(2));
-        assert_eq!(activities[0].completion_tokens, Some(3));
+        assert_eq!(activities[0].input_tokens, Some(7));
+        assert_eq!(activities[0].output_tokens, Some(5));
+        assert_eq!(activities[0].cache_read_tokens, Some(5));
+        assert_eq!(activities[0].cache_write_tokens, None);
+        assert_eq!(activities[0].reasoning_tokens, Some(4));
+        assert_eq!(activities[0].total_tokens, Some(21));
     }
 
     #[test]
@@ -1217,8 +1233,11 @@ mod tests {
                 },
             ],
             usage: Some(UsageInfo {
-                prompt_tokens: 1,
-                completion_tokens: 2,
+                input_tokens: 1,
+                output_tokens: 2,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+                reasoning_tokens: None,
                 total_tokens: 3,
             }),
         };
@@ -1245,6 +1264,9 @@ mod tests {
             encoded["candidates"][1]["content"]["parts"][0]["thoughtSignature"],
             "signed-thinking"
         );
+        assert_eq!(encoded["usageMetadata"]["promptTokenCount"], 1);
+        assert_eq!(encoded["usageMetadata"]["candidatesTokenCount"], 2);
+        assert_eq!(encoded["usageMetadata"]["totalTokenCount"], 3);
     }
 
     #[test]
@@ -1260,6 +1282,66 @@ mod tests {
 
         assert_eq!(frames.len(), 1);
         assert!(frames[0].contains("\"thoughtSignature\":\"signed-thinking\""));
+    }
+
+    #[test]
+    fn antigravity_stream_encoder_attaches_final_usage_to_finish_frame() {
+        let mut encoder = AntigravityStreamEncoder::new();
+
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::Finish {
+                choice_index: 2,
+                reason: FinishReason::Stop,
+                raw_finish_reason: Some("stop".to_string()),
+            })
+            .unwrap()
+            .is_empty());
+
+        let frames = encoder
+            .encode_event(&NeutralStreamEvent::ResponseEnd {
+                usage: Some(UsageInfo {
+                    input_tokens: 7,
+                    output_tokens: 4,
+                    cache_read_tokens: Some(3),
+                    cache_write_tokens: Some(2),
+                    reasoning_tokens: Some(5),
+                    total_tokens: 21,
+                }),
+            })
+            .unwrap();
+
+        assert_eq!(frames.len(), 2);
+        let payload: serde_json::Value =
+            serde_json::from_str(frames[0].strip_prefix("data: ").unwrap().trim()).unwrap();
+        assert_eq!(payload["candidates"][0]["index"], 2);
+        assert_eq!(payload["candidates"][0]["finishReason"], "STOP");
+        assert_eq!(payload["candidates"][0]["content"]["parts"][0]["text"], "");
+        assert_eq!(payload["usageMetadata"]["promptTokenCount"], 12);
+        assert_eq!(payload["usageMetadata"]["candidatesTokenCount"], 4);
+        assert_eq!(payload["usageMetadata"]["cachedContentTokenCount"], 3);
+        assert_eq!(payload["usageMetadata"]["thoughtsTokenCount"], 5);
+        assert_eq!(payload["usageMetadata"]["totalTokenCount"], 21);
+        assert_eq!(frames[1], "data: [DONE]\n\n");
+    }
+
+    #[test]
+    fn antigravity_stream_encoder_flushes_finish_when_stream_aborts() {
+        let mut encoder = AntigravityStreamEncoder::new();
+        encoder
+            .encode_event(&NeutralStreamEvent::Finish {
+                choice_index: 0,
+                reason: FinishReason::Stop,
+                raw_finish_reason: Some("stop".to_string()),
+            })
+            .unwrap();
+
+        let frames = encoder.abort();
+
+        assert_eq!(frames.len(), 1);
+        assert!(frames[0].contains("\"finishReason\":\"STOP\""));
+        assert!(!frames[0].contains("usageMetadata"));
+        assert!(!frames[0].contains("[DONE]"));
+        assert!(encoder.abort().is_empty());
     }
 
     #[test]
@@ -1310,12 +1392,12 @@ mod tests {
         );
         assert_eq!(
             encoder
-                .encode_event(&NeutralStreamEvent::ResponseEnd)
+                .encode_event(&NeutralStreamEvent::ResponseEnd { usage: None })
                 .unwrap(),
             vec!["data: [DONE]\n\n".to_string()]
         );
         assert!(encoder
-            .encode_event(&NeutralStreamEvent::ResponseEnd)
+            .encode_event(&NeutralStreamEvent::ResponseEnd { usage: None })
             .unwrap()
             .is_empty());
     }

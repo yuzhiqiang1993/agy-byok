@@ -14,6 +14,7 @@ class AppStore {
     virtual_models: [],
     official_model_settings: {
       gemini_compression_profile: "official",
+      custom_model_threshold_percent: null,
       gemini_token_threshold: 640_000,
       gemini_max_token_limit: 768_000,
       gemini_max_output_tokens: 16_384,

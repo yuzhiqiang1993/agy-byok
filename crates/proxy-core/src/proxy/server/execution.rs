@@ -54,10 +54,18 @@ struct AntigravityEventSink<'a> {
 #[async_trait]
 impl NeutralEventSink for AntigravityEventSink<'_> {
     async fn send(&mut self, event: NeutralStreamEvent) -> Result<(), ProxyError> {
-        if let NeutralStreamEvent::UsageUpdate(usage) = &event {
-            *self.usage = Some(usage.clone());
+        if let NeutralStreamEvent::ResponseEnd { usage } = &event {
+            *self.usage = usage.clone();
         }
         for frame in self.encoder.encode_event(&event)? {
+            *self.emitted_frame = true;
+            self.frame_sink.send(frame).await?;
+        }
+        Ok(())
+    }
+
+    async fn abort(&mut self) -> Result<(), ProxyError> {
+        for frame in self.encoder.abort() {
             *self.emitted_frame = true;
             self.frame_sink.send(frame).await?;
         }

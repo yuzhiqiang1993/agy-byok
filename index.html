@@ -537,8 +537,8 @@
             <!-- Antigravity Model Pane -->
             <section id="settings-antigravity" class="settings-pane">
               <header class="settings-pane-header">
-                <h2 data-i18n="settings.antigravityHeader">Antigravity 模型行为</h2>
-                <p data-i18n="settings.antigravitySubtitle">控制官方 Gemini 模型目录返回给 IDE 的检查点压缩策略。</p>
+                <h2 data-i18n="settings.antigravityHeader">Antigravity 模型压缩</h2>
+                <p data-i18n="settings.antigravitySubtitle">控制官方 Gemini 与自定义 ChatGPT 兼容模型在 IDE 中的检查点压缩策略。</p>
               </header>
 
               <div class="official-compression-card">
@@ -547,15 +547,15 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 14.4 8.6 20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4L12 3Z"/><path d="m19 3 .7 1.3L21 5l-1.3.7L19 7l-.7-1.3L17 5l1.3-.7L19 3Z"/></svg>
                   </div>
                   <div>
-                    <strong data-i18n="settings.geminiCompressionTitle">官方 Gemini 压缩策略</strong>
-                    <p data-i18n="settings.geminiCompressionDesc">只覆盖官方 Gemini 模型；CPA 与其他自定义模型仍使用各自上游数据。</p>
+                    <strong data-i18n="settings.geminiCompressionTitle">Antigravity 上下文压缩策略</strong>
+                    <p data-i18n="settings.geminiCompressionDesc">官方 Gemini 使用所选覆盖策略；自定义模型会根据自身返回的 Token 上限自动裁剪同一档位。</p>
                   </div>
                 </div>
 
                 <label class="compression-profile-row" for="settings-gemini-compression-profile">
                   <span data-i18n="settings.geminiCompressionProfile">压缩策略档位</span>
                   <select id="settings-gemini-compression-profile" class="custom-select">
-                    <option value="official" data-i18n="settings.geminiCompressionOfficial">官方默认</option>
+                    <option value="official" data-i18n="settings.geminiCompressionOfficial">官方默认 / 自定义模型自动适配</option>
                     <option value="safe" data-i18n="settings.geminiCompressionSafe">稳妥：阈值 430K / 上限 512K</option>
                     <option value="balanced" data-i18n="settings.geminiCompressionBalanced">平衡：阈值 640K / 上限 768K</option>
                     <option value="aggressive" data-i18n="settings.geminiCompressionAggressive">激进：阈值 760K / 上限 900K</option>
@@ -576,10 +576,14 @@
                     <span data-i18n="settings.geminiCompressionOutputReserve">摘要输出预留</span>
                     <input id="settings-gemini-output-reserve" type="number" min="1" step="1" inputmode="numeric" />
                   </label>
+                  <label class="compression-field">
+                    <span data-i18n="settings.geminiCompressionCustomThreshold">自定义模型阈值比例 (%)</span>
+                    <input id="settings-gemini-custom-threshold-percent" type="number" min="1" max="100" step="1" inputmode="numeric" />
+                  </label>
                 </div>
                 <p class="compression-context-hint" data-i18n="settings.geminiCompressionContextHint">Gemini 原生上下文约 1M；必须为工具、规则和摘要预留空间。</p>
                 <div class="compression-footer">
-                  <span id="settings-gemini-source" class="compression-source" data-i18n="settings.geminiCompressionOfficialHint">沿用 Antigravity 当前官方检查点参数，不做本地覆盖。</span>
+                  <span id="settings-gemini-source" class="compression-source" data-i18n="settings.geminiCompressionOfficialHint">官方 Gemini 沿用上游参数；自定义模型使用按自身上限自动适配的 Checkpoint 策略。</span>
                   <button id="save-gemini-settings" type="button" class="primary compact-button" data-i18n="settings.geminiCompressionSave">保存策略</button>
                 </div>
               </div>

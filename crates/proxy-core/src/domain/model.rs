@@ -50,6 +50,9 @@ pub enum OfficialCompressionProfile {
 pub struct OfficialModelSettings {
     /// 是否沿用官方模型目录中的检查点配置；其他档位会覆盖官方 Gemini 条目。
     pub gemini_compression_profile: OfficialCompressionProfile,
+    /// 自定义 Provider 模型的 Checkpoint 压缩阈值百分比；缺省时沿用档位自动适配。
+    #[serde(default)]
+    pub custom_model_threshold_percent: Option<u8>,
     pub gemini_token_threshold: u32,
     pub gemini_max_token_limit: u32,
     pub gemini_max_output_tokens: u32,
@@ -59,6 +62,7 @@ impl Default for OfficialModelSettings {
     fn default() -> Self {
         Self {
             gemini_compression_profile: OfficialCompressionProfile::Official,
+            custom_model_threshold_percent: None,
             gemini_token_threshold: GEMINI_BALANCED_TOKEN_THRESHOLD,
             gemini_max_token_limit: GEMINI_BALANCED_MAX_TOKEN_LIMIT,
             gemini_max_output_tokens: DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
@@ -89,7 +93,61 @@ impl OfficialModelSettings {
         Some((threshold, max_limit, self.gemini_max_output_tokens))
     }
 
+    /// 为自定义 Provider 模型生成按模型能力裁剪后的 Checkpoint 参数。
+    ///
+    /// `official` 只表示官方 Gemini 目录不覆盖上游值；自定义模型仍需要
+    /// 一套本地 Checkpoint 配置，否则 Antigravity 会使用自己的默认策略。
+    pub fn custom_model_checkpoint_limits(
+        &self,
+        input_token_limit: u32,
+        output_token_limit: u32,
+    ) -> Option<(u32, u32, u32)> {
+        let (threshold, max_limit, max_output) = match self.gemini_compression_profile {
+            OfficialCompressionProfile::Official => (
+                GEMINI_BALANCED_TOKEN_THRESHOLD,
+                GEMINI_BALANCED_MAX_TOKEN_LIMIT,
+                DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+            ),
+            OfficialCompressionProfile::Safe => (
+                GEMINI_SAFE_TOKEN_THRESHOLD,
+                GEMINI_SAFE_MAX_TOKEN_LIMIT,
+                DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+            ),
+            OfficialCompressionProfile::Balanced => (
+                GEMINI_BALANCED_TOKEN_THRESHOLD,
+                GEMINI_BALANCED_MAX_TOKEN_LIMIT,
+                DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+            ),
+            OfficialCompressionProfile::Aggressive => (
+                GEMINI_AGGRESSIVE_TOKEN_THRESHOLD,
+                GEMINI_AGGRESSIVE_MAX_TOKEN_LIMIT,
+                DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+            ),
+            OfficialCompressionProfile::Custom => (
+                self.gemini_token_threshold,
+                self.gemini_max_token_limit,
+                self.gemini_max_output_tokens,
+            ),
+        };
+        let max_limit = max_limit.min(input_token_limit);
+        let max_output = max_output
+            .min(output_token_limit)
+            .min(max_limit.saturating_sub(1));
+        let threshold = self
+            .custom_model_threshold_percent
+            .map(|percent| (u64::from(max_limit) * u64::from(percent) / 100) as u32)
+            .unwrap_or(threshold);
+        let threshold = threshold.min(max_limit.saturating_sub(max_output));
+        (threshold > 0 && max_output > 0 && threshold < max_limit)
+            .then_some((threshold, max_limit, max_output))
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(percent) = self.custom_model_threshold_percent {
+            if percent == 0 || percent > 100 {
+                return Err("自定义模型压缩阈值百分比必须在 1 到 100 之间".to_string());
+            }
+        }
         let Some((threshold, max_limit, max_output)) = self.gemini_checkpoint_limits() else {
             return Ok(());
         };
@@ -136,7 +194,10 @@ pub struct ModelCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ModelTokenLimits {
-    /// 模型允许的最大输入 Token；缺省时由 Antigravity 适配层使用通用大上下文默认值。
+    /// 模型的上下文窗口；它独立于输入 Token 上限和 Checkpoint 压缩阈值。
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    /// 模型允许的最大输入 Token；缺省时由 Antigravity 适配层使用经验默认值。
     #[serde(default)]
     pub input_token_limit: Option<u32>,
     /// 模型允许的最大输出 Token；它独立于请求参数中的单次输出覆盖值。
@@ -147,12 +208,16 @@ pub struct ModelTokenLimits {
 impl ModelTokenLimits {
     pub const fn legacy_default() -> Self {
         Self {
+            context_window: Some(128_000),
             input_token_limit: Some(128_000),
             output_token_limit: Some(8_192),
         }
     }
 
     pub fn validate(&self) -> Result<(), &'static str> {
+        if self.context_window == Some(0) {
+            return Err("context_window must be greater than 0");
+        }
         if self.input_token_limit == Some(0) {
             return Err("input_token_limit must be greater than 0");
         }

@@ -582,13 +582,31 @@ mod tests {
                     },
                     "finish_reason": "tool_calls"
                 }
-            ]
+            ],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 9,
+                "total_tokens": 21,
+                "prompt_tokens_details": { "cached_tokens": 5 },
+                "completion_tokens_details": { "reasoning_tokens": 4 }
+            }
         })
         .to_string();
 
         let response = adapter.parse_response(200, &body, &upstream).unwrap();
 
         assert_eq!(response.choices.len(), 2);
+        assert_eq!(
+            response.usage,
+            Some(UsageInfo {
+                input_tokens: 7,
+                output_tokens: 5,
+                cache_read_tokens: Some(5),
+                cache_write_tokens: None,
+                reasoning_tokens: Some(4),
+                total_tokens: 21,
+            })
+        );
         assert_eq!(response.choices[0].index, 2);
         assert_eq!(response.choices[0].finish_reason, Some(FinishReason::Stop));
         assert_eq!(
@@ -636,13 +654,31 @@ mod tests {
                     "content": { "parts": [] },
                     "finishReason": "IMAGE_SAFETY"
                 }
-            ]
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 4,
+                "cachedContentTokenCount": 3,
+                "thoughtsTokenCount": 2,
+                "totalTokenCount": 16
+            }
         })
         .to_string();
 
         let response = adapter.parse_response(200, &body, &upstream).unwrap();
 
         assert_eq!(response.choices.len(), 3);
+        assert_eq!(
+            response.usage,
+            Some(UsageInfo {
+                input_tokens: 7,
+                output_tokens: 4,
+                cache_read_tokens: Some(3),
+                cache_write_tokens: None,
+                reasoning_tokens: Some(2),
+                total_tokens: 16,
+            })
+        );
         assert_eq!(response.choices[0].index, 4);
         assert_eq!(response.choices[1].index, 1);
         assert_eq!(
@@ -680,13 +716,30 @@ mod tests {
             "id": "msg-1",
             "model": "claude-test",
             "content": [{ "type": "text", "text": "hello" }],
-            "stop_reason": "max_tokens"
+            "stop_reason": "max_tokens",
+            "usage": {
+                "input_tokens": 2,
+                "output_tokens": 9,
+                "cache_read_input_tokens": 4,
+                "cache_creation_input_tokens": 6
+            }
         })
         .to_string();
 
         let response = adapter.parse_response(200, &body, &upstream).unwrap();
 
         assert_eq!(response.choices.len(), 1);
+        assert_eq!(
+            response.usage,
+            Some(UsageInfo {
+                input_tokens: 2,
+                output_tokens: 9,
+                cache_read_tokens: Some(4),
+                cache_write_tokens: Some(6),
+                reasoning_tokens: None,
+                total_tokens: 21,
+            })
+        );
         assert_eq!(response.choices[0].index, 0);
         assert_eq!(
             response.choices[0].finish_reason,
@@ -722,14 +775,17 @@ mod tests {
                 { "index": 3, "delta": {}, "finish_reason": "length" }
             ],
             "usage": {
-                "prompt_tokens": 1,
-                "completion_tokens": 2,
-                "total_tokens": 3
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "prompt_tokens_details": { "cached_tokens": 4 },
+                "completion_tokens_details": { "reasoning_tokens": 3 }
             }
         })
         .to_string();
 
-        let events = decoder.decode_data(&data).unwrap();
+        let mut events = decoder.decode_data(&data).unwrap();
+        events.extend(decoder.decode_data("[DONE]").unwrap());
 
         assert_eq!(
             events,
@@ -753,11 +809,6 @@ mod tests {
                     tool_call_index: 4,
                     arguments_delta: "{\"id\":".to_string(),
                 },
-                NeutralStreamEvent::UsageUpdate(UsageInfo {
-                    prompt_tokens: 1,
-                    completion_tokens: 2,
-                    total_tokens: 3,
-                }),
                 NeutralStreamEvent::ToolCallEnd {
                     choice_index: 2,
                     tool_call_index: 4,
@@ -771,6 +822,16 @@ mod tests {
                     choice_index: 3,
                     reason: FinishReason::MaxTokens,
                     raw_finish_reason: Some("length".to_string()),
+                },
+                NeutralStreamEvent::ResponseEnd {
+                    usage: Some(UsageInfo {
+                        input_tokens: 7,
+                        output_tokens: 4,
+                        cache_read_tokens: Some(4),
+                        cache_write_tokens: None,
+                        reasoning_tokens: Some(3),
+                        total_tokens: 18,
+                    }),
                 },
             ]
         );
@@ -865,7 +926,7 @@ mod tests {
 
         assert_eq!(
             decoder.decode_data("[DONE]").unwrap(),
-            vec![NeutralStreamEvent::ResponseEnd]
+            vec![NeutralStreamEvent::ResponseEnd { usage: None }]
         );
         assert!(decoder.finish().unwrap().is_empty());
     }
@@ -882,7 +943,12 @@ mod tests {
                 "message": {
                     "id": "message-1",
                     "model": "claude-stream",
-                    "usage": { "input_tokens": 2, "output_tokens": 0 }
+                    "usage": {
+                        "input_tokens": 2,
+                        "output_tokens": 0,
+                        "cache_read_input_tokens": 4,
+                        "cache_creation_input_tokens": 6
+                    }
                 }
             }),
             json!({
@@ -933,17 +999,21 @@ mod tests {
                     choice_index: 0,
                     tool_call_index: 6,
                 },
-                NeutralStreamEvent::UsageUpdate(UsageInfo {
-                    prompt_tokens: 2,
-                    completion_tokens: 9,
-                    total_tokens: 11,
-                }),
                 NeutralStreamEvent::Finish {
                     choice_index: 0,
                     reason: FinishReason::ToolCall,
                     raw_finish_reason: Some("tool_use".to_string()),
                 },
-                NeutralStreamEvent::ResponseEnd,
+                NeutralStreamEvent::ResponseEnd {
+                    usage: Some(UsageInfo {
+                        input_tokens: 2,
+                        output_tokens: 9,
+                        cache_read_tokens: Some(4),
+                        cache_write_tokens: Some(6),
+                        reasoning_tokens: None,
+                        total_tokens: 21,
+                    }),
+                },
             ]
         );
     }
@@ -1001,7 +1071,7 @@ mod tests {
                     choice_index: 0,
                     signature: "signed-thought".to_string(),
                 },
-                NeutralStreamEvent::ResponseEnd,
+                NeutralStreamEvent::ResponseEnd { usage: None },
             ]
         );
     }
@@ -1062,9 +1132,11 @@ mod tests {
                 "finishReason": "STOP"
             }],
             "usageMetadata": {
-                "promptTokenCount": 2,
-                "candidatesTokenCount": 3,
-                "totalTokenCount": 5
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 4,
+                "cachedContentTokenCount": 3,
+                "thoughtsTokenCount": 2,
+                "totalTokenCount": 16
             }
         })
         .to_string();
@@ -1106,17 +1178,21 @@ mod tests {
                     choice_index: 5,
                     tool_call_index: 2,
                 },
-                NeutralStreamEvent::UsageUpdate(UsageInfo {
-                    prompt_tokens: 2,
-                    completion_tokens: 3,
-                    total_tokens: 5,
-                }),
                 NeutralStreamEvent::Finish {
                     choice_index: 5,
                     reason: FinishReason::Stop,
                     raw_finish_reason: Some("STOP".to_string()),
                 },
-                NeutralStreamEvent::ResponseEnd,
+                NeutralStreamEvent::ResponseEnd {
+                    usage: Some(UsageInfo {
+                        input_tokens: 7,
+                        output_tokens: 4,
+                        cache_read_tokens: Some(3),
+                        cache_write_tokens: None,
+                        reasoning_tokens: Some(2),
+                        total_tokens: 16,
+                    }),
+                },
             ]
         );
     }

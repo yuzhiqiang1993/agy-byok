@@ -89,8 +89,12 @@ impl ProxyServer {
             used_fallback: false,
             fallback_attempted: false,
             fallback_succeeded: false,
-            prompt_tokens: None,
-            completion_tokens: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
         });
     }
 
@@ -161,8 +165,12 @@ impl ProxyServer {
             used_fallback: outcome.fallback_succeeded,
             fallback_attempted: outcome.fallback_attempted,
             fallback_succeeded: outcome.fallback_succeeded,
-            prompt_tokens: outcome.usage.map(|usage| usage.prompt_tokens),
-            completion_tokens: outcome.usage.map(|usage| usage.completion_tokens),
+            input_tokens: outcome.usage.map(|usage| usage.input_tokens),
+            output_tokens: outcome.usage.map(|usage| usage.output_tokens),
+            cache_read_tokens: outcome.usage.and_then(|usage| usage.cache_read_tokens),
+            cache_write_tokens: outcome.usage.and_then(|usage| usage.cache_write_tokens),
+            reasoning_tokens: outcome.usage.and_then(|usage| usage.reasoning_tokens),
+            total_tokens: outcome.usage.map(|usage| usage.total_tokens),
         });
     }
 
@@ -204,8 +212,12 @@ impl ProxyServer {
             used_fallback: false,
             fallback_attempted: false,
             fallback_succeeded: false,
-            prompt_tokens: None,
-            completion_tokens: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
         });
     }
 

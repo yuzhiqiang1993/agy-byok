@@ -23,6 +23,10 @@ export interface ActivityItem {
   usedFallback: boolean;
   fallbackAttempted: boolean;
   fallbackSucceeded: boolean;
-  promptTokens: number | null;
-  completionTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  reasoningTokens: number | null;
+  totalTokens: number | null;
 }

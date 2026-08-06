@@ -17,6 +17,7 @@ export interface ParameterOverrides {
 }
 
 export interface ModelTokenLimits {
+  context_window: number | null;
   input_token_limit: number | null;
   output_token_limit: number | null;
 }
@@ -30,6 +31,7 @@ export type OfficialCompressionProfile =
 
 export interface OfficialModelSettings {
   gemini_compression_profile: OfficialCompressionProfile;
+  custom_model_threshold_percent: number | null;
   gemini_token_threshold: number;
   gemini_max_token_limit: number;
   gemini_max_output_tokens: number;

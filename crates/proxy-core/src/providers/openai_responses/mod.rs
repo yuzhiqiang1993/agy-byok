@@ -37,20 +37,35 @@ fn normalize_finish_reason(raw: &str) -> FinishReason {
 }
 
 fn parse_usage(value: &Value) -> Option<UsageInfo> {
-    value.as_object().map(|usage| UsageInfo {
-        prompt_tokens: usage
-            .get("input_tokens")
+    let usage = value.as_object()?;
+    let token = |value: Option<&Value>| {
+        value
             .and_then(Value::as_u64)
-            .unwrap_or(0) as u32,
-        completion_tokens: usage
-            .get("output_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as u32,
-        total_tokens: usage
-            .get("total_tokens")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as u32,
-    })
+            .and_then(|tokens| u32::try_from(tokens).ok())
+    };
+    let input_tokens = token(usage.get("input_tokens")).unwrap_or(0);
+    let output_tokens = token(usage.get("output_tokens")).unwrap_or(0);
+    let cache_read_tokens = token(
+        usage
+            .get("input_tokens_details")
+            .and_then(Value::as_object)
+            .and_then(|details| details.get("cached_tokens")),
+    );
+    let reasoning_tokens = token(
+        usage
+            .get("output_tokens_details")
+            .and_then(Value::as_object)
+            .and_then(|details| details.get("reasoning_tokens")),
+    );
+
+    Some(UsageInfo::from_aggregate_totals(
+        input_tokens,
+        output_tokens,
+        token(usage.get("total_tokens")),
+        cache_read_tokens,
+        None,
+        reasoning_tokens,
+    ))
 }
 
 #[async_trait]
@@ -113,13 +128,29 @@ mod tests {
                       {"type":"message","content":[{"type":"output_text","text":"Done"}]},
                       {"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"}
                     ],
-                    "usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}
+                    "usage":{
+                      "input_tokens":12,
+                      "output_tokens":8,
+                      "total_tokens":20,
+                      "input_tokens_details":{"cached_tokens":5},
+                      "output_tokens_details":{"reasoning_tokens":3}
+                    }
                 }"#,
                 &model,
             )
             .unwrap();
         assert_eq!(response.id, "resp_1");
-        assert_eq!(response.usage.unwrap().total_tokens, 5);
+        assert_eq!(
+            response.usage,
+            Some(UsageInfo {
+                input_tokens: 7,
+                output_tokens: 5,
+                cache_read_tokens: Some(5),
+                cache_write_tokens: None,
+                reasoning_tokens: Some(3),
+                total_tokens: 20,
+            })
+        );
         assert!(matches!(
             response.choices[0].finish_reason,
             Some(FinishReason::ToolCall)
@@ -147,7 +178,7 @@ mod tests {
             .unwrap();
         assert!(matches!(&delta[0], NeutralStreamEvent::TextDelta { text, .. } if text == "Hello"));
         let end = decoder
-            .decode_data(r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}"#)
+            .decode_data(r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":3}}}}"#)
             .unwrap();
         assert!(end.iter().any(|event| matches!(
             event,
@@ -156,8 +187,18 @@ mod tests {
                 ..
             }
         )));
-        assert!(end
-            .iter()
-            .any(|event| matches!(event, NeutralStreamEvent::ResponseEnd)));
+        assert_eq!(
+            end.last(),
+            Some(&NeutralStreamEvent::ResponseEnd {
+                usage: Some(UsageInfo {
+                    input_tokens: 7,
+                    output_tokens: 4,
+                    cache_read_tokens: Some(4),
+                    cache_write_tokens: None,
+                    reasoning_tokens: Some(3),
+                    total_tokens: 18,
+                }),
+            })
+        );
     }
 }

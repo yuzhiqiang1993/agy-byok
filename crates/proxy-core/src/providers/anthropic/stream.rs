@@ -17,7 +17,7 @@ struct AnthropicStreamDecoder {
     message_started: bool,
     finish_emitted: bool,
     response_ended: bool,
-    usage: UsageInfo,
+    usage: Option<UsageInfo>,
     open_blocks: BTreeMap<u32, AnthropicContentBlockKind>,
     thinking_signatures: BTreeMap<u32, String>,
 }
@@ -29,7 +29,7 @@ impl AnthropicStreamDecoder {
             message_started: false,
             finish_emitted: false,
             response_ended: false,
-            usage: UsageInfo::default(),
+            usage: None,
             open_blocks: BTreeMap::new(),
             thinking_signatures: BTreeMap::new(),
         }
@@ -80,7 +80,7 @@ impl AnthropicStreamDecoder {
 
     fn parse_usage(
         value: Option<&Value>,
-        current: &UsageInfo,
+        current: Option<&UsageInfo>,
         event_type: &str,
     ) -> Result<Option<UsageInfo>, ProxyError> {
         let Some(value) = value else {
@@ -111,21 +111,31 @@ impl AnthropicStreamDecoder {
             })
         };
 
-        let prompt_tokens = parse_token("input_tokens")?.unwrap_or(current.prompt_tokens);
-        let completion_tokens = parse_token("output_tokens")?.unwrap_or(current.completion_tokens);
-        let total_tokens = prompt_tokens
-            .checked_add(completion_tokens)
+        let mut parsed = current.cloned().unwrap_or_default();
+        if let Some(tokens) = parse_token("input_tokens")? {
+            parsed.input_tokens = tokens;
+        }
+        if let Some(tokens) = parse_token("output_tokens")? {
+            parsed.output_tokens = tokens;
+        }
+        if let Some(tokens) = parse_token("cache_read_input_tokens")? {
+            parsed.cache_read_tokens = Some(tokens);
+        }
+        if let Some(tokens) = parse_token("cache_creation_input_tokens")? {
+            parsed.cache_write_tokens = Some(tokens);
+        }
+        parsed.total_tokens = parsed
+            .input_tokens
+            .checked_add(parsed.output_tokens)
+            .and_then(|total| total.checked_add(parsed.cache_read_tokens.unwrap_or(0)))
+            .and_then(|total| total.checked_add(parsed.cache_write_tokens.unwrap_or(0)))
             .ok_or_else(|| {
                 Self::stream_error(format!(
                     "Anthropic {event_type} usage token total exceeds the supported range"
                 ))
             })?;
 
-        Ok(Some(UsageInfo {
-            prompt_tokens,
-            completion_tokens,
-            total_tokens,
-        }))
+        Ok(Some(parsed))
     }
 
     fn require_block_kind(
@@ -179,10 +189,10 @@ impl AnthropicStreamDecoder {
                 ));
             }
         };
-        let usage = Self::parse_usage(message.get("usage"), &self.usage, "message_start")?;
+        let usage = Self::parse_usage(message.get("usage"), self.usage.as_ref(), "message_start")?;
 
         if let Some(usage) = usage {
-            self.usage = usage;
+            self.usage = Some(usage);
         }
         self.message_started = true;
 
@@ -406,7 +416,7 @@ impl AnthropicStreamDecoder {
         value: &Value,
     ) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
         self.ensure_active_message("message_delta")?;
-        let usage = Self::parse_usage(value.get("usage"), &self.usage, "message_delta")?;
+        let usage = Self::parse_usage(value.get("usage"), self.usage.as_ref(), "message_delta")?;
         let delta = Self::required_object(value, "delta", "message_delta")?;
         let stop_reason = match delta.get("stop_reason") {
             None | Some(Value::Null) => None,
@@ -420,8 +430,7 @@ impl AnthropicStreamDecoder {
 
         let mut events = Vec::new();
         if let Some(usage) = usage {
-            self.usage = usage.clone();
-            events.push(NeutralStreamEvent::UsageUpdate(usage));
+            self.usage = Some(usage);
         }
         if let Some(raw_finish_reason) = stop_reason {
             if !self.finish_emitted {
@@ -464,7 +473,9 @@ impl AnthropicStreamDecoder {
         );
         self.open_blocks.clear();
         self.response_ended = true;
-        events.push(NeutralStreamEvent::ResponseEnd);
+        events.push(NeutralStreamEvent::ResponseEnd {
+            usage: self.usage.clone(),
+        });
         events
     }
 

@@ -235,9 +235,7 @@ impl OpenAIResponsesStreamDecoder {
         if self.response_ended {
             return Ok(());
         }
-        if let Some(usage) = parse_usage(&response["usage"]) {
-            events.push(NeutralStreamEvent::UsageUpdate(usage));
-        }
+        let usage = parse_usage(&response["usage"]);
         self.close_tools(events)?;
         if !self.finished {
             let raw_reason = response["incomplete_details"]["reason"]
@@ -262,7 +260,7 @@ impl OpenAIResponsesStreamDecoder {
             self.finished = true;
         }
         self.response_ended = true;
-        events.push(NeutralStreamEvent::ResponseEnd);
+        events.push(NeutralStreamEvent::ResponseEnd { usage });
         Ok(())
     }
 }
@@ -329,7 +327,7 @@ impl ProviderStreamDecoder for OpenAIResponsesStreamDecoder {
         let mut events = Vec::new();
         self.close_tools(&mut events)?;
         self.response_ended = true;
-        events.push(NeutralStreamEvent::ResponseEnd);
+        events.push(NeutralStreamEvent::ResponseEnd { usage: None });
         Ok(events)
     }
 }

@@ -1,7 +1,7 @@
-use super::normalize_finish_reason;
+use super::{normalize_finish_reason, parse_usage};
 use crate::domain::response::NeutralChoice;
 use crate::domain::{
-    ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel, UsageInfo,
+    ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel,
 };
 use serde_json::Value;
 
@@ -94,20 +94,9 @@ pub(super) fn parse_response(
         }
     }
 
-    let usage = val["usageMetadata"].as_object().map(|usage| UsageInfo {
-        prompt_tokens: usage
-            .get("promptTokenCount")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-        completion_tokens: usage
-            .get("candidatesTokenCount")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-        total_tokens: usage
-            .get("totalTokenCount")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as u32,
-    });
+    let usage = val
+        .get("usageMetadata")
+        .and_then(|usage| parse_usage(usage, None));
 
     Ok(NeutralChatResponse {
         id,
