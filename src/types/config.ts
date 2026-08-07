@@ -53,12 +53,32 @@ export type OfficialCompressionProfile =
   | "aggressive"
   | "custom";
 
+export type ClaudeCompressionProfile =
+  | "official"
+  | "safe"
+  | "balanced"
+  | "aggressive"
+  | "custom";
+
+export type CustomModelCompressionProfile =
+  | "safe"
+  | "balanced"
+  | "aggressive"
+  | "custom";
+
 export interface OfficialModelSettings {
   gemini_compression_profile: OfficialCompressionProfile;
-  custom_model_threshold_percent: number | null;
-  gemini_token_threshold: number;
-  gemini_max_token_limit: number;
-  gemini_max_output_tokens: number;
+  gemini_token_threshold_percent: number;
+  gemini_max_token_limit_percent: number;
+  gemini_max_output_tokens_percent: number;
+  claude_compression_profile: ClaudeCompressionProfile;
+  claude_token_threshold_percent: number;
+  claude_max_token_limit_percent: number;
+  claude_max_output_tokens_percent: number;
+  custom_model_compression_profile: CustomModelCompressionProfile;
+  custom_model_token_threshold_percent: number;
+  custom_model_max_token_limit_percent: number;
+  custom_model_max_output_tokens_percent: number;
 }
 
 export interface Provider {

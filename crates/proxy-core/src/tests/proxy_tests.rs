@@ -148,7 +148,16 @@ mod tests {
         };
         config
             .official_model_settings
-            .custom_model_threshold_percent = Some(80);
+            .custom_model_compression_profile = CustomModelCompressionProfile::Custom;
+        config
+            .official_model_settings
+            .custom_model_token_threshold_percent = 70;
+        config
+            .official_model_settings
+            .custom_model_max_token_limit_percent = 90;
+        config
+            .official_model_settings
+            .custom_model_max_output_tokens_percent = 5;
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let checkpoint_model = config.virtual_models[0]
             .effective_host_model_id()
@@ -162,9 +171,9 @@ mod tests {
             .expect("custom model must contain checkpoint settings");
         let checkpoint: serde_json::Value = serde_json::from_str(raw).unwrap();
 
-        assert_eq!(checkpoint["token_threshold"], "297600");
-        assert_eq!(checkpoint["max_token_limit"], "372000");
-        assert_eq!(checkpoint["max_output_tokens"], "16384");
+        assert_eq!(checkpoint["token_threshold"], "260400");
+        assert_eq!(checkpoint["max_token_limit"], "334800");
+        assert_eq!(checkpoint["max_output_tokens"], "18600");
         assert_eq!(checkpoint["checkpoint_model"], checkpoint_model);
     }
 
@@ -184,7 +193,6 @@ mod tests {
         });
         config.official_model_settings = OfficialModelSettings {
             gemini_compression_profile: OfficialCompressionProfile::Safe,
-            custom_model_threshold_percent: Some(60),
             ..OfficialModelSettings::default()
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();

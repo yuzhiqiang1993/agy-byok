@@ -1,4 +1,5 @@
 import { showNotice } from "./NoticeBar";
+import { confirmHostAction } from "./ConfirmModal";
 import { store } from "../store/appStore";
 import { clearActivityLog } from "../controllers/activityController";
 import { setProxyPort } from "../controllers/proxyController";
@@ -13,75 +14,152 @@ import { errorMessage } from "../utils/domUtils";
 import { applyTheme } from "./ThemeManager";
 import { getLanguage, setLanguage, subscribeLanguage, t, type SupportedLocale } from "../i18n";
 import { configService } from "../services/configService";
-import type { OfficialCompressionProfile, OfficialModelSettings } from "../types/config";
+import type {
+  ClaudeCompressionProfile,
+  CustomModelCompressionProfile,
+  OfficialCompressionProfile,
+  OfficialModelSettings,
+} from "../types/config";
 
-const GEMINI_COMPRESSION_PRESETS: Partial<Record<Exclude<OfficialCompressionProfile, "official" | "custom">, Pick<OfficialModelSettings, "gemini_token_threshold" | "gemini_max_token_limit" | "gemini_max_output_tokens">>> = {
-  safe: {
-    gemini_token_threshold: 430_000,
-    gemini_max_token_limit: 512_000,
-    gemini_max_output_tokens: 16_384,
-  },
-  balanced: {
-    gemini_token_threshold: 640_000,
-    gemini_max_token_limit: 768_000,
-    gemini_max_output_tokens: 16_384,
-  },
-  aggressive: {
-    gemini_token_threshold: 760_000,
-    gemini_max_token_limit: 900_000,
-    gemini_max_output_tokens: 16_384,
-  },
-};
+type CompressionSettingsDraft = OfficialModelSettings;
 
-const DEFAULT_OFFICIAL_MODEL_SETTINGS: OfficialModelSettings = {
+type PercentField =
+  | "gemini_token_threshold_percent"
+  | "gemini_max_token_limit_percent"
+  | "gemini_max_output_tokens_percent"
+  | "claude_token_threshold_percent"
+  | "claude_max_token_limit_percent"
+  | "claude_max_output_tokens_percent"
+  | "custom_model_token_threshold_percent"
+  | "custom_model_max_token_limit_percent"
+  | "custom_model_max_output_tokens_percent";
+
+type PercentFields = readonly [PercentField, PercentField, PercentField];
+
+const DEFAULT_COMPRESSION_SETTINGS: CompressionSettingsDraft = {
   gemini_compression_profile: "official",
-  custom_model_threshold_percent: null,
-  gemini_token_threshold: 640_000,
-  gemini_max_token_limit: 768_000,
-  gemini_max_output_tokens: 16_384,
+  claude_compression_profile: "official",
+  custom_model_compression_profile: "balanced",
+  gemini_token_threshold_percent: 61,
+  gemini_max_token_limit_percent: 73,
+  gemini_max_output_tokens_percent: 2,
+  claude_token_threshold_percent: 61,
+  claude_max_token_limit_percent: 73,
+  claude_max_output_tokens_percent: 2,
+  custom_model_token_threshold_percent: 61,
+  custom_model_max_token_limit_percent: 73,
+  custom_model_max_output_tokens_percent: 2,
 };
 
 function isOfficialCompressionProfile(value: string): value is OfficialCompressionProfile {
   return ["official", "safe", "balanced", "aggressive", "custom"].includes(value);
 }
 
-function positiveIntegerOrFallback(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+function isClaudeCompressionProfile(value: string): value is ClaudeCompressionProfile {
+  return ["official", "safe", "balanced", "aggressive", "custom"].includes(value);
 }
 
-function percentageOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100 ? value : null;
+function isCustomModelCompressionProfile(value: string): value is CustomModelCompressionProfile {
+  return ["safe", "balanced", "aggressive", "custom"].includes(value);
 }
 
-function normalizeOfficialModelSettings(value: Partial<OfficialModelSettings> | undefined): OfficialModelSettings {
-  const profile = typeof value?.gemini_compression_profile === "string"
+function percentageOrFallback(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 100
+    ? value
+    : fallback;
+}
+
+function normalizeCompressionSettings(
+  value: Partial<OfficialModelSettings> | undefined,
+): CompressionSettingsDraft {
+  const geminiProfile = typeof value?.gemini_compression_profile === "string"
     && isOfficialCompressionProfile(value.gemini_compression_profile)
     ? value.gemini_compression_profile
-    : DEFAULT_OFFICIAL_MODEL_SETTINGS.gemini_compression_profile;
+    : DEFAULT_COMPRESSION_SETTINGS.gemini_compression_profile;
+  const claudeProfile = typeof value?.claude_compression_profile === "string"
+    && isClaudeCompressionProfile(value.claude_compression_profile)
+    ? value.claude_compression_profile
+    : DEFAULT_COMPRESSION_SETTINGS.claude_compression_profile;
+  const customModelProfile = typeof value?.custom_model_compression_profile === "string"
+    && isCustomModelCompressionProfile(value.custom_model_compression_profile)
+    ? value.custom_model_compression_profile
+    : DEFAULT_COMPRESSION_SETTINGS.custom_model_compression_profile;
+
   return {
-    gemini_compression_profile: profile,
-    custom_model_threshold_percent: percentageOrNull(value?.custom_model_threshold_percent),
-    gemini_token_threshold: positiveIntegerOrFallback(
-      value?.gemini_token_threshold,
-      DEFAULT_OFFICIAL_MODEL_SETTINGS.gemini_token_threshold,
+    gemini_compression_profile: geminiProfile,
+    claude_compression_profile: claudeProfile,
+    custom_model_compression_profile: customModelProfile,
+    gemini_token_threshold_percent: percentageOrFallback(
+      value?.gemini_token_threshold_percent,
+      DEFAULT_COMPRESSION_SETTINGS.gemini_token_threshold_percent,
     ),
-    gemini_max_token_limit: positiveIntegerOrFallback(
-      value?.gemini_max_token_limit,
-      DEFAULT_OFFICIAL_MODEL_SETTINGS.gemini_max_token_limit,
+    gemini_max_token_limit_percent: percentageOrFallback(
+      value?.gemini_max_token_limit_percent,
+      DEFAULT_COMPRESSION_SETTINGS.gemini_max_token_limit_percent,
     ),
-    gemini_max_output_tokens: positiveIntegerOrFallback(
-      value?.gemini_max_output_tokens,
-      DEFAULT_OFFICIAL_MODEL_SETTINGS.gemini_max_output_tokens,
+    gemini_max_output_tokens_percent: percentageOrFallback(
+      value?.gemini_max_output_tokens_percent,
+      DEFAULT_COMPRESSION_SETTINGS.gemini_max_output_tokens_percent,
+    ),
+    claude_token_threshold_percent: percentageOrFallback(
+      value?.claude_token_threshold_percent,
+      DEFAULT_COMPRESSION_SETTINGS.claude_token_threshold_percent,
+    ),
+    claude_max_token_limit_percent: percentageOrFallback(
+      value?.claude_max_token_limit_percent,
+      DEFAULT_COMPRESSION_SETTINGS.claude_max_token_limit_percent,
+    ),
+    claude_max_output_tokens_percent: percentageOrFallback(
+      value?.claude_max_output_tokens_percent,
+      DEFAULT_COMPRESSION_SETTINGS.claude_max_output_tokens_percent,
+    ),
+    custom_model_token_threshold_percent: percentageOrFallback(
+      value?.custom_model_token_threshold_percent,
+      DEFAULT_COMPRESSION_SETTINGS.custom_model_token_threshold_percent,
+    ),
+    custom_model_max_token_limit_percent: percentageOrFallback(
+      value?.custom_model_max_token_limit_percent,
+      DEFAULT_COMPRESSION_SETTINGS.custom_model_max_token_limit_percent,
+    ),
+    custom_model_max_output_tokens_percent: percentageOrFallback(
+      value?.custom_model_max_output_tokens_percent,
+      DEFAULT_COMPRESSION_SETTINGS.custom_model_max_output_tokens_percent,
     ),
   };
 }
 
-function sameOfficialModelSettings(left: OfficialModelSettings, right: OfficialModelSettings): boolean {
-  return left.gemini_compression_profile === right.gemini_compression_profile
-    && left.custom_model_threshold_percent === right.custom_model_threshold_percent
-    && left.gemini_token_threshold === right.gemini_token_threshold
-    && left.gemini_max_token_limit === right.gemini_max_token_limit
-    && left.gemini_max_output_tokens === right.gemini_max_output_tokens;
+interface CompressionSettingsChanges {
+  gemini: boolean;
+  claude: boolean;
+  customModel: boolean;
+}
+
+function compressionSettingsChanges(
+  left: CompressionSettingsDraft,
+  right: CompressionSettingsDraft,
+): CompressionSettingsChanges {
+  return {
+    gemini: left.gemini_compression_profile !== right.gemini_compression_profile
+      || left.gemini_token_threshold_percent !== right.gemini_token_threshold_percent
+      || left.gemini_max_token_limit_percent !== right.gemini_max_token_limit_percent
+      || left.gemini_max_output_tokens_percent !== right.gemini_max_output_tokens_percent,
+    claude: left.claude_compression_profile !== right.claude_compression_profile
+      || left.claude_token_threshold_percent !== right.claude_token_threshold_percent
+      || left.claude_max_token_limit_percent !== right.claude_max_token_limit_percent
+      || left.claude_max_output_tokens_percent !== right.claude_max_output_tokens_percent,
+    customModel: left.custom_model_compression_profile !== right.custom_model_compression_profile
+      || left.custom_model_token_threshold_percent !== right.custom_model_token_threshold_percent
+      || left.custom_model_max_token_limit_percent !== right.custom_model_max_token_limit_percent
+      || left.custom_model_max_output_tokens_percent !== right.custom_model_max_output_tokens_percent,
+  };
+}
+
+function sameCompressionSettings(
+  left: CompressionSettingsDraft,
+  right: CompressionSettingsDraft,
+): boolean {
+  const changes = compressionSettingsChanges(left, right);
+  return !changes.gemini && !changes.claude && !changes.customModel;
 }
 
 export function setupSettingsView(): void {
@@ -213,7 +291,7 @@ export function setupSettingsView(): void {
     });
   }
 
-  setupOfficialModelSettings();
+  setupCompressionSettings();
 
   // 数据管理: 清空日志
   const settingsClearLogsBtn = document.querySelector("#settings-clear-logs-btn");
@@ -267,125 +345,228 @@ export function setupSettingsView(): void {
   });
 }
 
-function setupOfficialModelSettings(): void {
-  const profileSelect = document.querySelector<HTMLSelectElement>("#settings-gemini-compression-profile");
-  const thresholdInput = document.querySelector<HTMLInputElement>("#settings-gemini-threshold");
-  const hardLimitInput = document.querySelector<HTMLInputElement>("#settings-gemini-hard-limit");
-  const outputReserveInput = document.querySelector<HTMLInputElement>("#settings-gemini-output-reserve");
-  const customThresholdPercentInput = document.querySelector<HTMLInputElement>("#settings-gemini-custom-threshold-percent");
+function setupCompressionSettings(): void {
+  const geminiProfileSelect = document.querySelector<HTMLSelectElement>("#settings-gemini-compression-profile");
+  const claudeProfileSelect = document.querySelector<HTMLSelectElement>("#settings-claude-compression-profile");
+  const customModelProfileSelect = document.querySelector<HTMLSelectElement>("#settings-custom-model-compression-profile");
+  const geminiParameters = document.querySelector<HTMLElement>("#settings-gemini-custom-parameters");
+  const claudeParameters = document.querySelector<HTMLElement>("#settings-claude-custom-parameters");
+  const customModelParameters = document.querySelector<HTMLElement>("#settings-custom-model-custom-parameters");
+  const geminiThresholdPercentInput = document.querySelector<HTMLInputElement>("#settings-gemini-threshold-percent");
+  const geminiHardLimitPercentInput = document.querySelector<HTMLInputElement>("#settings-gemini-hard-limit-percent");
+  const geminiOutputReservePercentInput = document.querySelector<HTMLInputElement>("#settings-gemini-output-reserve-percent");
+  const claudeThresholdPercentInput = document.querySelector<HTMLInputElement>("#settings-claude-threshold-percent");
+  const claudeHardLimitPercentInput = document.querySelector<HTMLInputElement>("#settings-claude-hard-limit-percent");
+  const claudeOutputReservePercentInput = document.querySelector<HTMLInputElement>("#settings-claude-output-reserve-percent");
+  const customModelThresholdPercentInput = document.querySelector<HTMLInputElement>("#settings-custom-model-threshold-percent");
+  const customModelHardLimitPercentInput = document.querySelector<HTMLInputElement>("#settings-custom-model-hard-limit-percent");
+  const customModelOutputReservePercentInput = document.querySelector<HTMLInputElement>("#settings-custom-model-output-reserve-percent");
+  const resetButton = document.querySelector<HTMLButtonElement>("#reset-gemini-settings");
   const saveButton = document.querySelector<HTMLButtonElement>("#save-gemini-settings");
   const source = document.querySelector<HTMLElement>("#settings-gemini-source");
-  if (!profileSelect || !thresholdInput || !hardLimitInput || !outputReserveInput || !customThresholdPercentInput || !saveButton || !source) {
+  if (!geminiProfileSelect
+    || !claudeProfileSelect
+    || !customModelProfileSelect
+    || !geminiParameters
+    || !claudeParameters
+    || !customModelParameters
+    || !geminiThresholdPercentInput
+    || !geminiHardLimitPercentInput
+    || !geminiOutputReservePercentInput
+    || !claudeThresholdPercentInput
+    || !claudeHardLimitPercentInput
+    || !claudeOutputReservePercentInput
+    || !customModelThresholdPercentInput
+    || !customModelHardLimitPercentInput
+    || !customModelOutputReservePercentInput
+    || !resetButton
+    || !saveButton
+    || !source) {
     return;
   }
 
-  let savedSettings = normalizeOfficialModelSettings(store.config.official_model_settings);
+  let savedSettings = normalizeCompressionSettings(store.config.official_model_settings);
   let draftSettings = { ...savedSettings };
 
-  const presetValues = (profile: OfficialCompressionProfile) => {
-    if (profile === "safe" || profile === "balanced" || profile === "aggressive") {
-      return GEMINI_COMPRESSION_PRESETS[profile];
+  const percentValuesAreValid = (
+    threshold: number,
+    hardLimit: number,
+    outputReserve: number,
+  ): boolean => Number.isInteger(threshold)
+    && Number.isInteger(hardLimit)
+    && Number.isInteger(outputReserve)
+    && threshold >= 1
+    && hardLimit >= 1
+    && outputReserve >= 1
+    && threshold <= 100
+    && hardLimit <= 100
+    && outputReserve <= 100
+    && threshold < hardLimit
+    && outputReserve < hardLimit
+    && threshold + outputReserve <= hardLimit;
+
+  const geminiPercentFields: PercentFields = [
+    "gemini_token_threshold_percent",
+    "gemini_max_token_limit_percent",
+    "gemini_max_output_tokens_percent",
+  ];
+  const claudePercentFields: PercentFields = [
+    "claude_token_threshold_percent",
+    "claude_max_token_limit_percent",
+    "claude_max_output_tokens_percent",
+  ];
+  const customModelPercentFields: PercentFields = [
+    "custom_model_token_threshold_percent",
+    "custom_model_max_token_limit_percent",
+    "custom_model_max_output_tokens_percent",
+  ];
+  const restoreInvalidPercentages = ([threshold, hardLimit, outputReserve]: PercentFields) => {
+    if (percentValuesAreValid(
+      draftSettings[threshold],
+      draftSettings[hardLimit],
+      draftSettings[outputReserve],
+    )) {
+      return;
     }
-    return undefined;
+    draftSettings = {
+      ...draftSettings,
+      [threshold]: DEFAULT_COMPRESSION_SETTINGS[threshold],
+      [hardLimit]: DEFAULT_COMPRESSION_SETTINGS[hardLimit],
+      [outputReserve]: DEFAULT_COMPRESSION_SETTINGS[outputReserve],
+    };
   };
 
-  const draftIsValid = (): boolean => {
-    const customThresholdPercent = draftSettings.custom_model_threshold_percent;
-    if (customThresholdPercent !== null
-      && (!Number.isInteger(customThresholdPercent)
-        || customThresholdPercent < 1
-        || customThresholdPercent > 100)) {
-      return false;
-    }
-    if (draftSettings.gemini_compression_profile === "official") return true;
-    const threshold = draftSettings.gemini_token_threshold;
-    const hardLimit = draftSettings.gemini_max_token_limit;
-    const outputReserve = draftSettings.gemini_max_output_tokens;
-    return Number.isInteger(threshold)
-      && Number.isInteger(hardLimit)
-      && Number.isInteger(outputReserve)
-      && threshold > 0
-      && hardLimit > 0
-      && outputReserve > 0
-      && threshold < hardLimit
-      && hardLimit <= 1_048_576
-      && outputReserve < hardLimit;
-  };
+  const draftIsValid = (): boolean => percentValuesAreValid(
+    draftSettings.gemini_token_threshold_percent,
+    draftSettings.gemini_max_token_limit_percent,
+    draftSettings.gemini_max_output_tokens_percent,
+  )
+    && percentValuesAreValid(
+      draftSettings.claude_token_threshold_percent,
+      draftSettings.claude_max_token_limit_percent,
+      draftSettings.claude_max_output_tokens_percent,
+    )
+    && percentValuesAreValid(
+      draftSettings.custom_model_token_threshold_percent,
+      draftSettings.custom_model_max_token_limit_percent,
+      draftSettings.custom_model_max_output_tokens_percent,
+    );
 
   const render = (writeValues: boolean) => {
-    const profile = draftSettings.gemini_compression_profile;
-    profileSelect.value = profile;
-    const preset = presetValues(profile);
-    if (preset) {
-      draftSettings = { ...draftSettings, ...preset };
-    }
-    const fieldsAreEditable = profile === "custom";
-    thresholdInput.disabled = !fieldsAreEditable;
-    hardLimitInput.disabled = !fieldsAreEditable;
-    outputReserveInput.disabled = !fieldsAreEditable;
-    customThresholdPercentInput.disabled = !store.configLoaded;
+    const configAvailable = store.configLoaded;
+    geminiProfileSelect.value = draftSettings.gemini_compression_profile;
+    claudeProfileSelect.value = draftSettings.claude_compression_profile;
+    customModelProfileSelect.value = draftSettings.custom_model_compression_profile;
+    geminiProfileSelect.disabled = !configAvailable;
+    claudeProfileSelect.disabled = !configAvailable;
+    customModelProfileSelect.disabled = !configAvailable;
+
+    const geminiCustom = draftSettings.gemini_compression_profile === "custom";
+    const claudeCustom = draftSettings.claude_compression_profile === "custom";
+    const customModelCustom = draftSettings.custom_model_compression_profile === "custom";
+    geminiParameters.hidden = !geminiCustom;
+    claudeParameters.hidden = !claudeCustom;
+    customModelParameters.hidden = !customModelCustom;
+    geminiThresholdPercentInput.disabled = !configAvailable || !geminiCustom;
+    geminiHardLimitPercentInput.disabled = !configAvailable || !geminiCustom;
+    geminiOutputReservePercentInput.disabled = !configAvailable || !geminiCustom;
+    claudeThresholdPercentInput.disabled = !configAvailable || !claudeCustom;
+    claudeHardLimitPercentInput.disabled = !configAvailable || !claudeCustom;
+    claudeOutputReservePercentInput.disabled = !configAvailable || !claudeCustom;
+    customModelThresholdPercentInput.disabled = !configAvailable || !customModelCustom;
+    customModelHardLimitPercentInput.disabled = !configAvailable || !customModelCustom;
+    customModelOutputReservePercentInput.disabled = !configAvailable || !customModelCustom;
+
     if (writeValues) {
-      const showValues = profile !== "official";
-      thresholdInput.value = showValues ? String(draftSettings.gemini_token_threshold) : "";
-      hardLimitInput.value = showValues ? String(draftSettings.gemini_max_token_limit) : "";
-      outputReserveInput.value = showValues ? String(draftSettings.gemini_max_output_tokens) : "";
-      customThresholdPercentInput.value = draftSettings.custom_model_threshold_percent === null
-        ? ""
-        : String(draftSettings.custom_model_threshold_percent);
+      geminiThresholdPercentInput.value = String(draftSettings.gemini_token_threshold_percent);
+      geminiHardLimitPercentInput.value = String(draftSettings.gemini_max_token_limit_percent);
+      geminiOutputReservePercentInput.value = String(draftSettings.gemini_max_output_tokens_percent);
+      claudeThresholdPercentInput.value = String(draftSettings.claude_token_threshold_percent);
+      claudeHardLimitPercentInput.value = String(draftSettings.claude_max_token_limit_percent);
+      claudeOutputReservePercentInput.value = String(draftSettings.claude_max_output_tokens_percent);
+      customModelThresholdPercentInput.value = String(draftSettings.custom_model_token_threshold_percent);
+      customModelHardLimitPercentInput.value = String(draftSettings.custom_model_max_token_limit_percent);
+      customModelOutputReservePercentInput.value = String(draftSettings.custom_model_max_output_tokens_percent);
     }
-    source.textContent = profile === "official"
-      ? t("settings.geminiCompressionOfficialHint")
-      : t("settings.geminiCompressionLocalHint");
-    saveButton.disabled = !store.configLoaded
-      || sameOfficialModelSettings(savedSettings, draftSettings)
+
+    source.textContent = t("settings.compressionStrategyStatus");
+    const isDefaultDraft = sameCompressionSettings(draftSettings, DEFAULT_COMPRESSION_SETTINGS);
+    resetButton.disabled = !configAvailable || isDefaultDraft;
+    saveButton.disabled = !configAvailable
+      || sameCompressionSettings(savedSettings, draftSettings)
       || !draftIsValid();
   };
 
   const syncFromStore = () => {
-    // 配置加载完成后同步；用户正在编辑时不覆盖未保存草稿。
-    if (document.activeElement === profileSelect
-      || document.activeElement === thresholdInput
-      || document.activeElement === hardLimitInput
-      || document.activeElement === outputReserveInput
-      || document.activeElement === customThresholdPercentInput) {
+    const incomingSettings = normalizeCompressionSettings(store.config.official_model_settings);
+    if (sameCompressionSettings(savedSettings, incomingSettings)) {
+      render(false);
       return;
     }
-    savedSettings = normalizeOfficialModelSettings(store.config.official_model_settings);
-    draftSettings = { ...savedSettings };
+    if (!sameCompressionSettings(savedSettings, draftSettings)) {
+      return;
+    }
+    savedSettings = incomingSettings;
+    draftSettings = { ...incomingSettings };
     render(true);
   };
 
-  profileSelect.addEventListener("change", () => {
-    const value = profileSelect.value;
+  geminiProfileSelect.addEventListener("change", () => {
+    const value = geminiProfileSelect.value;
     if (!isOfficialCompressionProfile(value)) return;
+    if (value !== "custom") restoreInvalidPercentages(geminiPercentFields);
     draftSettings.gemini_compression_profile = value;
     render(true);
   });
+  claudeProfileSelect.addEventListener("change", () => {
+    const value = claudeProfileSelect.value;
+    if (!isClaudeCompressionProfile(value)) return;
+    if (value !== "custom") restoreInvalidPercentages(claudePercentFields);
+    draftSettings.claude_compression_profile = value;
+    render(true);
+  });
+  customModelProfileSelect.addEventListener("change", () => {
+    const value = customModelProfileSelect.value;
+    if (!isCustomModelCompressionProfile(value)) return;
+    if (value !== "custom") restoreInvalidPercentages(customModelPercentFields);
+    draftSettings.custom_model_compression_profile = value;
+    render(true);
+  });
 
-  const updateCustomValue = (
-    input: HTMLInputElement,
-    field: "gemini_token_threshold" | "gemini_max_token_limit" | "gemini_max_output_tokens",
-  ) => {
+  const updatePercentValue = (input: HTMLInputElement, field: PercentField) => {
     const parsed = Number(input.value);
     draftSettings = {
       ...draftSettings,
-      [field]: Number.isInteger(parsed) && parsed > 0 ? parsed : 0,
+      [field]: Number.isInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 0,
     };
     render(false);
   };
-  thresholdInput.addEventListener("input", () => updateCustomValue(thresholdInput, "gemini_token_threshold"));
-  hardLimitInput.addEventListener("input", () => updateCustomValue(hardLimitInput, "gemini_max_token_limit"));
-  outputReserveInput.addEventListener("input", () => updateCustomValue(outputReserveInput, "gemini_max_output_tokens"));
-  customThresholdPercentInput.addEventListener("input", () => {
-    const raw = customThresholdPercentInput.value.trim();
-    const parsed = raw.length === 0 ? null : Number(raw);
-    draftSettings = {
-      ...draftSettings,
-      custom_model_threshold_percent: parsed === null
-        ? null
-        : Number.isInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 0,
-    };
-    render(false);
+  geminiThresholdPercentInput.addEventListener("input", () => updatePercentValue(geminiThresholdPercentInput, "gemini_token_threshold_percent"));
+  geminiHardLimitPercentInput.addEventListener("input", () => updatePercentValue(geminiHardLimitPercentInput, "gemini_max_token_limit_percent"));
+  geminiOutputReservePercentInput.addEventListener("input", () => updatePercentValue(geminiOutputReservePercentInput, "gemini_max_output_tokens_percent"));
+  claudeThresholdPercentInput.addEventListener("input", () => updatePercentValue(claudeThresholdPercentInput, "claude_token_threshold_percent"));
+  claudeHardLimitPercentInput.addEventListener("input", () => updatePercentValue(claudeHardLimitPercentInput, "claude_max_token_limit_percent"));
+  claudeOutputReservePercentInput.addEventListener("input", () => updatePercentValue(claudeOutputReservePercentInput, "claude_max_output_tokens_percent"));
+  customModelThresholdPercentInput.addEventListener("input", () => updatePercentValue(customModelThresholdPercentInput, "custom_model_token_threshold_percent"));
+  customModelHardLimitPercentInput.addEventListener("input", () => updatePercentValue(customModelHardLimitPercentInput, "custom_model_max_token_limit_percent"));
+  customModelOutputReservePercentInput.addEventListener("input", () => updatePercentValue(customModelOutputReservePercentInput, "custom_model_max_output_tokens_percent"));
+
+  resetButton.addEventListener("click", () => {
+    if (!store.configLoaded) {
+      showNotice(store.configLoadError ?? t("overview.loadFailed"), "error");
+      return;
+    }
+    void confirmHostAction(
+      t("settings.geminiCompressionResetConfirm"),
+      t("settings.geminiCompressionResetConfirmTitle"),
+      t("settings.geminiCompressionResetConfirmOk"),
+      t("models.cancel"),
+    ).then((confirmed) => {
+      if (!confirmed) return;
+      draftSettings = { ...DEFAULT_COMPRESSION_SETTINGS };
+      render(true);
+      showNotice(t("settings.geminiCompressionResetNotice"), "success");
+    });
   });
 
   saveButton.addEventListener("click", () => {
@@ -397,19 +578,28 @@ function setupOfficialModelSettings(): void {
       showNotice(t("settings.geminiCompressionInvalid"), "error");
       return;
     }
-    saveButton.disabled = true;
-    void configService.saveConfig({
-      ...store.config,
-      official_model_settings: draftSettings,
-    }).then((savedConfig) => {
-      store.setConfig(savedConfig);
-      savedSettings = normalizeOfficialModelSettings(savedConfig.official_model_settings);
-      draftSettings = { ...savedSettings };
-      render(true);
-      showNotice(t("settings.geminiCompressionSaved"), "success");
-    }).catch((error: unknown) => {
-      render(false);
-      showNotice(t("settings.geminiCompressionSaveFailed", { message: errorMessage(error) }), "error");
+    void confirmHostAction(
+      t("settings.geminiCompressionSaveConfirm"),
+      t("settings.geminiCompressionSaveConfirmTitle"),
+      t("settings.geminiCompressionSaveConfirmOk"),
+      t("models.cancel"),
+    ).then((confirmed) => {
+      if (!confirmed) return;
+      resetButton.disabled = true;
+      saveButton.disabled = true;
+      void configService.saveConfig({
+        ...store.config,
+        official_model_settings: { ...draftSettings },
+      }).then((savedConfig) => {
+        store.setConfig(savedConfig);
+        savedSettings = normalizeCompressionSettings(savedConfig.official_model_settings);
+        draftSettings = { ...savedSettings };
+        render(true);
+        showNotice(t("settings.geminiCompressionSaved"), "success");
+      }).catch((error: unknown) => {
+        render(false);
+        showNotice(t("settings.geminiCompressionSaveFailed", { message: errorMessage(error) }), "error");
+      });
     });
   });
 

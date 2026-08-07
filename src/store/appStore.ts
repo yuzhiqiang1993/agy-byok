@@ -14,10 +14,17 @@ class AppStore {
     virtual_models: [],
     official_model_settings: {
       gemini_compression_profile: "official",
-      custom_model_threshold_percent: null,
-      gemini_token_threshold: 640_000,
-      gemini_max_token_limit: 768_000,
-      gemini_max_output_tokens: 16_384,
+      gemini_token_threshold_percent: 61,
+      gemini_max_token_limit_percent: 73,
+      gemini_max_output_tokens_percent: 2,
+      claude_compression_profile: "official",
+      claude_token_threshold_percent: 61,
+      claude_max_token_limit_percent: 73,
+      claude_max_output_tokens_percent: 2,
+      custom_model_compression_profile: "balanced",
+      custom_model_token_threshold_percent: 61,
+      custom_model_max_token_limit_percent: 73,
+      custom_model_max_output_tokens_percent: 2,
     },
   };
   private _configLoadState: ConfigLoadState = "loading";

@@ -461,7 +461,7 @@
             </button>
             <button type="button" class="settings-nav-item" data-settings-target="settings-antigravity">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M12 3 14.4 8.6 20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4L12 3Z"/><path d="m19 3 .7 1.3L21 5l-1.3.7L19 7l-.7-1.3L17 5l1.3-.7L19 3Z"/></svg>
-              <span data-i18n="settings.navAntigravity">Antigravity 模型</span>
+              <span data-i18n="settings.navAntigravity">压缩策略</span>
             </button>
             <button type="button" class="settings-nav-item" data-settings-target="settings-network">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -539,59 +539,161 @@
               </div>
             </section>
 
-            <!-- Antigravity Model Pane -->
+            <!-- Compression Policy Pane -->
             <section id="settings-antigravity" class="settings-pane">
               <header class="settings-pane-header">
-                <h2 data-i18n="settings.antigravityHeader">Antigravity 模型压缩</h2>
-                <p data-i18n="settings.antigravitySubtitle">控制官方 Gemini 与自定义 ChatGPT 兼容模型在 IDE 中的检查点压缩策略。</p>
+                <h2 data-i18n="settings.antigravityHeader">模型压缩策略</h2>
+                <p data-i18n="settings.antigravitySubtitle">Antigravity 默认会为系统规则、工具调用和压缩摘要预留较多空间，因此即使 Gemini 支持 1M 上下文，也可能较早且频繁地压缩。若希望保留更长上下文，可在下方选择更激进的档位或自定义参数。</p>
               </header>
 
-              <div class="official-compression-card">
+              <section class="official-compression-card" aria-labelledby="compression-card-title">
                 <div class="official-compression-card-head">
                   <div class="settings-row-icon icon-violet" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 14.4 8.6 20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4L12 3Z"/><path d="m19 3 .7 1.3L21 5l-1.3.7L19 7l-.7-1.3L17 5l1.3-.7L19 3Z"/></svg>
                   </div>
-                  <div>
-                    <strong data-i18n="settings.geminiCompressionTitle">Antigravity 上下文压缩策略</strong>
-                    <p data-i18n="settings.geminiCompressionDesc">官方 Gemini 使用所选覆盖策略；自定义模型会根据自身返回的 Token 上限自动裁剪同一档位。</p>
+                  <div class="official-compression-card-copy">
+                    <h3 id="compression-card-title" data-i18n="settings.geminiCompressionTitle">策略档位</h3>
+                    <p data-i18n="settings.geminiCompressionDesc">三类模型独立生效；官方模型可使用官方配置，自定义模型仍以模型卡中的单独配置为最高优先级。</p>
                   </div>
                 </div>
 
-                <label class="compression-profile-row" for="settings-gemini-compression-profile">
-                  <span data-i18n="settings.geminiCompressionProfile">压缩策略档位</span>
-                  <select id="settings-gemini-compression-profile" class="custom-select">
-                    <option value="official" data-i18n="settings.geminiCompressionOfficial">官方默认 / 自定义模型自动适配</option>
-                    <option value="safe" data-i18n="settings.geminiCompressionSafe">稳妥：阈值 430K / 上限 512K</option>
-                    <option value="balanced" data-i18n="settings.geminiCompressionBalanced">平衡：阈值 640K / 上限 768K</option>
-                    <option value="aggressive" data-i18n="settings.geminiCompressionAggressive">激进：阈值 760K / 上限 900K</option>
-                    <option value="custom" data-i18n="settings.geminiCompressionCustom">自定义</option>
-                  </select>
-                </label>
+                <div class="compression-model-stack">
+                  <article class="compression-model-card">
+                    <div class="compression-model-card-head">
+                      <div class="compression-model-copy">
+                        <span class="compression-model-badge" data-i18n="settings.geminiPolicyBadge">Gemini</span>
+                        <strong data-i18n="settings.geminiPolicyTitle">官方 Gemini</strong>
+                        <p id="gemini-policy-desc" data-i18n="settings.geminiPolicyDesc">使用官方模型配置，或选择经过验证的本地 Checkpoint 档位。</p>
+                      </div>
+                      <label class="compression-model-control" for="settings-gemini-compression-profile">
+                        <span class="visually-hidden" data-i18n="settings.geminiPolicyTitle">官方 Gemini</span>
+                        <select id="settings-gemini-compression-profile" class="custom-select" aria-describedby="gemini-policy-desc">
+                          <option value="official" data-i18n="settings.compressionFollowOfficial">使用官方配置</option>
+                          <option value="safe" data-i18n="settings.geminiCompressionSafe">稳妥：阈值 41.0%（430K）/ 上限 48.8%（512K）</option>
+                          <option value="balanced" data-i18n="settings.geminiCompressionBalanced">平衡：阈值 61.0%（640K）/ 上限 73.2%（768K）</option>
+                          <option value="aggressive" data-i18n="settings.geminiCompressionAggressive">激进：阈值 72.5%（760K）/ 上限 85.8%（900K）</option>
+                          <option value="custom" data-i18n="settings.geminiCompressionCustom">自定义参数</option>
+                        </select>
+                      </label>
+                    </div>
 
-                <div class="compression-metric-grid">
-                  <label class="compression-field">
-                    <span data-i18n="settings.geminiCompressionThreshold">主动压缩阈值</span>
-                    <input id="settings-gemini-threshold" type="number" min="1" step="1" inputmode="numeric" />
-                  </label>
-                  <label class="compression-field">
-                    <span data-i18n="settings.geminiCompressionHardLimit">检查点硬上限</span>
-                    <input id="settings-gemini-hard-limit" type="number" min="1" step="1" inputmode="numeric" />
-                  </label>
-                  <label class="compression-field">
-                    <span data-i18n="settings.geminiCompressionOutputReserve">摘要输出预留</span>
-                    <input id="settings-gemini-output-reserve" type="number" min="1" step="1" inputmode="numeric" />
-                  </label>
-                  <label class="compression-field">
-                    <span data-i18n="settings.geminiCompressionCustomThreshold">自定义模型阈值比例 (%)</span>
-                    <input id="settings-gemini-custom-threshold-percent" type="number" min="1" max="100" step="1" inputmode="numeric" />
-                  </label>
+                    <div id="settings-gemini-custom-parameters" class="compression-parameters" hidden>
+                      <div class="compression-section-heading">
+                        <h4 data-i18n="settings.geminiCustomParametersTitle">Gemini 自定义参数</h4>
+                        <p id="gemini-custom-parameters-desc" data-i18n="settings.geminiCompressionParametersDesc">三个比例均以 1,048,576 为基准换算；仅在选择“自定义参数”时生效。</p>
+                      </div>
+                      <div class="compression-metric-grid">
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionThresholdPercent">压缩触发比例（%）</span>
+                          <input id="settings-gemini-threshold-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="gemini-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionHardLimitPercent">Checkpoint 上限比例（%）</span>
+                          <input id="settings-gemini-hard-limit-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="gemini-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionOutputReservePercent">摘要预留比例（%）</span>
+                          <input id="settings-gemini-output-reserve-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="gemini-custom-parameters-desc" />
+                        </label>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="compression-model-card">
+                    <div class="compression-model-card-head">
+                      <div class="compression-model-copy">
+                        <span class="compression-model-badge" data-i18n="settings.claudePolicyBadge">Claude</span>
+                        <strong data-i18n="settings.claudePolicyTitle">官方 Claude</strong>
+                        <p id="claude-policy-desc" data-i18n="settings.claudePolicyDesc">档位比例以模型有效上下文上限为基准；括号内是 200K 上下文模型的参考值。</p>
+                      </div>
+                      <label class="compression-model-control" for="settings-claude-compression-profile">
+                        <span class="visually-hidden" data-i18n="settings.claudePolicyTitle">官方 Claude</span>
+                        <select id="settings-claude-compression-profile" class="custom-select" aria-describedby="claude-policy-desc">
+                          <option value="official" data-i18n="settings.compressionFollowOfficial">使用官方配置</option>
+                          <option value="safe" data-i18n="settings.compressionRelativeSafe">稳妥：阈值 41.0%（约 82K）/ 上限 48.8%（约 98K）</option>
+                          <option value="balanced" data-i18n="settings.compressionRelativeBalanced">平衡：阈值 61.0%（约 122K）/ 上限 73.2%（约 146K）</option>
+                          <option value="aggressive" data-i18n="settings.compressionRelativeAggressive">激进：阈值 72.5%（约 145K）/ 上限 85.8%（约 172K）</option>
+                          <option value="custom" data-i18n="settings.geminiCompressionCustom">自定义参数</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div id="settings-claude-custom-parameters" class="compression-parameters" hidden>
+                      <div class="compression-section-heading">
+                        <h4 data-i18n="settings.claudeCustomParametersTitle">Claude 自定义参数</h4>
+                        <p id="claude-custom-parameters-desc" data-i18n="settings.claudeCompressionParametersDesc">三个比例均按模型有效上下文上限换算，应用前会结合模型能力和安全边界调整。</p>
+                      </div>
+                      <div class="compression-metric-grid">
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionThresholdPercent">压缩触发比例（%）</span>
+                          <input id="settings-claude-threshold-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="claude-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionHardLimitPercent">Checkpoint 上限比例（%）</span>
+                          <input id="settings-claude-hard-limit-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="claude-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionOutputReservePercent">摘要预留比例（%）</span>
+                          <input id="settings-claude-output-reserve-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="claude-custom-parameters-desc" />
+                        </label>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="compression-model-card">
+                    <div class="compression-model-card-head">
+                      <div class="compression-model-copy">
+                        <span class="compression-model-badge" data-i18n="settings.customModelPolicyBadge">Custom</span>
+                        <strong data-i18n="settings.customModelPolicyTitle">自定义模型</strong>
+                        <p id="custom-model-policy-desc" data-i18n="settings.customModelPolicyDesc">档位会按各模型的有效上下文上限换算，模型卡配置优先。</p>
+                      </div>
+                      <label class="compression-model-control" for="settings-custom-model-compression-profile">
+                        <span class="visually-hidden" data-i18n="settings.customModelPolicyTitle">自定义模型</span>
+                        <select id="settings-custom-model-compression-profile" class="custom-select" aria-describedby="custom-model-policy-desc">
+                          <option value="safe" data-i18n="settings.compressionSafe">稳妥：阈值 41.0% / 上限 48.8%</option>
+                          <option value="balanced" data-i18n="settings.compressionBalanced">平衡：阈值 61.0% / 上限 73.2%</option>
+                          <option value="aggressive" data-i18n="settings.compressionAggressive">激进：阈值 72.5% / 上限 85.8%</option>
+                          <option value="custom" data-i18n="settings.geminiCompressionCustom">自定义参数</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div id="settings-custom-model-custom-parameters" class="compression-parameters" hidden>
+                      <div class="compression-section-heading">
+                        <h4 data-i18n="settings.customModelCustomParametersTitle">自定义模型参数</h4>
+                        <p id="custom-model-custom-parameters-desc" data-i18n="settings.customModelCustomParametersDesc">作为全局默认比例，应用到模型前会按各模型有效上下文上限换算；模型卡单独配置优先。</p>
+                      </div>
+                      <div class="compression-metric-grid">
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionThresholdPercent">压缩触发比例（%）</span>
+                          <input id="settings-custom-model-threshold-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="custom-model-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionHardLimitPercent">Checkpoint 上限比例（%）</span>
+                          <input id="settings-custom-model-hard-limit-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="custom-model-custom-parameters-desc" />
+                        </label>
+                        <label class="compression-field">
+                          <span data-i18n="settings.compressionOutputReservePercent">摘要预留比例（%）</span>
+                          <input id="settings-custom-model-output-reserve-percent" type="number" min="1" max="100" step="1" inputmode="numeric" aria-describedby="custom-model-custom-parameters-desc" />
+                        </label>
+                      </div>
+                    </div>
+                  </article>
                 </div>
-                <p class="compression-context-hint" data-i18n="settings.geminiCompressionContextHint">Gemini 原生上下文约 1M；必须为工具、规则和摘要预留空间。</p>
+
+                <div class="compression-context-hint">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <p data-i18n="settings.geminiCompressionContextHint">模型有效上下文上限取上下文窗口与输入 Token 上限等约束中的安全值；所有策略都会为系统规则、工具调用和压缩摘要保留空间。</p>
+                </div>
+
                 <div class="compression-footer">
-                  <span id="settings-gemini-source" class="compression-source" data-i18n="settings.geminiCompressionOfficialHint">官方 Gemini 沿用上游参数；自定义模型使用按自身上限自动适配的 Checkpoint 策略。</span>
-                  <button id="save-gemini-settings" type="button" class="primary compact-button" data-i18n="settings.geminiCompressionSave">保存策略</button>
+                  <span id="settings-gemini-source" class="compression-source" data-i18n="settings.compressionStrategyStatus">三类策略独立生效；自定义模型的模型级配置始终优先。</span>
+                  <div class="compression-footer-actions">
+                    <button id="reset-gemini-settings" type="button" class="secondary compact-button" data-i18n="settings.geminiCompressionReset">恢复默认</button>
+                    <button id="save-gemini-settings" type="button" class="primary compact-button" data-i18n="settings.geminiCompressionSave">保存更改</button>
+                  </div>
                 </div>
-              </div>
+              </section>
             </section>
 
             <!-- Network Pane -->

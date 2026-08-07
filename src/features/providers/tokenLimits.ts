@@ -59,6 +59,7 @@ export interface CustomModelCheckpointLimits {
 }
 
 const MAX_U32 = 0xffffffff;
+const COMPRESSION_PROFILE_REFERENCE_LIMIT = 1_048_576;
 
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_U32;
@@ -92,20 +93,36 @@ export function customModelCheckpointLimits(
   const inputLimit = limits?.input_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const outputLimit = limits?.output_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const checkpointTokenLimit = Math.min(contextLimit, inputLimit);
-  const profile = settings?.gemini_compression_profile;
-  const profileValues = profile === "safe"
+  const profile = settings?.custom_model_compression_profile ?? "balanced";
+  const referenceValues = profile === "safe"
     ? { threshold: 430_000, maxTokenLimit: 512_000 }
     : profile === "aggressive"
       ? { threshold: 760_000, maxTokenLimit: 900_000 }
-      : profile === "custom"
-        ? {
-            threshold: settings?.gemini_token_threshold ?? 640_000,
-            maxTokenLimit: settings?.gemini_max_token_limit ?? 768_000,
-          }
-        : { threshold: 640_000, maxTokenLimit: 768_000 };
+      : { threshold: 640_000, maxTokenLimit: 768_000 };
+  const scaleReferenceValue = (value: number): number => Math.floor(
+    checkpointTokenLimit * value / COMPRESSION_PROFILE_REFERENCE_LIMIT,
+  );
+  const customPercentThreshold = settings?.custom_model_token_threshold_percent;
+  const customPercentHardLimit = settings?.custom_model_max_token_limit_percent;
+  const customPercentOutputReserve = settings?.custom_model_max_output_tokens_percent;
+  const customProfileIsValid = isValidPercentage(customPercentThreshold ?? 0)
+    && isValidPercentage(customPercentHardLimit ?? 0)
+    && isValidPercentage(customPercentOutputReserve ?? 0);
+  if (profile === "custom" && !customProfileIsValid && override?.kind !== "custom") {
+    return null;
+  }
+  const profileValues = profile === "custom"
+    ? {
+        threshold: Math.floor(checkpointTokenLimit * (customPercentThreshold ?? 0) / 100),
+        maxTokenLimit: Math.floor(checkpointTokenLimit * (customPercentHardLimit ?? 0) / 100),
+      }
+    : {
+        threshold: scaleReferenceValue(referenceValues.threshold),
+        maxTokenLimit: scaleReferenceValue(referenceValues.maxTokenLimit),
+      };
   const profileOutputLimit = profile === "custom"
-    ? settings?.gemini_max_output_tokens ?? 16_384
-    : 16_384;
+    ? Math.floor(checkpointTokenLimit * (customPercentOutputReserve ?? 0) / 100)
+    : scaleReferenceValue(16_384);
   const requestedThreshold = override?.kind === "custom"
     ? override.token_threshold
     : profileValues.threshold;
@@ -115,18 +132,9 @@ export function customModelCheckpointLimits(
   const requestedMaxOutputTokens = override?.kind === "custom"
     ? override.max_output_tokens
     : profileOutputLimit;
-  const overridePercent = override?.kind === "percentage"
+  const thresholdPercent = override?.kind === "percentage"
     ? override.threshold_percent
     : null;
-  const globalPercent = settings?.custom_model_threshold_percent;
-  const thresholdPercent = override?.kind === "custom"
-    ? null
-    : overridePercent
-      ?? (globalPercent !== null
-        && globalPercent !== undefined
-        && isValidPercentage(globalPercent)
-        ? globalPercent
-        : null);
   const maxTokenLimit = Math.min(requestedMaxTokenLimit, checkpointTokenLimit);
   const maxOutputTokens = Math.min(
     requestedMaxOutputTokens,
