@@ -4,6 +4,7 @@ use std::fmt;
 pub enum ErrorCategory {
     Authentication,
     InvalidRequest,
+    ContextLengthExceeded,
     RateLimit,
     ModelNotFound,
     UpstreamServerError,

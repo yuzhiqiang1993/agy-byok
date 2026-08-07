@@ -36,6 +36,8 @@ mod tests {
                 display_name: "Connection Model".to_string(),
                 capabilities: ModelCapabilities::default(),
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -142,6 +144,7 @@ mod tests {
             context_window: Some(372_000),
             input_token_limit: Some(372_000),
             output_token_limit: Some(128_000),
+            ..ModelTokenLimits::default()
         };
         config
             .official_model_settings
@@ -163,6 +166,59 @@ mod tests {
         assert_eq!(checkpoint["max_token_limit"], "372000");
         assert_eq!(checkpoint["max_output_tokens"], "16384");
         assert_eq!(checkpoint["checkpoint_model"], checkpoint_model);
+    }
+
+    #[test]
+    fn model_custom_checkpoint_override_does_not_change_official_gemini() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].token_limits = ModelTokenLimits {
+            context_window: Some(372_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(128_000),
+            ..ModelTokenLimits::default()
+        };
+        config.upstream_models[0].checkpoint_override = Some(ModelCheckpointOverride::Custom {
+            token_threshold: 250_000,
+            max_token_limit: 300_000,
+            max_output_tokens: 20_000,
+        });
+        config.official_model_settings = OfficialModelSettings {
+            gemini_compression_profile: OfficialCompressionProfile::Safe,
+            custom_model_threshold_percent: Some(60),
+            ..OfficialModelSettings::default()
+        };
+        let catalog_key = config.virtual_models[0].catalog_key().into_owned();
+        let checkpoint_model = config.virtual_models[0]
+            .effective_host_model_id()
+            .into_owned();
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let catalog = server.handle_model_list(json!({
+            "models": {
+                "gemini-pro": {
+                    "model": "MODEL_GEMINI_2_5_PRO",
+                    "displayName": "Gemini Pro"
+                }
+            }
+        }));
+        let custom_raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let custom_checkpoint: serde_json::Value = serde_json::from_str(custom_raw).unwrap();
+        let official_raw = catalog["models"]["gemini-pro"]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("official Gemini model must contain checkpoint settings");
+        let official_checkpoint: serde_json::Value = serde_json::from_str(official_raw).unwrap();
+
+        assert_eq!(custom_checkpoint["token_threshold"], "250000");
+        assert_eq!(custom_checkpoint["max_token_limit"], "300000");
+        assert_eq!(custom_checkpoint["max_output_tokens"], "20000");
+        assert_eq!(custom_checkpoint["checkpoint_model"], checkpoint_model);
+        assert_eq!(official_checkpoint["token_threshold"], "430000");
+        assert_eq!(official_checkpoint["max_token_limit"], "512000");
+        assert_eq!(official_checkpoint["max_output_tokens"], "16384");
     }
 
     #[test]
@@ -605,6 +661,8 @@ mod tests {
             display_name: "GPT-4o".to_string(),
             capabilities: ModelCapabilities::default(),
             token_limits: ModelTokenLimits::default(),
+            checkpoint_override: None,
+            tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         };
@@ -753,6 +811,8 @@ mod tests {
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -848,6 +908,8 @@ mod tests {
                     },
                 },
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -898,6 +960,8 @@ mod tests {
             display_name: "GPT Test".to_string(),
             capabilities: ModelCapabilities::default(),
             token_limits: ModelTokenLimits::default(),
+            checkpoint_override: None,
+            tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         }];

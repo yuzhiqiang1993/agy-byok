@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod catalog;
+mod error;
 pub mod gemini;
 pub mod openai;
 pub mod openai_responses;

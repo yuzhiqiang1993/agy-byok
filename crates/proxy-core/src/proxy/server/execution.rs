@@ -1,4 +1,4 @@
-use super::ProxyServer;
+use super::{token_guard, ProxyServer};
 use crate::antigravity::{AntigravityResponseEncoder, AntigravityStreamEncoder};
 use crate::domain::{ErrorCategory, NeutralChatRequest, NeutralStreamEvent, ProxyError, UsageInfo};
 use crate::providers::{get_adapter, ProviderAdapter};
@@ -173,6 +173,7 @@ impl ProxyServer {
     ) -> Result<(Arc<dyn ProviderAdapter>, Response), ProxyError> {
         let adapter = get_adapter(&route.provider.protocol);
         let payload = adapter.build_request_payload(route, request)?;
+        token_guard::validate_request(route, request).await?;
         let headers = adapter.build_headers(&route.provider)?;
         let generate_endpoint = adapter.build_generate_endpoint(
             &route.provider,

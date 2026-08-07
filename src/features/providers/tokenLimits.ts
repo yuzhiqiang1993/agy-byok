@@ -1,5 +1,9 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type { ModelTokenLimits, OfficialModelSettings } from "../../types/config";
+import type {
+  ModelCheckpointOverride,
+  ModelTokenLimits,
+  OfficialModelSettings,
+} from "../../types/config";
 
 export type TokenLimitPresetId =
   | "estimated_default"
@@ -51,15 +55,43 @@ export interface CustomModelCheckpointLimits {
   max_token_limit: number;
   max_output_tokens: number;
   threshold_percent: string;
+  clipped: boolean;
+}
+
+const MAX_U32 = 0xffffffff;
+
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0 && value <= MAX_U32;
+}
+
+function isValidPercentage(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 100;
+}
+
+export function isValidModelCheckpointOverride(
+  override: ModelCheckpointOverride | null,
+): boolean {
+  if (override === null) return true;
+  if (override.kind === "percentage") {
+    return isValidPercentage(override.threshold_percent);
+  }
+  return isPositiveInteger(override.token_threshold)
+    && isPositiveInteger(override.max_token_limit)
+    && isPositiveInteger(override.max_output_tokens)
+    && override.token_threshold + override.max_output_tokens <= override.max_token_limit;
 }
 
 export function customModelCheckpointLimits(
   settings: Partial<OfficialModelSettings> | undefined,
-  inputTokenLimit: number | null | undefined,
-  outputTokenLimit: number | null | undefined,
+  limits: ModelTokenLimits | undefined,
+  override: ModelCheckpointOverride | null,
 ): CustomModelCheckpointLimits | null {
-  const inputLimit = inputTokenLimit ?? DEFAULT_TOKEN_LIMIT;
-  const outputLimit = outputTokenLimit ?? DEFAULT_TOKEN_LIMIT;
+  if (!isValidModelCheckpointOverride(override)) return null;
+
+  const contextLimit = limits?.context_window ?? DEFAULT_CONTEXT_WINDOW;
+  const inputLimit = limits?.input_token_limit ?? DEFAULT_TOKEN_LIMIT;
+  const outputLimit = limits?.output_token_limit ?? DEFAULT_TOKEN_LIMIT;
+  const checkpointTokenLimit = Math.min(contextLimit, inputLimit);
   const profile = settings?.gemini_compression_profile;
   const profileValues = profile === "safe"
     ? { threshold: 430_000, maxTokenLimit: 512_000 }
@@ -71,17 +103,41 @@ export function customModelCheckpointLimits(
             maxTokenLimit: settings?.gemini_max_token_limit ?? 768_000,
           }
         : { threshold: 640_000, maxTokenLimit: 768_000 };
-  const maxTokenLimit = Math.min(profileValues.maxTokenLimit, inputLimit);
+  const profileOutputLimit = profile === "custom"
+    ? settings?.gemini_max_output_tokens ?? 16_384
+    : 16_384;
+  const requestedThreshold = override?.kind === "custom"
+    ? override.token_threshold
+    : profileValues.threshold;
+  const requestedMaxTokenLimit = override?.kind === "custom"
+    ? override.max_token_limit
+    : profileValues.maxTokenLimit;
+  const requestedMaxOutputTokens = override?.kind === "custom"
+    ? override.max_output_tokens
+    : profileOutputLimit;
+  const overridePercent = override?.kind === "percentage"
+    ? override.threshold_percent
+    : null;
+  const globalPercent = settings?.custom_model_threshold_percent;
+  const thresholdPercent = override?.kind === "custom"
+    ? null
+    : overridePercent
+      ?? (globalPercent !== null
+        && globalPercent !== undefined
+        && isValidPercentage(globalPercent)
+        ? globalPercent
+        : null);
+  const maxTokenLimit = Math.min(requestedMaxTokenLimit, checkpointTokenLimit);
   const maxOutputTokens = Math.min(
-    profile === "custom" ? settings?.gemini_max_output_tokens ?? 16_384 : 16_384,
+    requestedMaxOutputTokens,
     outputLimit,
     Math.max(maxTokenLimit - 1, 0),
   );
-  const customPercent = settings?.custom_model_threshold_percent;
+  const thresholdBeforeReserve = thresholdPercent !== null
+    ? Math.floor(maxTokenLimit * thresholdPercent / 100)
+    : requestedThreshold;
   const threshold = Math.min(
-    customPercent !== null && customPercent !== undefined && customPercent >= 1 && customPercent <= 100
-      ? Math.floor(maxTokenLimit * customPercent / 100)
-      : profileValues.threshold,
+    thresholdBeforeReserve,
     Math.max(maxTokenLimit - maxOutputTokens, 0),
   );
   if (threshold <= 0 || maxOutputTokens <= 0 || threshold >= maxTokenLimit) return null;
@@ -90,6 +146,9 @@ export function customModelCheckpointLimits(
     max_token_limit: maxTokenLimit,
     max_output_tokens: maxOutputTokens,
     threshold_percent: `${Math.round((threshold / maxTokenLimit) * 1000) / 10}%`,
+    clipped: maxTokenLimit !== requestedMaxTokenLimit
+      || maxOutputTokens !== requestedMaxOutputTokens
+      || threshold !== thresholdBeforeReserve,
   };
 }
 

@@ -12,6 +12,7 @@ import type { ProviderCatalogState } from "./providerCatalog";
 import { element } from "../../utils/domUtils";
 import { showNotice } from "../../components/NoticeBar";
 import { customReasoningMapping } from "../../utils/reasoningUtils";
+import { isValidModelCheckpointOverride } from "./tokenLimits";
 import { t } from "../../i18n";
 
 let pendingProviderSavePlan: ProviderSavePlan | null = null;
@@ -153,6 +154,19 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
     return;
   }
 
+  const invalidCheckpointOverride = selectedModels.find((model) =>
+    !isValidModelCheckpointOverride(
+      catalog.catalogCheckpointOverridesByModel.get(model.id) ?? null,
+    )
+  );
+  if (invalidCheckpointOverride) {
+    showNotice(
+      t("models.invalidCheckpointOverride", { name: invalidCheckpointOverride.displayName }),
+      "error",
+    );
+    return;
+  }
+
   const plan = buildProviderSavePlan({
     currentConfig: store.config,
     provider,
@@ -165,7 +179,9 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
     catalogToolsEnabledModelIds: catalog.catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds: catalog.catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel: catalog.catalogTokenLimitsByModel,
+    catalogCheckpointOverridesByModel: catalog.catalogCheckpointOverridesByModel,
     changedCatalogTokenLimitModelIds: catalog.changedCatalogTokenLimitModelIds,
+    changedCatalogCheckpointOverrideModelIds: catalog.changedCatalogCheckpointOverrideModelIds,
     changedCatalogCapabilityModelIds: catalog.changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds: catalog.changedCatalogReasoningModelIds,
     legacyCatalogModelIds: catalog.legacyCatalogModelIds,

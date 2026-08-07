@@ -3,6 +3,7 @@ use crate::domain::response::NeutralChoice;
 use crate::domain::{
     ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel,
 };
+use crate::providers::error::classify_response_error;
 use serde_json::Value;
 
 pub(super) fn parse_response(
@@ -11,13 +12,7 @@ pub(super) fn parse_response(
     upstream_model: &UpstreamModel,
 ) -> Result<NeutralChatResponse, ProxyError> {
     if status >= 400 {
-        let cat = match status {
-            401 | 403 => ErrorCategory::Authentication,
-            404 => ErrorCategory::ModelNotFound,
-            429 => ErrorCategory::RateLimit,
-            500..=599 => ErrorCategory::UpstreamServerError,
-            _ => ErrorCategory::InvalidRequest,
-        };
+        let cat = classify_response_error(status, body);
         return Err(
             ProxyError::new(cat, format!("OpenAI upstream status {}", status), status)
                 .with_upstream_body(body),

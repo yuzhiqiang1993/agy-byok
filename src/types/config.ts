@@ -16,10 +16,34 @@ export interface ParameterOverrides {
   extra_body: Record<string, unknown> | null;
 }
 
+export type TokenLimitSource = "catalog" | "configured" | "estimated" | "unknown";
+
 export interface ModelTokenLimits {
   context_window: number | null;
+  context_window_source?: TokenLimitSource;
   input_token_limit: number | null;
+  input_token_limit_source?: TokenLimitSource;
   output_token_limit: number | null;
+  output_token_limit_source?: TokenLimitSource;
+}
+
+export type ModelCheckpointOverride =
+  | {
+      kind: "percentage";
+      threshold_percent: number;
+    }
+  | {
+      kind: "custom";
+      token_threshold: number;
+      max_token_limit: number;
+      max_output_tokens: number;
+    };
+
+export type TiktokenEncoding = "cl100k_base" | "o200k_base";
+
+export interface TokenizerConfig {
+  kind: "tiktoken";
+  encoding: TiktokenEncoding;
 }
 
 export type OfficialCompressionProfile =
@@ -63,6 +87,8 @@ export interface UpstreamModel {
     reasoning: { levels: Partial<Record<ReasoningLevel, ReasoningMapping>> };
   };
   token_limits: ModelTokenLimits;
+  checkpoint_override: ModelCheckpointOverride | null;
+  tokenizer: TokenizerConfig | null;
   parameter_overrides: ParameterOverrides;
   enabled: boolean;
 }

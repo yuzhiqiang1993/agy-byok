@@ -45,6 +45,8 @@ mod tests {
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],

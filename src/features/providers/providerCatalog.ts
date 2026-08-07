@@ -1,5 +1,11 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type { ModelTokenLimits, Provider, ProviderProtocol } from "../../types/config";
+import type {
+  ModelCheckpointOverride,
+  ModelTokenLimits,
+  Provider,
+  ProviderProtocol,
+  TokenLimitSource,
+} from "../../types/config";
 import type { ConfigurableReasoningLevel } from "../../types/reasoning";
 import { store } from "../../store/appStore";
 import { fetchProviderCatalog as fetchProviderCatalogCommand } from "../../controllers/providerController";
@@ -23,6 +29,7 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_TOKEN_LIMIT,
   formatTokenLimit,
+  isValidModelCheckpointOverride,
   presetIdForTokenLimits,
   resolveCatalogTokenLimits,
   TOKEN_INPUT_LIMIT_OPTIONS,
@@ -39,7 +46,9 @@ export let catalogVisionEnabledModelIds = new Set<string>();
 export let catalogToolsEnabledModelIds = new Set<string>();
 export let catalogReasoningEnabledModelIds = new Set<string>();
 export let catalogTokenLimitsByModel = new Map<string, ModelTokenLimits>();
+export let catalogCheckpointOverridesByModel = new Map<string, ModelCheckpointOverride | null>();
 export let changedCatalogTokenLimitModelIds = new Set<string>();
+export let changedCatalogCheckpointOverrideModelIds = new Set<string>();
 export let changedCatalogCapabilityModelIds = new Set<string>();
 export let changedCatalogReasoningModelIds = new Set<string>();
 export let legacyCatalogModelIds = new Set<string>();
@@ -56,7 +65,9 @@ export interface ProviderCatalogState {
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
+  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: ReadonlySet<string>;
+  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   legacyCatalogModelIds: ReadonlySet<string>;
@@ -72,7 +83,9 @@ export function getProviderCatalogState(): ProviderCatalogState {
     catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel,
+    catalogCheckpointOverridesByModel,
     changedCatalogTokenLimitModelIds,
+    changedCatalogCheckpointOverrideModelIds,
     changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds,
     legacyCatalogModelIds,
@@ -89,6 +102,44 @@ function catalogCapability(
   return typeof value === "boolean" ? value : undefined;
 }
 
+function resolvedTokenLimitSource(
+  catalogValue: number | undefined,
+  existingValue: number | null | undefined,
+  existingSource: TokenLimitSource | undefined,
+): TokenLimitSource {
+  if (catalogValue !== undefined) return "catalog";
+  if (existingValue !== null && existingValue !== undefined) {
+    return existingSource ?? "unknown";
+  }
+  return "estimated";
+}
+
+function resolvedCatalogTokenLimits(
+  model: ProviderCatalogModel,
+  existing?: ModelTokenLimits,
+): ModelTokenLimits {
+  const resolved = resolveCatalogTokenLimits(model, existing);
+  const contextWindow = catalogContextWindow(model);
+  return {
+    ...resolved,
+    context_window_source: resolvedTokenLimitSource(
+      contextWindow,
+      existing?.context_window,
+      existing?.context_window_source,
+    ),
+    input_token_limit_source: resolvedTokenLimitSource(
+      model.inputTokenLimit,
+      existing?.input_token_limit,
+      existing?.input_token_limit_source,
+    ),
+    output_token_limit_source: resolvedTokenLimitSource(
+      model.outputTokenLimit,
+      existing?.output_token_limit,
+      existing?.output_token_limit_source,
+    ),
+  };
+}
+
 export interface ProviderCatalogContext {
   getEditingProviderId: () => string | null;
   selectedProtocol: () => ProviderProtocol;
@@ -102,6 +153,13 @@ export interface ProviderCatalogContext {
   invalidatePendingProviderSave: () => void;
   refreshProviderEditorControls: () => void;
 }
+
+function cloneCheckpointOverride(
+  override: ModelCheckpointOverride | null | undefined,
+): ModelCheckpointOverride | null {
+  return override ? { ...override } : null;
+}
+
 
 export function renderCatalogStatus(): void {
   const status = element<HTMLElement>("#catalog-status");
@@ -126,7 +184,9 @@ export function resetCatalogResults(): void {
   catalogToolsEnabledModelIds = new Set();
   catalogReasoningEnabledModelIds = new Set();
   catalogTokenLimitsByModel = new Map();
+  catalogCheckpointOverridesByModel = new Map();
   changedCatalogTokenLimitModelIds = new Set();
+  changedCatalogCheckpointOverrideModelIds = new Set();
   changedCatalogCapabilityModelIds = new Set();
   changedCatalogReasoningModelIds = new Set();
   legacyCatalogModelIds = new Set();
@@ -189,9 +249,18 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   catalogTokenLimitsByModel = new Map(
     catalogModels.map((model) => [
       model.id,
-      resolveCatalogTokenLimits(model, existingUpstreamsByModelId.get(model.id)?.token_limits),
+      resolvedCatalogTokenLimits(model, existingUpstreamsByModelId.get(model.id)?.token_limits),
     ]),
   );
+  catalogCheckpointOverridesByModel = new Map(
+    catalogModels.map((model) => [
+      model.id,
+      cloneCheckpointOverride(
+        existingUpstreamsByModelId.get(model.id)?.checkpoint_override,
+      ),
+    ]),
+  );
+  changedCatalogCheckpointOverrideModelIds = new Set();
   catalogVisionEnabledModelIds = new Set(
     catalogModels
       .filter((model) => (
@@ -307,16 +376,231 @@ function tokenPresetName(id: string): string {
   return labels[id] ?? id;
 }
 
-function createTokenLimitControls(
+function checkpointOverrideForModel(modelId: string): ModelCheckpointOverride | null {
+  return catalogCheckpointOverridesByModel.get(modelId) ?? null;
+}
+
+function checkpointSourceLabel(override: ModelCheckpointOverride | null): string {
+  if (override?.kind === "percentage") return t("models.checkpointSourcePercentage");
+  if (override?.kind === "custom") return t("models.checkpointSourceCustom");
+  return t("models.checkpointSourceGlobal");
+}
+
+interface CatalogCheckpointControls {
+  element: HTMLDivElement;
+  refreshPreview: () => void;
+}
+
+function createCheckpointControls(
   model: ProviderCatalogModel,
   selected: boolean,
   context: ProviderCatalogContext,
+  onPreviewChange: () => void,
+): CatalogCheckpointControls {
+  const control = document.createElement("div");
+  control.className = "catalog-checkpoint-controls";
+  const title = document.createElement("span");
+  title.className = "catalog-token-title";
+  title.textContent = t("models.checkpointTitle");
+
+  const initialOverride = checkpointOverrideForModel(model.id);
+  const initialLimits = catalogTokenLimitsByModel.get(model.id)
+    ?? resolvedCatalogTokenLimits(model);
+  const inheritedCheckpoint = customModelCheckpointLimits(
+    store.config.official_model_settings,
+    initialLimits,
+    null,
+  );
+  const initialPercentage = initialOverride?.kind === "percentage"
+    ? initialOverride.threshold_percent
+    : inheritedCheckpoint
+      ? Math.max(
+          1,
+          Math.min(
+            100,
+            Math.round(inheritedCheckpoint.threshold / inheritedCheckpoint.max_token_limit * 100),
+          ),
+        )
+      : 80;
+  const initialCustom = initialOverride?.kind === "custom"
+    ? initialOverride
+    : {
+        kind: "custom" as const,
+        token_threshold: inheritedCheckpoint?.threshold ?? 1,
+        max_token_limit: inheritedCheckpoint?.max_token_limit ?? 2,
+        max_output_tokens: inheritedCheckpoint?.max_output_tokens ?? 1,
+      };
+
+  const modeField = document.createElement("label");
+  modeField.className = "catalog-token-field catalog-checkpoint-mode-field";
+  const modeLabel = document.createElement("span");
+  modeLabel.textContent = t("models.checkpointMode");
+  const modeSelect = document.createElement("select");
+  modeSelect.className = "catalog-token-input catalog-checkpoint-mode";
+  for (const [value, label] of [
+    ["global", t("models.checkpointFollowGlobal")],
+    ["percentage", t("models.checkpointPercentage")],
+    ["custom", t("models.checkpointCustom")],
+  ] as const) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    modeSelect.append(option);
+  }
+  modeSelect.value = initialOverride?.kind ?? "global";
+  modeField.append(modeLabel, modeSelect);
+
+  const fields = document.createElement("div");
+  fields.className = "catalog-token-fields catalog-checkpoint-fields";
+  const percentageField = document.createElement("label");
+  percentageField.className = "catalog-token-field";
+  const percentageLabel = document.createElement("span");
+  percentageLabel.textContent = t("models.checkpointThresholdPercentage");
+  const percentageInput = document.createElement("input");
+  percentageInput.className = "catalog-token-input catalog-checkpoint-number";
+  percentageInput.type = "number";
+  percentageInput.min = "1";
+  percentageInput.max = "100";
+  percentageInput.step = "1";
+  percentageInput.inputMode = "numeric";
+  percentageInput.value = String(initialPercentage);
+  percentageField.append(percentageLabel, percentageInput);
+
+  const customFields = document.createElement("div");
+  customFields.className = "catalog-token-fields catalog-checkpoint-custom-fields";
+  const customInputs: Array<{
+    field: "token_threshold" | "max_token_limit" | "max_output_tokens";
+    input: HTMLInputElement;
+  }> = [];
+  for (const [field, label, value] of [
+    ["token_threshold", t("models.checkpointThreshold"), initialCustom.token_threshold],
+    ["max_token_limit", t("models.checkpointHardLimit"), initialCustom.max_token_limit],
+    ["max_output_tokens", t("models.checkpointOutputReserve"), initialCustom.max_output_tokens],
+  ] as const) {
+    const fieldRow = document.createElement("label");
+    fieldRow.className = "catalog-token-field";
+    const fieldLabel = document.createElement("span");
+    fieldLabel.textContent = label;
+    const input = document.createElement("input");
+    input.className = "catalog-token-input catalog-checkpoint-number";
+    input.type = "number";
+    input.min = "1";
+    input.max = String(0xffffffff);
+    input.step = "1";
+    input.inputMode = "numeric";
+    input.value = String(value);
+    fieldRow.append(fieldLabel, input);
+    customFields.append(fieldRow);
+    customInputs.push({ field, input });
+  }
+  fields.append(percentageField, customFields);
+
+  const preview = document.createElement("p");
+  preview.className = "catalog-checkpoint-preview";
+  preview.setAttribute("role", "status");
+
+  const numberValue = (input: HTMLInputElement): number => {
+    const value = Number(input.value);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const overrideFromInputs = (): ModelCheckpointOverride | null => {
+    if (modeSelect.value === "global") return null;
+    if (modeSelect.value === "percentage") {
+      return {
+        kind: "percentage",
+        threshold_percent: numberValue(percentageInput),
+      };
+    }
+    return {
+      kind: "custom",
+      token_threshold: numberValue(customInputs[0].input),
+      max_token_limit: numberValue(customInputs[1].input),
+      max_output_tokens: numberValue(customInputs[2].input),
+    };
+  };
+
+  const updateFieldState = () => {
+    const percentageActive = selected && modeSelect.value === "percentage";
+    const customActive = selected && modeSelect.value === "custom";
+    modeSelect.disabled = !selected;
+    percentageField.hidden = modeSelect.value !== "percentage";
+    percentageInput.disabled = !percentageActive;
+    customFields.hidden = modeSelect.value !== "custom";
+    for (const { input } of customInputs) input.disabled = !customActive;
+
+    const override = overrideFromInputs();
+    const valid = isValidModelCheckpointOverride(override);
+    percentageInput.setCustomValidity(
+      percentageActive && !valid ? t("models.checkpointPercentageInvalid") : "",
+    );
+    for (const { input } of customInputs) {
+      input.setCustomValidity(customActive && !valid ? t("models.checkpointCustomInvalid") : "");
+    }
+  };
+
+  const refreshPreview = () => {
+    updateFieldState();
+    const override = checkpointOverrideForModel(model.id);
+    const valid = isValidModelCheckpointOverride(override);
+    const checkpoint = valid
+      ? customModelCheckpointLimits(
+          store.config.official_model_settings,
+          catalogTokenLimitsByModel.get(model.id) ?? resolvedCatalogTokenLimits(model),
+          override,
+        )
+      : null;
+    const source = checkpointSourceLabel(override);
+    preview.className = `catalog-checkpoint-preview${!valid ? " invalid" : checkpoint?.clipped ? " clipped" : ""}`;
+    if (!valid) {
+      preview.textContent = t("models.checkpointInvalidPreview", { source });
+    } else if (!checkpoint) {
+      preview.textContent = t("models.checkpointUnavailablePreview", { source });
+    } else {
+      preview.textContent = t("models.checkpointEffectivePreview", {
+        threshold: formatTokenLimit(checkpoint.threshold),
+        hard: formatTokenLimit(checkpoint.max_token_limit),
+        output: formatTokenLimit(checkpoint.max_output_tokens),
+        percent: checkpoint.threshold_percent,
+        source,
+        clipped: checkpoint.clipped ? t("models.checkpointClipped") : t("models.checkpointNotClipped"),
+      });
+    }
+    onPreviewChange();
+  };
+
+  const commitOverride = () => {
+    catalogCheckpointOverridesByModel.set(model.id, overrideFromInputs());
+    changedCatalogCheckpointOverrideModelIds.add(model.id);
+    context.setProviderEditorDirty(true);
+    refreshPreview();
+  };
+  modeSelect.addEventListener("change", commitOverride);
+  percentageInput.addEventListener("input", () => {
+    if (modeSelect.value === "percentage") commitOverride();
+  });
+  for (const { input } of customInputs) {
+    input.addEventListener("input", () => {
+      if (modeSelect.value === "custom") commitOverride();
+    });
+  }
+
+  control.append(title, modeField, fields, preview);
+  return { element: control, refreshPreview };
+}
+
+function createTokenLimitControls(
+  model: ProviderCatalogModel,
+  selected: boolean,
+  checkpointControlsEnabled: boolean,
+  context: ProviderCatalogContext,
+  onPreviewChange: () => void,
 ): HTMLDivElement {
   const control = document.createElement("div");
   control.className = "catalog-token-controls";
+  let refreshCheckpointPreview = onPreviewChange;
 
   const currentLimits = catalogTokenLimitsByModel.get(model.id)
-    ?? resolveCatalogTokenLimits(model);
+    ?? resolvedCatalogTokenLimits(model);
   const catalogContextLimit = catalogContextWindow(model);
   const hasCatalogContext = catalogContextLimit !== undefined;
   const hasCatalogInput = model.inputTokenLimit !== undefined;
@@ -340,10 +624,14 @@ function createTokenLimitControls(
       ...(catalogTokenLimitsByModel.get(model.id) ?? currentLimits),
       [field]: parsed,
     };
+    if (field === "context_window") next.context_window_source = "configured";
+    if (field === "input_token_limit") next.input_token_limit_source = "configured";
+    if (field === "output_token_limit") next.output_token_limit_source = "configured";
     catalogTokenLimitsByModel.set(model.id, next);
     changedCatalogTokenLimitModelIds.add(model.id);
     context.setProviderEditorDirty(true);
     context.refreshProviderEditorControls();
+    refreshCheckpointPreview();
   };
 
   const fields = document.createElement("div");
@@ -351,20 +639,9 @@ function createTokenLimitControls(
   const contextSummary = document.createElement("span");
   contextSummary.className = "catalog-token-context";
   const contextParts: string[] = [];
-  const localCheckpoint = customModelCheckpointLimits(
-    store.config.official_model_settings,
-    currentLimits.input_token_limit,
-    currentLimits.output_token_limit,
-  );
   if (catalogContextLimit !== undefined) {
     contextParts.push(t("models.tokenContextSummary", {
       context: formatTokenLimit(catalogContextLimit),
-    }));
-  }
-  if (localCheckpoint) {
-    contextParts.push(t("models.tokenLocalCheckpointSummary", {
-      threshold: formatTokenLimit(localCheckpoint.threshold),
-      percent: localCheckpoint.threshold_percent,
     }));
   }
   if (model.maxContextWindow !== undefined && model.maxContextWindow !== catalogContextLimit) {
@@ -485,12 +762,14 @@ function createTokenLimitControls(
     preset.addEventListener("change", () => {
       const nextLimits = tokenLimitsForPreset(preset.value);
       if (!nextLimits) return;
-      const currentContextWindow = catalogTokenLimitsByModel.get(model.id)?.context_window
-        ?? currentLimits.context_window
-        ?? DEFAULT_CONTEXT_WINDOW;
+      const current = catalogTokenLimitsByModel.get(model.id) ?? currentLimits;
+      const currentContextWindow = current.context_window ?? DEFAULT_CONTEXT_WINDOW;
       catalogTokenLimitsByModel.set(model.id, {
         ...nextLimits,
         context_window: currentContextWindow,
+        context_window_source: current.context_window_source ?? "estimated",
+        input_token_limit_source: "configured",
+        output_token_limit_source: "configured",
       });
       changedCatalogTokenLimitModelIds.add(model.id);
       fields.querySelectorAll<HTMLSelectElement>(".catalog-token-limit-select").forEach((select, index) => {
@@ -500,11 +779,21 @@ function createTokenLimitControls(
       });
       context.setProviderEditorDirty(true);
       context.refreshProviderEditorControls();
+      refreshCheckpointPreview();
     });
     control.append(titleRow, preset, fields, tokenMeta);
   } else {
     control.append(titleRow, fields, tokenMeta);
   }
+  const checkpointControls = createCheckpointControls(
+    model,
+    checkpointControlsEnabled,
+    context,
+    onPreviewChange,
+  );
+  refreshCheckpointPreview = checkpointControls.refreshPreview;
+  control.append(checkpointControls.element);
+  checkpointControls.refreshPreview();
   return control;
 }
 
@@ -576,20 +865,45 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
     }
     const modelSummary = document.createElement("span");
     modelSummary.className = "catalog-model-summary";
-    const limits = catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
     const tokenSummary = document.createElement("span");
     tokenSummary.className = "catalog-model-summary-item token";
-    tokenSummary.textContent = t("models.tokenLimitSummary", {
-      input: formatTokenLimit(limits.input_token_limit),
-      output: formatTokenLimit(limits.output_token_limit),
-    });
+    const checkpointSummary = document.createElement("span");
+    const updateTokenAndCheckpointSummary = () => {
+      const limits = catalogTokenLimitsByModel.get(model.id) ?? resolvedCatalogTokenLimits(model);
+      tokenSummary.textContent = t("models.tokenLimitSummary", {
+        input: formatTokenLimit(limits.input_token_limit),
+        output: formatTokenLimit(limits.output_token_limit),
+      });
+      const override = checkpointOverrideForModel(model.id);
+      const valid = isValidModelCheckpointOverride(override);
+      const checkpoint = valid
+        ? customModelCheckpointLimits(
+            store.config.official_model_settings,
+            limits,
+            override,
+          )
+        : null;
+      const source = checkpointSourceLabel(override);
+      checkpointSummary.className = `catalog-model-summary-item checkpoint${override ? " active" : ""}${!valid ? " invalid" : ""}`;
+      const summaryText = checkpoint
+        ? `${t("models.checkpointSummary", {
+            threshold: formatTokenLimit(checkpoint.threshold),
+            hard: formatTokenLimit(checkpoint.max_token_limit),
+            percent: checkpoint.threshold_percent,
+            source,
+          })}${checkpoint.clipped ? ` · ${t("models.checkpointClipped")}` : ""}`
+        : t("models.checkpointSummaryUnavailable", { source });
+      checkpointSummary.textContent = summaryText;
+      checkpointSummary.title = summaryText;
+    };
+    updateTokenAndCheckpointSummary();
     const visionSummary = document.createElement("span");
     visionSummary.className = `catalog-model-summary-item${catalogVisionEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
     visionSummary.textContent = t("models.visionInput");
     const toolsSummary = document.createElement("span");
     toolsSummary.className = `catalog-model-summary-item${catalogToolsEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
     toolsSummary.textContent = t("models.toolCalling");
-    modelSummary.append(tokenSummary, visionSummary, toolsSummary);
+    modelSummary.append(tokenSummary, checkpointSummary, visionSummary, toolsSummary);
     if (reasoningEnabled) {
       const reasoningSummary = document.createElement("span");
       reasoningSummary.className = "catalog-model-summary-item active";
@@ -711,7 +1025,13 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
     const actions = document.createElement("div");
     actions.className = "catalog-model-actions";
     actions.hidden = !expanded;
-    actions.append(createTokenLimitControls(model, selected, context));
+    actions.append(createTokenLimitControls(
+      model,
+      selected,
+      selected && expanded,
+      context,
+      updateTokenAndCheckpointSummary,
+    ));
     actions.append(capabilityGroup);
     row.append(header, actions);
     catalogModelList.append(row);

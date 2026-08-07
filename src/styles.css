@@ -2207,6 +2207,44 @@ legend { padding: 0 6px; }
   font-weight: 400;
   line-height: 1.4;
 }
+.catalog-checkpoint-controls {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+.catalog-checkpoint-mode {
+  min-width: 150px;
+  height: 28px;
+}
+.catalog-checkpoint-fields,
+.catalog-checkpoint-custom-fields {
+  gap: 10px 16px;
+}
+.catalog-checkpoint-fields > [hidden] { display: none; }
+.catalog-checkpoint-number {
+  width: 104px;
+  cursor: text;
+}
+.catalog-checkpoint-preview {
+  min-width: 0;
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.catalog-checkpoint-preview.clipped { color: #8a6417; }
+.catalog-checkpoint-preview.invalid,
+.catalog-model-summary-item.checkpoint.invalid {
+  border-color: #efc2bc;
+  background: #fff5f3;
+  color: #a04438;
+}
+.catalog-model-summary-item.checkpoint {
+  font-variant-numeric: tabular-nums;
+}
 .catalog-capability-toggle {
   display: inline-flex;
   align-items: center;
@@ -2670,7 +2708,16 @@ footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center
     color: #e2e8f0;
   }
   html[data-theme="dark"] .catalog-token-summary,
-  html[data-theme="dark"] .catalog-token-context { color: #94a3b8; }
+  html[data-theme="dark"] .catalog-token-context,
+  html[data-theme="dark"] .catalog-checkpoint-preview { color: #94a3b8; }
+  html[data-theme="dark"] .catalog-checkpoint-controls { border-top-color: rgba(255, 255, 255, 0.09); }
+  html[data-theme="dark"] .catalog-checkpoint-preview.clipped { color: #facc6b; }
+  html[data-theme="dark"] .catalog-checkpoint-preview.invalid,
+  html[data-theme="dark"] .catalog-model-summary-item.checkpoint.invalid {
+    border-color: rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.18);
+    color: #fca5a5;
+  }
   html[data-theme="dark"] .protocol-field select { border-color: rgba(255, 255, 255, 0.12); background-color: rgba(30, 41, 59, 0.8); }
   html[data-theme="dark"] .catalog-save-row { background: rgba(15, 23, 42, 0.95); }
   html[data-theme="dark"] .provider-modal-header,

@@ -173,6 +173,8 @@ fn preview_model_config(
                 ..ModelCapabilities::default()
             },
             token_limits: ModelTokenLimits::default(),
+            checkpoint_override: None,
+            tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
         }],
@@ -201,6 +203,9 @@ fn model_connection_error_message(error: &ProxyError) -> String {
         }
         ErrorCategory::InvalidRequest => {
             format!("请求被上游拒绝（HTTP {}）", error.status_code)
+        }
+        ErrorCategory::ContextLengthExceeded => {
+            format!("请求上下文超过模型限制（HTTP {}）", error.status_code)
         }
         ErrorCategory::RateLimit => {
             format!("上游正在限流（HTTP {}）", error.status_code)

@@ -1,8 +1,10 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
   AppConfig,
+  ModelCheckpointOverride,
   ModelTokenLimits,
   Provider,
+  TokenLimitSource,
   UpstreamModel,
   VirtualModel,
 } from "../../types/config";
@@ -38,11 +40,25 @@ export interface ProviderSavePlanInput {
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
+  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: ReadonlySet<string>;
+  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   legacyCatalogModelIds: ReadonlySet<string>;
   createId: () => string;
+}
+
+function tokenLimitSource(
+  catalogValue: number | undefined,
+  configuredValue: number | null | undefined,
+  configuredSource: TokenLimitSource | undefined,
+): TokenLimitSource {
+  if (catalogValue !== undefined) return "catalog";
+  if (configuredValue !== null && configuredValue !== undefined) {
+    return configuredSource ?? "unknown";
+  }
+  return "estimated";
 }
 
 function tokenLimitsFromCatalog(
@@ -51,11 +67,27 @@ function tokenLimitsFromCatalog(
   selected: ModelTokenLimits | undefined,
 ): ModelTokenLimits {
   const configured = selected ?? existing;
+  const contextWindow = catalogContextWindow(model);
   return {
-    // 供应商目录值优先；目录缺失时沿用历史值，否则使用经验默认值。
-    context_window: catalogContextWindow(model) ?? configured?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    // 供应商目录值优先；目录缺失时沿用历史值及其来源，否则使用经验默认值。
+    context_window: contextWindow ?? configured?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    context_window_source: tokenLimitSource(
+      contextWindow,
+      configured?.context_window,
+      configured?.context_window_source,
+    ),
     input_token_limit: model.inputTokenLimit ?? configured?.input_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    input_token_limit_source: tokenLimitSource(
+      model.inputTokenLimit,
+      configured?.input_token_limit,
+      configured?.input_token_limit_source,
+    ),
     output_token_limit: model.outputTokenLimit ?? configured?.output_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    output_token_limit_source: tokenLimitSource(
+      model.outputTokenLimit,
+      configured?.output_token_limit,
+      configured?.output_token_limit_source,
+    ),
   };
 }
 
@@ -118,7 +150,9 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel,
+    catalogCheckpointOverridesByModel,
     changedCatalogTokenLimitModelIds,
+    changedCatalogCheckpointOverrideModelIds,
     changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds,
     legacyCatalogModelIds,
@@ -180,6 +214,8 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
       : [];
     const reasoningChanged = changedCatalogReasoningModelIds.has(model.id) || protocolChanged;
     const capabilitiesChanged = changedCatalogCapabilityModelIds.has(model.id);
+    const checkpointOverrideChanged = changedCatalogCheckpointOverrideModelIds.has(model.id);
+    const checkpointOverride = catalogCheckpointOverridesByModel.get(model.id) ?? null;
     const vision = catalogVisionEnabledModelIds.has(model.id);
     const tools = catalogToolsEnabledModelIds.has(model.id);
     const id = createId();
@@ -188,6 +224,7 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     if (existingUpstream && !reasoningChanged) {
       nextUpstreams.push({
         ...existingUpstream,
+        ...(checkpointOverrideChanged ? { checkpoint_override: checkpointOverride } : {}),
         capabilities: {
           ...existingUpstream.capabilities,
           ...(capabilitiesChanged ? { vision, tools } : {}),
@@ -260,6 +297,7 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
     nextUpstreams.push(existingUpstream
       ? {
           ...existingUpstream,
+          ...(checkpointOverrideChanged ? { checkpoint_override: checkpointOverride } : {}),
           capabilities: { ...existingUpstream.capabilities, vision, tools, reasoning },
           token_limits: tokenLimitsFromCatalog(
             model,
@@ -282,6 +320,8 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
               ? catalogTokenLimitsByModel.get(model.id)
               : undefined,
           ),
+          checkpoint_override: checkpointOverride,
+          tokenizer: null,
           parameter_overrides: emptyParameters(),
           enabled: true,
         });

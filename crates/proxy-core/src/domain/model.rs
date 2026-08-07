@@ -45,6 +45,54 @@ pub enum OfficialCompressionProfile {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ModelCheckpointOverride {
+    Percentage {
+        threshold_percent: u8,
+    },
+    Custom {
+        token_threshold: u32,
+        max_token_limit: u32,
+        max_output_tokens: u32,
+    },
+}
+
+impl ModelCheckpointOverride {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        match *self {
+            Self::Percentage { threshold_percent } => {
+                if !(1..=100).contains(&threshold_percent) {
+                    return Err("checkpoint threshold_percent must be between 1 and 100");
+                }
+            }
+            Self::Custom {
+                token_threshold,
+                max_token_limit,
+                max_output_tokens,
+            } => {
+                if token_threshold == 0 || max_token_limit == 0 || max_output_tokens == 0 {
+                    return Err("custom checkpoint limits must be greater than 0");
+                }
+                if token_threshold >= max_token_limit {
+                    return Err("checkpoint token_threshold must be less than max_token_limit");
+                }
+                if max_output_tokens >= max_token_limit {
+                    return Err("checkpoint max_output_tokens must be less than max_token_limit");
+                }
+                if u64::from(token_threshold) + u64::from(max_output_tokens)
+                    > u64::from(max_token_limit)
+                {
+                    return Err(
+                        "checkpoint token_threshold plus max_output_tokens must not exceed max_token_limit",
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct OfficialModelSettings {
@@ -102,7 +150,55 @@ impl OfficialModelSettings {
         input_token_limit: u32,
         output_token_limit: u32,
     ) -> Option<(u32, u32, u32)> {
-        let (threshold, max_limit, max_output) = match self.gemini_compression_profile {
+        self.custom_model_checkpoint_limits_with_override(
+            None,
+            input_token_limit,
+            output_token_limit,
+        )
+    }
+
+    pub fn custom_model_checkpoint_limits_with_override(
+        &self,
+        checkpoint_override: Option<&ModelCheckpointOverride>,
+        input_token_limit: u32,
+        output_token_limit: u32,
+    ) -> Option<(u32, u32, u32)> {
+        if checkpoint_override
+            .is_some_and(|checkpoint_override| checkpoint_override.validate().is_err())
+        {
+            return None;
+        }
+
+        let (threshold, max_limit, max_output) = match checkpoint_override {
+            Some(ModelCheckpointOverride::Custom {
+                token_threshold,
+                max_token_limit,
+                max_output_tokens,
+            }) => (*token_threshold, *max_token_limit, *max_output_tokens),
+            _ => self.custom_model_checkpoint_profile_limits(),
+        };
+        let threshold_percent = match checkpoint_override {
+            Some(ModelCheckpointOverride::Percentage { threshold_percent }) => {
+                Some(*threshold_percent)
+            }
+            Some(ModelCheckpointOverride::Custom { .. }) => None,
+            None => self.custom_model_threshold_percent,
+        };
+
+        let max_limit = max_limit.min(input_token_limit);
+        let max_output = max_output
+            .min(output_token_limit)
+            .min(max_limit.saturating_sub(1));
+        let threshold = threshold_percent
+            .map(|percent| (u64::from(max_limit) * u64::from(percent) / 100) as u32)
+            .unwrap_or(threshold);
+        let threshold = threshold.min(max_limit.saturating_sub(max_output));
+        (threshold > 0 && max_output > 0 && threshold < max_limit)
+            .then_some((threshold, max_limit, max_output))
+    }
+
+    fn custom_model_checkpoint_profile_limits(&self) -> (u32, u32, u32) {
+        match self.gemini_compression_profile {
             OfficialCompressionProfile::Official => (
                 GEMINI_BALANCED_TOKEN_THRESHOLD,
                 GEMINI_BALANCED_MAX_TOKEN_LIMIT,
@@ -128,18 +224,7 @@ impl OfficialModelSettings {
                 self.gemini_max_token_limit,
                 self.gemini_max_output_tokens,
             ),
-        };
-        let max_limit = max_limit.min(input_token_limit);
-        let max_output = max_output
-            .min(output_token_limit)
-            .min(max_limit.saturating_sub(1));
-        let threshold = self
-            .custom_model_threshold_percent
-            .map(|percent| (u64::from(max_limit) * u64::from(percent) / 100) as u32)
-            .unwrap_or(threshold);
-        let threshold = threshold.min(max_limit.saturating_sub(max_output));
-        (threshold > 0 && max_output > 0 && threshold < max_limit)
-            .then_some((threshold, max_limit, max_output))
+        }
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -192,25 +277,44 @@ pub struct ModelCapabilities {
     pub reasoning: ReasoningCapability,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenLimitSource {
+    Catalog,
+    Configured,
+    Estimated,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ModelTokenLimits {
     /// 模型的上下文窗口；它独立于输入 Token 上限和 Checkpoint 压缩阈值。
     #[serde(default)]
     pub context_window: Option<u32>,
+    #[serde(default)]
+    pub context_window_source: TokenLimitSource,
     /// 模型允许的最大输入 Token；缺省时由 Antigravity 适配层使用经验默认值。
     #[serde(default)]
     pub input_token_limit: Option<u32>,
+    #[serde(default)]
+    pub input_token_limit_source: TokenLimitSource,
     /// 模型允许的最大输出 Token；它独立于请求参数中的单次输出覆盖值。
     #[serde(default)]
     pub output_token_limit: Option<u32>,
+    #[serde(default)]
+    pub output_token_limit_source: TokenLimitSource,
 }
 
 impl ModelTokenLimits {
     pub const fn legacy_default() -> Self {
         Self {
             context_window: Some(128_000),
+            context_window_source: TokenLimitSource::Estimated,
             input_token_limit: Some(128_000),
+            input_token_limit_source: TokenLimitSource::Estimated,
             output_token_limit: Some(8_192),
+            output_token_limit_source: TokenLimitSource::Estimated,
         }
     }
 
@@ -232,6 +336,19 @@ fn legacy_model_token_limits() -> ModelTokenLimits {
     ModelTokenLimits::legacy_default()
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TiktokenEncoding {
+    Cl100kBase,
+    O200kBase,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TokenizerConfig {
+    Tiktoken { encoding: TiktokenEncoding },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamModel {
     pub id: String,
@@ -241,6 +358,10 @@ pub struct UpstreamModel {
     pub capabilities: ModelCapabilities,
     #[serde(default = "legacy_model_token_limits")]
     pub token_limits: ModelTokenLimits,
+    #[serde(default)]
+    pub checkpoint_override: Option<ModelCheckpointOverride>,
+    #[serde(default)]
+    pub tokenizer: Option<TokenizerConfig>,
     pub parameter_overrides: ParameterOverrides,
     pub enabled: bool,
 }
@@ -307,4 +428,101 @@ fn stable_hash(value: &str) -> u16 {
         hash = hash.wrapping_mul(0x01000193);
     }
     (hash % 200) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checkpoint_override_validation_enforces_contract() {
+        assert!(ModelCheckpointOverride::Percentage {
+            threshold_percent: 1,
+        }
+        .validate()
+        .is_ok());
+        assert!(ModelCheckpointOverride::Percentage {
+            threshold_percent: 100,
+        }
+        .validate()
+        .is_ok());
+        assert!(ModelCheckpointOverride::Custom {
+            token_threshold: 80,
+            max_token_limit: 100,
+            max_output_tokens: 20,
+        }
+        .validate()
+        .is_ok());
+
+        for invalid in [
+            ModelCheckpointOverride::Percentage {
+                threshold_percent: 0,
+            },
+            ModelCheckpointOverride::Percentage {
+                threshold_percent: 101,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 0,
+                max_token_limit: 100,
+                max_output_tokens: 20,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 100,
+                max_token_limit: 100,
+                max_output_tokens: 1,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 1,
+                max_token_limit: 100,
+                max_output_tokens: 100,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 80,
+                max_token_limit: 100,
+                max_output_tokens: 30,
+            },
+        ] {
+            assert!(invalid.validate().is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn checkpoint_resolution_honors_override_priority_and_safety_clipping() {
+        let settings = OfficialModelSettings {
+            gemini_compression_profile: OfficialCompressionProfile::Custom,
+            custom_model_threshold_percent: Some(60),
+            gemini_token_threshold: 150_000,
+            gemini_max_token_limit: 320_000,
+            gemini_max_output_tokens: 30_000,
+        };
+        let percentage = ModelCheckpointOverride::Percentage {
+            threshold_percent: 80,
+        };
+        let custom = ModelCheckpointOverride::Custom {
+            token_threshold: 250_000,
+            max_token_limit: 300_000,
+            max_output_tokens: 20_000,
+        };
+
+        assert_eq!(
+            settings.custom_model_checkpoint_limits(372_000, 128_000),
+            Some((192_000, 320_000, 30_000))
+        );
+        assert_eq!(
+            settings.custom_model_checkpoint_limits_with_override(
+                Some(&percentage),
+                372_000,
+                128_000,
+            ),
+            Some((256_000, 320_000, 30_000))
+        );
+        assert_eq!(
+            settings.custom_model_checkpoint_limits_with_override(Some(&custom), 372_000, 128_000,),
+            Some((250_000, 300_000, 20_000))
+        );
+        assert_eq!(
+            settings.custom_model_checkpoint_limits_with_override(Some(&custom), 200_000, 10_000,),
+            Some((190_000, 200_000, 10_000))
+        );
+    }
 }

@@ -76,6 +76,11 @@ impl AppConfig {
                 .token_limits
                 .validate()
                 .map_err(|error| format!("UpstreamModel {}: {error}", model.id))?;
+            if let Some(checkpoint_override) = &model.checkpoint_override {
+                checkpoint_override
+                    .validate()
+                    .map_err(|error| format!("UpstreamModel {}: {error}", model.id))?;
+            }
         }
 
         let mut virtual_ids = HashSet::new();
@@ -270,7 +275,8 @@ fn validate_endpoint(label: &str, endpoint: &str, required: bool) -> Result<(), 
 mod tests {
     use super::*;
     use crate::domain::{
-        ModelCapabilities, ModelTokenLimits, ParameterOverrides, ProviderProtocol,
+        ModelCapabilities, ModelCheckpointOverride, ModelTokenLimits, ParameterOverrides,
+        ProviderProtocol, TiktokenEncoding, TokenLimitSource, TokenizerConfig,
     };
     use std::collections::HashMap;
 
@@ -298,6 +304,8 @@ mod tests {
                 display_name: "GPT Test".to_string(),
                 capabilities: ModelCapabilities::default(),
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             }],
@@ -323,11 +331,21 @@ mod tests {
         let store = ConfigStore::load_from_file(&path).unwrap();
         assert!(store.get_config().providers.is_empty());
 
-        store.update_config(sample_config()).unwrap();
+        let mut config = sample_config();
+        config.upstream_models[0].checkpoint_override = Some(ModelCheckpointOverride::Percentage {
+            threshold_percent: 80,
+        });
+        store.update_config(config).unwrap();
         let reloaded = ConfigStore::load_from_file(&path).unwrap();
 
         assert_eq!(reloaded.get_config().providers[0].id, "provider-1");
         assert_eq!(reloaded.get_config().providers[0].api_key, "sk-test");
+        assert_eq!(
+            reloaded.get_config().upstream_models[0].checkpoint_override,
+            Some(ModelCheckpointOverride::Percentage {
+                threshold_percent: 80,
+            })
+        );
         assert!(!path.with_extension("tmp").exists());
         let _ = fs::remove_dir_all(directory);
     }
@@ -370,7 +388,97 @@ mod tests {
     }
 
     #[test]
-    fn legacy_config_defaults_missing_model_token_limits() {
+    fn checkpoint_override_defaults_to_none_and_variants_round_trip() {
+        let mut legacy_value = serde_json::to_value(sample_config()).unwrap();
+        legacy_value["upstream_models"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("checkpoint_override");
+        let legacy: AppConfig = serde_json::from_value(legacy_value).unwrap();
+        assert_eq!(legacy.upstream_models[0].checkpoint_override, None);
+
+        for (checkpoint_override, serialized) in [
+            (
+                ModelCheckpointOverride::Percentage {
+                    threshold_percent: 80,
+                },
+                serde_json::json!({
+                    "kind": "percentage",
+                    "threshold_percent": 80
+                }),
+            ),
+            (
+                ModelCheckpointOverride::Custom {
+                    token_threshold: 250_000,
+                    max_token_limit: 300_000,
+                    max_output_tokens: 20_000,
+                },
+                serde_json::json!({
+                    "kind": "custom",
+                    "token_threshold": 250_000,
+                    "max_token_limit": 300_000,
+                    "max_output_tokens": 20_000
+                }),
+            ),
+        ] {
+            let mut config = sample_config();
+            config.upstream_models[0].checkpoint_override = Some(checkpoint_override);
+
+            let value = serde_json::to_value(&config).unwrap();
+            assert_eq!(
+                value["upstream_models"][0]["checkpoint_override"],
+                serialized
+            );
+
+            let round_trip: AppConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                round_trip.upstream_models[0].checkpoint_override,
+                Some(checkpoint_override)
+            );
+        }
+    }
+
+    #[test]
+    fn config_validation_rejects_invalid_checkpoint_overrides() {
+        for checkpoint_override in [
+            ModelCheckpointOverride::Percentage {
+                threshold_percent: 0,
+            },
+            ModelCheckpointOverride::Percentage {
+                threshold_percent: 101,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 0,
+                max_token_limit: 100,
+                max_output_tokens: 20,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 100,
+                max_token_limit: 100,
+                max_output_tokens: 1,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 1,
+                max_token_limit: 100,
+                max_output_tokens: 100,
+            },
+            ModelCheckpointOverride::Custom {
+                token_threshold: 80,
+                max_token_limit: 100,
+                max_output_tokens: 30,
+            },
+        ] {
+            let mut config = sample_config();
+            config.upstream_models[0].checkpoint_override = Some(checkpoint_override);
+
+            let error = config.validate().unwrap_err();
+
+            assert!(error.contains("UpstreamModel upstream-1"), "{error}");
+        }
+    }
+
+    #[test]
+    fn legacy_config_defaults_missing_model_token_limits_to_estimated_sources() {
         let mut value = serde_json::to_value(sample_config()).unwrap();
         value["upstream_models"][0]
             .as_object_mut()
@@ -383,6 +491,85 @@ mod tests {
             config.upstream_models[0].token_limits,
             ModelTokenLimits::legacy_default()
         );
+    }
+
+    #[test]
+    fn legacy_config_with_token_limits_defaults_missing_sources_to_unknown() {
+        let mut value = serde_json::to_value(sample_config()).unwrap();
+        value["upstream_models"][0]["token_limits"] = serde_json::json!({
+            "context_window": 200_000,
+            "input_token_limit": 180_000,
+            "output_token_limit": 20_000
+        });
+
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        let limits = &config.upstream_models[0].token_limits;
+
+        assert_eq!(limits.context_window, Some(200_000));
+        assert_eq!(limits.input_token_limit, Some(180_000));
+        assert_eq!(limits.output_token_limit, Some(20_000));
+        assert_eq!(limits.context_window_source, TokenLimitSource::Unknown);
+        assert_eq!(limits.input_token_limit_source, TokenLimitSource::Unknown);
+        assert_eq!(limits.output_token_limit_source, TokenLimitSource::Unknown);
+    }
+
+    #[test]
+    fn token_limit_sources_serialize_as_snake_case() {
+        let mut config = sample_config();
+        let limits = &mut config.upstream_models[0].token_limits;
+        limits.context_window_source = TokenLimitSource::Catalog;
+        limits.input_token_limit_source = TokenLimitSource::Configured;
+        limits.output_token_limit_source = TokenLimitSource::Estimated;
+
+        let value = serde_json::to_value(config).unwrap();
+        let limits = &value["upstream_models"][0]["token_limits"];
+
+        assert_eq!(limits["context_window_source"], "catalog");
+        assert_eq!(limits["input_token_limit_source"], "configured");
+        assert_eq!(limits["output_token_limit_source"], "estimated");
+    }
+
+    #[test]
+    fn tokenizer_defaults_to_none_and_tiktoken_encodings_round_trip() {
+        let mut legacy_value = serde_json::to_value(sample_config()).unwrap();
+        legacy_value["upstream_models"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("tokenizer");
+        let legacy: AppConfig = serde_json::from_value(legacy_value).unwrap();
+        assert_eq!(legacy.upstream_models[0].tokenizer, None);
+
+        for (encoding, serialized_encoding) in [
+            (TiktokenEncoding::Cl100kBase, "cl100k_base"),
+            (TiktokenEncoding::O200kBase, "o200k_base"),
+        ] {
+            let mut config = sample_config();
+            let tokenizer = TokenizerConfig::Tiktoken { encoding };
+            config.upstream_models[0].tokenizer = Some(tokenizer);
+
+            let value = serde_json::to_value(&config).unwrap();
+            assert_eq!(
+                value["upstream_models"][0]["tokenizer"],
+                serde_json::json!({
+                    "kind": "tiktoken",
+                    "encoding": serialized_encoding
+                })
+            );
+
+            let round_trip: AppConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(round_trip.upstream_models[0].tokenizer, Some(tokenizer));
+        }
+    }
+
+    #[test]
+    fn tokenizer_rejects_unsupported_tiktoken_encoding() {
+        let mut value = serde_json::to_value(sample_config()).unwrap();
+        value["upstream_models"][0]["tokenizer"] = serde_json::json!({
+            "kind": "tiktoken",
+            "encoding": "p50k_base"
+        });
+
+        assert!(serde_json::from_value::<AppConfig>(value).is_err());
     }
 
     #[test]

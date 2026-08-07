@@ -3,6 +3,7 @@ use crate::domain::response::{FinishReason, NeutralChoice};
 use crate::domain::{
     ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel,
 };
+use crate::providers::error::classify_response_error;
 use serde_json::Value;
 
 fn parse_output_blocks(output: &Value) -> Vec<NeutralContentBlock> {
@@ -69,13 +70,7 @@ fn parse_output_blocks(output: &Value) -> Vec<NeutralContentBlock> {
 }
 
 fn parse_error(status: u16, body: &str) -> ProxyError {
-    let category = match status {
-        401 | 403 => ErrorCategory::Authentication,
-        404 => ErrorCategory::ModelNotFound,
-        429 => ErrorCategory::RateLimit,
-        500..=599 => ErrorCategory::UpstreamServerError,
-        _ => ErrorCategory::InvalidRequest,
-    };
+    let category = classify_response_error(status, body);
     ProxyError::new(
         category,
         format!("OpenAI Responses upstream status {status}"),

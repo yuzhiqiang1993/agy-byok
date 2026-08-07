@@ -3,6 +3,7 @@ mod client_pool;
 mod execution;
 mod fallback;
 mod model_catalog;
+mod token_guard;
 
 use crate::storage::ConfigStore;
 use reqwest::Client;

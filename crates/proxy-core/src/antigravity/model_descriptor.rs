@@ -376,8 +376,12 @@ fn apply_custom_model_checkpoint_override(
 ) {
     let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
     let checkpoint_token_limit = context_window.min(input_token_limit);
-    let Some((threshold, max_token_limit, max_output_tokens)) =
-        settings.custom_model_checkpoint_limits(checkpoint_token_limit, output_token_limit)
+    let Some((threshold, max_token_limit, max_output_tokens)) = settings
+        .custom_model_checkpoint_limits_with_override(
+            upstream_model.checkpoint_override.as_ref(),
+            checkpoint_token_limit,
+            output_token_limit,
+        )
     else {
         return;
     };
@@ -485,7 +489,10 @@ fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_k
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{ModelCapabilities, ModelTokenLimits, ParameterOverrides};
+    use crate::domain::{
+        ModelCapabilities, ModelCheckpointOverride, ModelTokenLimits, OfficialCompressionProfile,
+        ParameterOverrides,
+    };
 
     fn models() -> (VirtualModel, UpstreamModel) {
         (
@@ -506,6 +513,8 @@ mod tests {
                 display_name: "Custom Model".to_string(),
                 capabilities: ModelCapabilities::default(),
                 token_limits: ModelTokenLimits::default(),
+                checkpoint_override: None,
+                tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
             },
@@ -546,6 +555,7 @@ mod tests {
             context_window: Some(1_000_000),
             input_token_limit: Some(1_000_000),
             output_token_limit: Some(65_536),
+            ..ModelTokenLimits::default()
         };
 
         let descriptor =
@@ -583,6 +593,7 @@ mod tests {
             context_window: Some(372_000),
             input_token_limit: Some(372_000),
             output_token_limit: Some(128_000),
+            ..ModelTokenLimits::default()
         };
         let virtual_models = [virtual_model];
         let upstream_models = [upstream_model];
@@ -618,12 +629,96 @@ mod tests {
     }
 
     #[test]
+    fn model_percentage_override_wins_global_and_is_scoped_to_upstream_model() {
+        let (first_virtual_model, mut first_upstream_model) = models();
+        first_upstream_model.token_limits = ModelTokenLimits {
+            context_window: Some(372_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(128_000),
+            ..ModelTokenLimits::default()
+        };
+        first_upstream_model.checkpoint_override = Some(ModelCheckpointOverride::Percentage {
+            threshold_percent: 80,
+        });
+
+        let mut second_virtual_model = first_virtual_model.clone();
+        second_virtual_model.id = "custom-model-2".to_string();
+        second_virtual_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        second_virtual_model.upstream_model_id = "upstream-model-2".to_string();
+        let mut second_upstream_model = first_upstream_model.clone();
+        second_upstream_model.id = "upstream-model-2".to_string();
+        second_upstream_model.upstream_model_id = "provider-model-2".to_string();
+        second_upstream_model.checkpoint_override = None;
+
+        let settings = OfficialModelSettings {
+            gemini_compression_profile: OfficialCompressionProfile::Custom,
+            custom_model_threshold_percent: Some(60),
+            gemini_token_threshold: 150_000,
+            gemini_max_token_limit: 320_000,
+            gemini_max_output_tokens: 30_000,
+        };
+        let mut catalog = json!({ "models": {} });
+
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
+            &mut catalog,
+            &[first_virtual_model, second_virtual_model],
+            &[first_upstream_model, second_upstream_model],
+            &settings,
+        );
+
+        let first_checkpoint = checkpoint(&catalog["models"]["custom-model"]);
+        assert_eq!(first_checkpoint["token_threshold"], "256000");
+        assert_eq!(first_checkpoint["max_token_limit"], "320000");
+        assert_eq!(first_checkpoint["max_output_tokens"], "30000");
+
+        let second_checkpoint = checkpoint(&catalog["models"]["custom-model-2"]);
+        assert_eq!(second_checkpoint["token_threshold"], "192000");
+        assert_eq!(second_checkpoint["max_token_limit"], "320000");
+        assert_eq!(second_checkpoint["max_output_tokens"], "30000");
+    }
+
+    #[test]
+    fn custom_model_override_replaces_global_values_and_is_safely_clipped() {
+        let (virtual_model, mut upstream_model) = models();
+        upstream_model.token_limits = ModelTokenLimits {
+            context_window: Some(200_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(10_000),
+            ..ModelTokenLimits::default()
+        };
+        upstream_model.checkpoint_override = Some(ModelCheckpointOverride::Custom {
+            token_threshold: 250_000,
+            max_token_limit: 300_000,
+            max_output_tokens: 20_000,
+        });
+        let settings = OfficialModelSettings {
+            gemini_compression_profile: OfficialCompressionProfile::Aggressive,
+            custom_model_threshold_percent: Some(95),
+            ..OfficialModelSettings::default()
+        };
+        let mut catalog = json!({ "models": {} });
+
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
+            &mut catalog,
+            &[virtual_model],
+            &[upstream_model],
+            &settings,
+        );
+
+        let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
+        assert_eq!(checkpoint["token_threshold"], "190000");
+        assert_eq!(checkpoint["max_token_limit"], "200000");
+        assert_eq!(checkpoint["max_output_tokens"], "10000");
+    }
+
+    #[test]
     fn custom_checkpoint_hard_limit_does_not_exceed_context_window() {
         let (virtual_model, mut upstream_model) = models();
         upstream_model.token_limits = ModelTokenLimits {
             context_window: Some(200_000),
             input_token_limit: Some(372_000),
             output_token_limit: Some(128_000),
+            ..ModelTokenLimits::default()
         };
         let settings = OfficialModelSettings {
             custom_model_threshold_percent: Some(80),
