@@ -65,10 +65,11 @@ impl ProxyServer {
             &mut base_json,
             &config.official_model_settings,
         );
-        AntigravityModelDescriptor::inject_into_model_list(
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
             &mut base_json,
             &catalog_virtual_models,
             &config.upstream_models,
+            &config.official_model_settings,
         );
         base_json
     }

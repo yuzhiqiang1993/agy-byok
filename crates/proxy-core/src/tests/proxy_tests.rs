@@ -136,6 +136,36 @@ mod tests {
     }
 
     #[test]
+    fn model_catalog_applies_custom_checkpoint_settings() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].token_limits = ModelTokenLimits {
+            context_window: Some(372_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(128_000),
+        };
+        config
+            .official_model_settings
+            .custom_model_threshold_percent = Some(80);
+        let catalog_key = config.virtual_models[0].catalog_key().into_owned();
+        let checkpoint_model = config.virtual_models[0]
+            .effective_host_model_id()
+            .into_owned();
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let catalog = server.handle_model_list(json!({ "models": {} }));
+        let raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let checkpoint: serde_json::Value = serde_json::from_str(raw).unwrap();
+
+        assert_eq!(checkpoint["token_threshold"], "297600");
+        assert_eq!(checkpoint["max_token_limit"], "372000");
+        assert_eq!(checkpoint["max_output_tokens"], "16384");
+        assert_eq!(checkpoint["checkpoint_model"], checkpoint_model);
+    }
+
+    #[test]
     fn fallback_inherits_request_parameters_and_extra_body() {
         let mut config = fallback_config(
             "http://localhost/primary".to_string(),

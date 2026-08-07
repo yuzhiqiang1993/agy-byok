@@ -344,28 +344,119 @@ fn catalog_items<'a>(payload: &'a Value) -> Vec<(&'a Value, Option<&'a str>)> {
 
 fn extract_capabilities(item: &Value) -> Option<Value> {
     let object = item.as_object()?;
-    if let Some(capabilities) = object.get("capabilities") {
-        return Some(capabilities.clone());
-    }
+    let raw_capabilities = object.get("capabilities");
+    let mut capabilities = match raw_capabilities {
+        Some(Value::Object(capabilities)) => capabilities.clone(),
+        Some(capabilities) => return Some(capabilities.clone()),
+        None => Map::new(),
+    };
 
-    let mut capabilities = Map::new();
     for key in [
+        "inputModalities",
+        "input_modalities",
         "supportedGenerationMethods",
         "supported_generation_methods",
         "supportedParameters",
         "supported_parameters",
+        "experimentalSupportedTools",
+        "experimental_supported_tools",
         "supportsImageInput",
         "supports_image_input",
+        "supportsParallelToolCalls",
+        "supports_parallel_tool_calls",
         "supportsTools",
         "supports_tools",
         "vision",
         "tools",
     ] {
         if let Some(value) = object.get(key) {
-            capabilities.insert(key.to_string(), value.clone());
+            capabilities
+                .entry(key.to_string())
+                .or_insert_with(|| value.clone());
         }
     }
+
+    if !capabilities.contains_key("vision") {
+        let vision = capability_bool(
+            &capabilities,
+            &["supportsImageInput", "supports_image_input"],
+        )
+        .or_else(|| {
+            capability_array_contains(
+                &capabilities,
+                &["inputModalities", "input_modalities"],
+                &["image"],
+            )
+        });
+        if let Some(vision) = vision {
+            capabilities.insert("vision".to_string(), Value::Bool(vision));
+        }
+    }
+
+    if !capabilities.contains_key("tools") {
+        let tools = capability_bool(&capabilities, &["supportsTools", "supports_tools"])
+            .or_else(|| {
+                capability_bool(
+                    &capabilities,
+                    &["supportsParallelToolCalls", "supports_parallel_tool_calls"],
+                )
+                .filter(|supported| *supported)
+            })
+            .or_else(|| {
+                capability_array_non_empty(
+                    &capabilities,
+                    &["experimentalSupportedTools", "experimental_supported_tools"],
+                )
+                .filter(|supported| *supported)
+            })
+            .or_else(|| {
+                capability_array_contains(
+                    &capabilities,
+                    &["supportedGenerationMethods", "supported_generation_methods"],
+                    &["tool", "function"],
+                )
+                .filter(|supported| *supported)
+            });
+        if let Some(tools) = tools {
+            capabilities.insert("tools".to_string(), Value::Bool(tools));
+        }
+    }
+
     (!capabilities.is_empty()).then_some(Value::Object(capabilities))
+}
+
+fn capability_bool(capabilities: &Map<String, Value>, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| capabilities.get(*key).and_then(Value::as_bool))
+}
+
+fn capability_array_contains(
+    capabilities: &Map<String, Value>,
+    keys: &[&str],
+    expected_fragments: &[&str],
+) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        capabilities
+            .get(*key)
+            .and_then(Value::as_array)
+            .map(|values| {
+                values.iter().filter_map(Value::as_str).any(|value| {
+                    let normalized = value.to_ascii_lowercase();
+                    expected_fragments
+                        .iter()
+                        .any(|fragment| normalized.contains(fragment))
+                })
+            })
+    })
+}
+
+fn capability_array_non_empty(capabilities: &Map<String, Value>, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        capabilities
+            .get(*key)
+            .and_then(Value::as_array)
+            .map(|values| !values.is_empty())
+    })
 }
 
 fn parse_token_limit(item: &Value, keys: &[&str]) -> Option<u32> {
@@ -843,6 +934,75 @@ mod tests {
                 .map(|reasoning| reasoning.levels.clone()),
             Some(vec![ReasoningLevel::Low, ReasoningLevel::High])
         );
+    }
+
+    #[test]
+    fn normalizes_cpa_capabilities_without_dropping_raw_metadata() {
+        let models = parse_catalog_models_with_context(
+            &json!({
+                "models": [{
+                    "slug": "gpt-5.6-sol",
+                    "input_modalities": ["text", "IMAGE"],
+                    "supports_parallel_tool_calls": true,
+                    "capabilities": {
+                        "reasoning": true,
+                        "vendor_extension": {"mode": "native"}
+                    }
+                }]
+            }),
+            &ProviderProtocol::OpenaiChatCompletions,
+            true,
+        );
+
+        assert_eq!(
+            models[0].capabilities,
+            Some(json!({
+                "reasoning": true,
+                "vendor_extension": {"mode": "native"},
+                "input_modalities": ["text", "IMAGE"],
+                "supports_parallel_tool_calls": true,
+                "vision": true,
+                "tools": true
+            }))
+        );
+    }
+
+    #[test]
+    fn preserves_explicit_capability_flags_and_parallel_false_is_not_tool_unsupported() {
+        let models = parse_catalog_models_with_context(
+            &json!({
+                "data": [
+                    {
+                        "id": "explicit-flags",
+                        "capabilities": {
+                            "vision": false,
+                            "tools": false,
+                            "input_modalities": ["image"],
+                            "supports_parallel_tool_calls": true
+                        }
+                    },
+                    {
+                        "id": "serial-tools-unknown",
+                        "supports_parallel_tool_calls": false
+                    },
+                    {
+                        "id": "generation-method-tools",
+                        "experimental_supported_tools": [],
+                        "supported_generation_methods": ["toolCall"]
+                    }
+                ]
+            }),
+            &ProviderProtocol::OpenaiChatCompletions,
+            true,
+        );
+
+        assert_eq!(models[0].capabilities.as_ref().unwrap()["vision"], false);
+        assert_eq!(models[0].capabilities.as_ref().unwrap()["tools"], false);
+        assert_eq!(
+            models[1].capabilities,
+            Some(json!({"supports_parallel_tool_calls": false}))
+        );
+        assert_eq!(models[2].capabilities.as_ref().unwrap()["tools"], true);
     }
 
     #[test]

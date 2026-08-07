@@ -38,8 +38,10 @@ export function renderProxy(status: ProxyStatus): void {
   }
 
   const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
+  const modelCount = store.config?.virtual_models.length ?? 0;
   stopProxyButton.textContent = running ? t("overview.stopProxy") : t("overview.startProxy");
   stopProxyButton.className = running ? "secondary compact-button" : "primary compact-button";
+  stopProxyButton.title = !running && modelCount === 0 ? t("overview.proxyModelsRequired", { count: 1 }) : "";
   stopProxyButton.hidden = false;
   setButtonUnavailable(stopProxyButton, false);
 }
@@ -88,6 +90,10 @@ export function setupProxyCard(): void {
       const fullUrl = address.startsWith("http") ? address : `http://${address}`;
       navigator.clipboard.writeText(fullUrl).then(() => {
         showNotice(t("overview.proxyAddressCopied", { address: fullUrl }));
+        copyProxyAddressBtn.classList.add("copied");
+        setTimeout(() => {
+          copyProxyAddressBtn.classList.remove("copied");
+        }, 1500);
       }).catch((err) => {
         showNotice(t("overview.copyFailed", { message: errorMessage(err) }), "error");
       });

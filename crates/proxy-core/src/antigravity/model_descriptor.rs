@@ -85,6 +85,20 @@ impl AntigravityModelDescriptor {
         virtual_models: &[VirtualModel],
         upstream_models: &[UpstreamModel],
     ) {
+        Self::inject_into_model_list_with_settings(
+            models_json,
+            virtual_models,
+            upstream_models,
+            &OfficialModelSettings::default(),
+        );
+    }
+
+    pub fn inject_into_model_list_with_settings(
+        models_json: &mut Value,
+        virtual_models: &[VirtualModel],
+        upstream_models: &[UpstreamModel],
+        settings: &OfficialModelSettings,
+    ) {
         let models = virtual_models
             .iter()
             .filter(|virtual_model| virtual_model.enabled)
@@ -107,7 +121,7 @@ impl AntigravityModelDescriptor {
                         .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
                         .collect::<Vec<_>>()
                 });
-                inject_models(target, models);
+                inject_models(target, models, settings);
                 if let Some(catalog_keys) = catalog_keys {
                     append_catalog_keys_to_model_sorts(
                         catalog.get_mut("agentModelSorts"),
@@ -118,7 +132,7 @@ impl AntigravityModelDescriptor {
             }
         }
 
-        inject_models(models_json, models);
+        inject_models(models_json, models, settings);
     }
 
     /// 覆盖官方 Gemini 模型目录中的检查点参数。
@@ -211,15 +225,31 @@ fn apply_checkpoint_override(
     max_token_limit: u32,
     max_output_tokens: u32,
 ) {
-    let Some(entry_object) = entry.as_object_mut() else {
-        return;
-    };
     let checkpoint_model = ["model", "modelId", "requestedModel", "id"]
         .iter()
-        .filter_map(|field| entry_object.get(*field).and_then(Value::as_str))
+        .filter_map(|field| entry.get(*field).and_then(Value::as_str))
         .next()
         .unwrap_or("MODEL_GEMINI")
         .to_string();
+    apply_checkpoint_override_with_model(
+        entry,
+        threshold,
+        max_token_limit,
+        max_output_tokens,
+        &checkpoint_model,
+    );
+}
+
+fn apply_checkpoint_override_with_model(
+    entry: &mut Value,
+    threshold: u32,
+    max_token_limit: u32,
+    max_output_tokens: u32,
+    checkpoint_model: &str,
+) {
+    let Some(entry_object) = entry.as_object_mut() else {
+        return;
+    };
     let experiment = entry_object
         .entry("modelExperiments")
         .or_insert_with(|| json!({}))
@@ -275,7 +305,7 @@ fn apply_checkpoint_override(
         .or_insert_with(|| json!(1));
     checkpoint.insert(
         "checkpoint_model".to_string(),
-        Value::String(checkpoint_model),
+        Value::String(checkpoint_model.to_string()),
     );
     if let Ok(serialized) = serde_json::to_string(&Value::Object(checkpoint.clone())) {
         experiment.insert("stringValue".to_string(), Value::String(serialized));
@@ -338,21 +368,77 @@ fn apply_reasoning_metadata(
     }
 }
 
-fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)>) {
+fn apply_custom_model_checkpoint_override(
+    descriptor: &mut Value,
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
+) {
+    let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
+    let checkpoint_token_limit = context_window.min(input_token_limit);
+    let Some((threshold, max_token_limit, max_output_tokens)) =
+        settings.custom_model_checkpoint_limits(checkpoint_token_limit, output_token_limit)
+    else {
+        return;
+    };
+    let checkpoint_model = virtual_model.effective_host_model_id();
+    apply_checkpoint_override_with_model(
+        descriptor,
+        threshold,
+        max_token_limit,
+        max_output_tokens,
+        checkpoint_model.as_ref(),
+    );
+}
+
+fn custom_model_object(
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
+) -> Value {
+    let mut descriptor =
+        AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model);
+    apply_custom_model_checkpoint_override(
+        &mut descriptor,
+        virtual_model,
+        upstream_model,
+        settings,
+    );
+    descriptor
+}
+
+fn custom_cloud_code_catalog_entry(
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
+) -> Value {
+    let mut descriptor =
+        AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model);
+    apply_custom_model_checkpoint_override(
+        &mut descriptor,
+        virtual_model,
+        upstream_model,
+        settings,
+    );
+    descriptor
+}
+
+fn inject_models(
+    target: &mut Value,
+    models: Vec<(&VirtualModel, &UpstreamModel)>,
+    settings: &OfficialModelSettings,
+) {
     match target {
         Value::Array(entries) => {
             entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
-                AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model)
+                custom_model_object(virtual_model, upstream_model, settings)
             }));
         }
         Value::Object(entries) => {
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    AntigravityModelDescriptor::build_cloud_code_catalog_entry(
-                        virtual_model,
-                        upstream_model,
-                    ),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
                 );
             }
         }
@@ -361,10 +447,7 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    AntigravityModelDescriptor::build_cloud_code_catalog_entry(
-                        virtual_model,
-                        upstream_model,
-                    ),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
                 );
             }
             *target = Value::Object(entries);
@@ -429,6 +512,14 @@ mod tests {
         )
     }
 
+    fn checkpoint(descriptor: &Value) -> Value {
+        let raw = descriptor["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        serde_json::from_str(raw).expect("checkpoint settings must be valid JSON")
+    }
+
     #[test]
     fn uses_experience_defaults_when_limits_are_missing() {
         let (virtual_model, upstream_model) = models();
@@ -486,19 +577,71 @@ mod tests {
     }
 
     #[test]
-    fn does_not_add_checkpoint_experiments_to_custom_catalog_entries() {
-        let (virtual_model, upstream_model) = models();
+    fn adds_checkpoint_experiments_to_custom_catalog_entries() {
+        let (virtual_model, mut upstream_model) = models();
+        upstream_model.token_limits = ModelTokenLimits {
+            context_window: Some(372_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(128_000),
+        };
+        let virtual_models = [virtual_model];
+        let upstream_models = [upstream_model];
+        let settings = OfficialModelSettings {
+            custom_model_threshold_percent: Some(80),
+            ..OfficialModelSettings::default()
+        };
+
+        let mut object_catalog = json!({ "models": {} });
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
+            &mut object_catalog,
+            &virtual_models,
+            &upstream_models,
+            &settings,
+        );
+        let object_checkpoint = checkpoint(&object_catalog["models"]["custom-model"]);
+
+        let mut array_catalog = json!({ "models": [] });
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
+            &mut array_catalog,
+            &virtual_models,
+            &upstream_models,
+            &settings,
+        );
+        let array_checkpoint = checkpoint(&array_catalog["models"][0]);
+
+        for checkpoint in [object_checkpoint, array_checkpoint] {
+            assert_eq!(checkpoint["token_threshold"], "297600");
+            assert_eq!(checkpoint["max_token_limit"], "372000");
+            assert_eq!(checkpoint["max_output_tokens"], "16384");
+            assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M400");
+        }
+    }
+
+    #[test]
+    fn custom_checkpoint_hard_limit_does_not_exceed_context_window() {
+        let (virtual_model, mut upstream_model) = models();
+        upstream_model.token_limits = ModelTokenLimits {
+            context_window: Some(200_000),
+            input_token_limit: Some(372_000),
+            output_token_limit: Some(128_000),
+        };
+        let settings = OfficialModelSettings {
+            custom_model_threshold_percent: Some(80),
+            ..OfficialModelSettings::default()
+        };
         let mut catalog = json!({ "models": {} });
 
-        AntigravityModelDescriptor::inject_into_model_list(
+        AntigravityModelDescriptor::inject_into_model_list_with_settings(
             &mut catalog,
             &[virtual_model],
             &[upstream_model],
+            &settings,
         );
 
-        assert!(catalog["models"]["custom-model"]
-            .get("modelExperiments")
-            .is_none());
+        let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
+        assert_eq!(checkpoint["token_threshold"], "160000");
+        assert_eq!(checkpoint["max_token_limit"], "200000");
+        assert_eq!(checkpoint["max_output_tokens"], "16384");
     }
 
     #[test]

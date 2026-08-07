@@ -45,6 +45,7 @@ export let changedCatalogReasoningModelIds = new Set<string>();
 export let legacyCatalogModelIds = new Set<string>();
 let catalogFetchedCount = 0;
 let catalogStatusHasLegacy = false;
+let expandedCatalogModelIds = new Set<string>();
 
 export interface ProviderCatalogState {
   catalogModels: ProviderCatalogModel[];
@@ -76,6 +77,16 @@ export function getProviderCatalogState(): ProviderCatalogState {
     changedCatalogReasoningModelIds,
     legacyCatalogModelIds,
   };
+}
+
+function catalogCapability(
+  model: ProviderCatalogModel,
+  name: "vision" | "tools",
+): boolean | undefined {
+  const capabilities = model.capabilities;
+  if (!capabilities || Array.isArray(capabilities)) return undefined;
+  const value = capabilities[name];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 export interface ProviderCatalogContext {
@@ -119,8 +130,19 @@ export function resetCatalogResults(): void {
   changedCatalogCapabilityModelIds = new Set();
   changedCatalogReasoningModelIds = new Set();
   legacyCatalogModelIds = new Set();
+  expandedCatalogModelIds = new Set();
   element<HTMLDivElement>("#catalog-model-list").replaceChildren();
-  element<HTMLElement>("#catalog-results").hidden = true;
+
+  const stepConfig = element<HTMLElement>("#provider-step-config");
+  if (stepConfig) {
+    stepConfig.hidden = false;
+    stepConfig.classList.add("active");
+  }
+  const catalogResults = element<HTMLElement>("#catalog-results");
+  if (catalogResults) {
+    catalogResults.hidden = true;
+    catalogResults.classList.remove("active");
+  }
   element<HTMLInputElement>("#catalog-search").value = "";
   element<HTMLInputElement>("#select-all-models").checked = false;
   element<HTMLButtonElement>("#save-provider").disabled = true;
@@ -157,6 +179,7 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   selectedCatalogModelIds = new Set(
     existingUpstreams.map((item) => item.upstream_model_id),
   );
+  expandedCatalogModelIds = new Set();
   changedCatalogTokenLimitModelIds = new Set();
   changedCatalogCapabilityModelIds = new Set();
   changedCatalogReasoningModelIds = new Set();
@@ -171,12 +194,20 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   );
   catalogVisionEnabledModelIds = new Set(
     catalogModels
-      .filter((model) => existingUpstreamsByModelId.get(model.id)?.capabilities.vision ?? true)
+      .filter((model) => (
+        existingUpstreamsByModelId.get(model.id)?.capabilities.vision
+        ?? catalogCapability(model, "vision")
+        ?? true
+      ))
       .map((model) => model.id),
   );
   catalogToolsEnabledModelIds = new Set(
     catalogModels
-      .filter((model) => existingUpstreamsByModelId.get(model.id)?.capabilities.tools ?? true)
+      .filter((model) => (
+        existingUpstreamsByModelId.get(model.id)?.capabilities.tools
+        ?? catalogCapability(model, "tools")
+        ?? true
+      ))
       .map((model) => model.id),
   );
   catalogReasoningEnabledModelIds = new Set(
@@ -211,10 +242,15 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   );
   catalogFetchedCount = fetched.length;
   catalogStatusHasLegacy = legacyCatalogModelIds.size > 0;
+
+  element<HTMLElement>("#provider-step-config").classList.remove("active");
+  element<HTMLElement>("#provider-step-config").hidden = true;
   element<HTMLElement>("#catalog-results").hidden = false;
+  element<HTMLElement>("#catalog-results").classList.add("active");
+
   renderCatalogStatus();
   renderCatalogModels(context);
-  element<HTMLElement>("#catalog-results").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  element<HTMLElement>(".provider-modal-body").scrollTop = 0;
 }
 
 export function updateCatalogSelection(context: ProviderCatalogContext): void {
@@ -290,33 +326,10 @@ function createTokenLimitControls(
   const title = document.createElement("span");
   title.className = "catalog-token-title";
   title.textContent = t("models.tokenLimitTitle");
-  const sourceState = hasCatalogInput && hasCatalogOutput
-    ? "reported"
-    : hasCatalogInput || hasCatalogOutput
-      ? "partial"
-      : "experience";
-  const sourceBadge = document.createElement("span");
-  sourceBadge.className = `catalog-token-source-badge ${sourceState}`;
-  sourceBadge.textContent = sourceState === "reported"
-    ? t("models.tokenLimitSourceReported")
-    : sourceState === "partial"
-      ? t("models.tokenLimitSourcePartial")
-      : t("models.tokenLimitSourceExperience");
-  sourceBadge.title = sourceState === "reported"
-    ? t("models.tokenLimitCatalogValue")
-    : t("models.tokenLimitExperienceHint");
-  titleRow.append(title, sourceBadge);
-  const updateSummary = (summary: HTMLElement) => {
-    const displayedLimits = catalogTokenLimitsByModel.get(model.id) ?? currentLimits;
-    summary.textContent = t("models.tokenLimitSummary", {
-      input: formatTokenLimit(displayedLimits.input_token_limit),
-      output: formatTokenLimit(displayedLimits.output_token_limit),
-    });
-  };
+  titleRow.append(title);
   const updateTokenLimit = (
     field: "context_window" | "input_token_limit" | "output_token_limit",
     value: string,
-    summary?: HTMLElement,
   ) => {
     const trimmed = value.trim();
     const parsed = trimmed.length === 0 ? null : Number(trimmed);
@@ -329,16 +342,12 @@ function createTokenLimitControls(
     };
     catalogTokenLimitsByModel.set(model.id, next);
     changedCatalogTokenLimitModelIds.add(model.id);
-    if (summary) updateSummary(summary);
     context.setProviderEditorDirty(true);
     context.refreshProviderEditorControls();
   };
 
   const fields = document.createElement("div");
   fields.className = "catalog-token-fields";
-  const summary = document.createElement("span");
-  summary.className = "catalog-token-summary";
-  updateSummary(summary);
   const contextSummary = document.createElement("span");
   contextSummary.className = "catalog-token-context";
   const contextParts: string[] = [];
@@ -367,15 +376,12 @@ function createTokenLimitControls(
     contextParts.push(t("models.tokenAutoCompactSummary", {
       context: formatTokenLimit(model.autoCompactTokenLimit),
     }));
-  } else if (catalogContextLimit !== undefined) {
-    contextParts.push(t("models.tokenAutoCompactMissing"));
   }
   if (contextParts.length > 0) {
     contextSummary.textContent = contextParts.join(" · ");
   }
   const tokenMeta = document.createElement("div");
   tokenMeta.className = "catalog-token-meta";
-  tokenMeta.append(summary);
   if (contextParts.length > 0) tokenMeta.append(contextSummary);
 
   const appendField = (
@@ -393,11 +399,7 @@ function createTokenLimitControls(
       value.className = "catalog-token-value readonly";
       value.textContent = formatTokenLimit(reportedValue);
       value.title = t("models.tokenLimitCatalogValue");
-      const source = document.createElement("span");
-      source.className = "catalog-token-source-badge reported";
-      source.textContent = t("models.tokenLimitFieldReported");
-      source.title = t("models.tokenLimitCatalogValue");
-      fieldRow.append(value, source);
+      fieldRow.append(value);
     } else {
       const select = document.createElement("select");
       select.className = "catalog-token-input catalog-token-select catalog-token-limit-select";
@@ -421,12 +423,8 @@ function createTokenLimitControls(
       select.value = String(selectedValue);
       select.disabled = !selected;
       select.title = t("models.tokenLimitExperienceHint");
-      select.addEventListener("change", () => updateTokenLimit(field, select.value, summary));
-      const source = document.createElement("span");
-      source.className = "catalog-token-source-badge experience";
-      source.textContent = t("models.tokenLimitFieldExperience");
-      source.title = t("models.tokenLimitExperienceHint");
-      fieldRow.append(select, source);
+      select.addEventListener("change", () => updateTokenLimit(field, select.value));
+      fieldRow.append(select);
     }
     fields.append(fieldRow);
   };
@@ -460,11 +458,7 @@ function createTokenLimitControls(
     select.disabled = !selected;
     select.title = t("models.tokenContextExperienceHint");
     select.addEventListener("change", () => updateTokenLimit("context_window", select.value));
-    const source = document.createElement("span");
-    source.className = "catalog-token-source-badge experience";
-    source.textContent = t("models.tokenContextFieldExperience");
-    source.title = t("models.tokenContextExperienceHint");
-    fieldRow.append(fieldLabel, select, source);
+    fieldRow.append(fieldLabel, select);
     fields.append(fieldRow);
   }
 
@@ -499,7 +493,6 @@ function createTokenLimitControls(
         context_window: currentContextWindow,
       });
       changedCatalogTokenLimitModelIds.add(model.id);
-      updateSummary(summary);
       fields.querySelectorAll<HTMLSelectElement>(".catalog-token-limit-select").forEach((select, index) => {
         const field = index === 0 ? "input_token_limit" : "output_token_limit";
         const value = nextLimits[field];
@@ -532,43 +525,6 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
           (item) => item.provider_id === editingProviderId && item.upstream_model_id === model.id,
         )
       : undefined;
-    row.className = `catalog-model-row${selected ? "" : " unselected"}${legacyCatalogModelIds.has(model.id) ? " legacy" : ""}`;
-    const select = document.createElement("label");
-    select.className = "catalog-model-select";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = selected;
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) selectedCatalogModelIds.add(model.id);
-      else selectedCatalogModelIds.delete(model.id);
-      context.setProviderEditorDirty(true);
-      renderCatalogModels(context);
-    });
-    const copy = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = model.displayName;
-    const id = document.createElement("code");
-    id.textContent = model.id;
-    copy.append(name);
-    if (legacyCatalogModelIds.has(model.id)) {
-      const legacy = document.createElement("span");
-      legacy.className = "legacy-badge";
-      legacy.textContent = t("models.currentCatalogMissing");
-      legacy.title = t("models.currentCatalogMissingHint");
-      copy.append(legacy);
-    }
-    copy.append(id);
-    const reasoningMetadataLabel = catalogReasoningMetadataLabel(model);
-    if (reasoningMetadataLabel) {
-      const reasoningHint = document.createElement("span");
-      reasoningHint.className = `catalog-reasoning-hint${model.reasoning?.supported === false ? " unsupported" : ""}`;
-      reasoningHint.textContent = reasoningMetadataLabel;
-      copy.append(reasoningHint);
-    }
-    select.append(checkbox, copy);
-
-    const capabilities = document.createElement("div");
-    capabilities.className = "catalog-model-capabilities";
     const selectedLevels = catalogReasoningLevelsByModel.get(model.id);
     const availableReasoningLevels = catalogReasoningLevelsForModel(
       model,
@@ -576,6 +532,77 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
       existingUpstream,
     );
     const reasoningEnabled = catalogReasoningEnabledModelIds.has(model.id) && (selectedLevels?.size ?? 0) > 0;
+    const expanded = expandedCatalogModelIds.has(model.id);
+    row.className = `catalog-model-row${selected ? " selected" : " unselected"}${expanded ? " expanded" : ""}${legacyCatalogModelIds.has(model.id) ? " legacy" : ""}`;
+    const select = document.createElement("label");
+    select.className = "catalog-model-select";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selected;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedCatalogModelIds.add(model.id);
+        expandedCatalogModelIds.add(model.id);
+      } else {
+        selectedCatalogModelIds.delete(model.id);
+        expandedCatalogModelIds.delete(model.id);
+      }
+      context.setProviderEditorDirty(true);
+      renderCatalogModels(context);
+    });
+    const copy = document.createElement("span");
+    copy.className = "catalog-model-copy";
+    const nameLine = document.createElement("span");
+    nameLine.className = "catalog-model-name-line";
+    const name = document.createElement("strong");
+    name.textContent = model.displayName;
+    nameLine.append(name);
+    if (legacyCatalogModelIds.has(model.id)) {
+      const legacy = document.createElement("span");
+      legacy.className = "legacy-badge";
+      legacy.textContent = t("models.currentCatalogMissing");
+      legacy.title = t("models.currentCatalogMissingHint");
+      nameLine.append(legacy);
+    }
+    const id = document.createElement("code");
+    id.textContent = model.id;
+    copy.append(nameLine, id);
+    const reasoningMetadataLabel = catalogReasoningMetadataLabel(model);
+    if (reasoningMetadataLabel) {
+      const reasoningHint = document.createElement("span");
+      reasoningHint.className = `catalog-reasoning-hint${model.reasoning?.supported === false ? " unsupported" : ""}`;
+      reasoningHint.textContent = reasoningMetadataLabel;
+      copy.append(reasoningHint);
+    }
+    const modelSummary = document.createElement("span");
+    modelSummary.className = "catalog-model-summary";
+    const limits = catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
+    const tokenSummary = document.createElement("span");
+    tokenSummary.className = "catalog-model-summary-item token";
+    tokenSummary.textContent = t("models.tokenLimitSummary", {
+      input: formatTokenLimit(limits.input_token_limit),
+      output: formatTokenLimit(limits.output_token_limit),
+    });
+    const visionSummary = document.createElement("span");
+    visionSummary.className = `catalog-model-summary-item${catalogVisionEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
+    visionSummary.textContent = t("models.visionInput");
+    const toolsSummary = document.createElement("span");
+    toolsSummary.className = `catalog-model-summary-item${catalogToolsEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
+    toolsSummary.textContent = t("models.toolCalling");
+    modelSummary.append(tokenSummary, visionSummary, toolsSummary);
+    if (reasoningEnabled) {
+      const reasoningSummary = document.createElement("span");
+      reasoningSummary.className = "catalog-model-summary-item active";
+      reasoningSummary.textContent = t("models.reasoningSummary", {
+        levels: sortReasoningLevels(selectedLevels!).map(reasoningLevelLabel).join(" · "),
+      });
+      modelSummary.append(reasoningSummary);
+    }
+    copy.append(modelSummary);
+    select.append(checkbox, copy);
+
+    const capabilities = document.createElement("div");
+    capabilities.className = "catalog-model-capabilities";
     const reasoningBtn = document.createElement("button");
     reasoningBtn.type = "button";
     reasoningBtn.className = `catalog-reasoning-trigger${reasoningEnabled ? " active" : ""}`;
@@ -656,9 +683,23 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
     const testArea = document.createElement("div");
     testArea.className = "catalog-model-test-area";
     testArea.append(test, result);
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "catalog-model-expand";
+    expand.textContent = t(expanded ? "models.collapseModelSettings" : "models.expandModelSettings");
+    expand.disabled = !selected;
+    expand.setAttribute("aria-expanded", String(expanded));
+    expand.addEventListener("click", () => {
+      if (expanded) expandedCatalogModelIds.delete(model.id);
+      else expandedCatalogModelIds.add(model.id);
+      renderCatalogModels(context);
+    });
+    const headerActions = document.createElement("div");
+    headerActions.className = "catalog-model-header-actions";
+    headerActions.append(testArea, expand);
     const header = document.createElement("div");
     header.className = "catalog-model-header";
-    header.append(select, testArea);
+    header.append(select, headerActions);
 
     const capabilityGroup = document.createElement("div");
     capabilityGroup.className = "catalog-capability-group";
@@ -669,6 +710,7 @@ export function renderCatalogModels(context: ProviderCatalogContext): void {
 
     const actions = document.createElement("div");
     actions.className = "catalog-model-actions";
+    actions.hidden = !expanded;
     actions.append(createTokenLimitControls(model, selected, context));
     actions.append(capabilityGroup);
     row.append(header, actions);

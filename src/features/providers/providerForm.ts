@@ -157,17 +157,31 @@ const PROVIDER_PRESETS: Record<string, { protocol: ProviderProtocol; baseUrl: st
   custom: { protocol: "openai_chat_completions", baseUrl: "" },
 };
 
+import { confirmHostAction } from "../../components/ConfirmModal";
+
 export function setupProviderPresets(context: ProviderFormContext): void {
   const presetContainer = document.querySelector<HTMLElement>("#provider-presets");
   if (!presetContainer) return;
 
   const buttons = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-btn");
   for (const button of buttons) {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const presetKey = button.dataset.preset;
       if (!presetKey) return;
       const preset = PROVIDER_PRESETS[presetKey];
       if (!preset) return;
+
+      const currentBaseUrl = element<HTMLInputElement>("#provider-base-url").value.trim();
+      const currentApiKey = element<HTMLInputElement>("#api-key").value.trim();
+      if (currentBaseUrl || currentApiKey) {
+        const confirmed = await confirmHostAction(
+          t("models.presetOverwriteConfirm"),
+          t("modal.confirmTitle"),
+          t("models.confirmOverwrite"),
+          t("models.cancel")
+        );
+        if (!confirmed) return;
+      }
 
       element<HTMLInputElement>("#provider-name").value = t(`presets.${presetKey}`);
       element<HTMLSelectElement>("#protocol").value = preset.protocol;

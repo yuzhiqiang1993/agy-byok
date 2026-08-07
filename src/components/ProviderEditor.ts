@@ -219,6 +219,13 @@ export function setupProviderEditor(): void {
     void withProviderEditorBusy(button, fetchProviderCatalog, t("models.fetching"));
   });
 
+  element<HTMLButtonElement>("#back-to-config").addEventListener("click", () => {
+    element<HTMLElement>("#catalog-results").classList.remove("active");
+    element<HTMLElement>("#catalog-results").hidden = true;
+    element<HTMLElement>("#provider-step-config").hidden = false;
+    element<HTMLElement>("#provider-step-config").classList.add("active");
+  });
+
   element<HTMLInputElement>("#provider-name").addEventListener("input", () => {
     setProviderEditorDirty(true);
   });
