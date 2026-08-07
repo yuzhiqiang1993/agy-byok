@@ -27,9 +27,14 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
+    #[cfg(target_os = "macos")]
+    let icon = tauri::include_image!("./icons/tray-icon-solid.png");
+    #[cfg(not(target_os = "macos"))]
+    let icon = tauri::include_image!("./icons/tray-icon-solid-color.png");
+
     TrayIconBuilder::new()
-        .icon(tauri::include_image!("./icons/tray-icon.png"))
-        .icon_as_template(true)
+        .icon(icon)
+        .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("AGY BYOK")
@@ -116,7 +121,9 @@ pub fn run() {
     builder
         .setup(|app| {
             #[cfg(desktop)]
-            setup_tray(app)?;
+            {
+                setup_tray(app)?;
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
