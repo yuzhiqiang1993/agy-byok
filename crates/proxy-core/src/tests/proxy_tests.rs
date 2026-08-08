@@ -21,7 +21,7 @@ mod tests {
                 id: "p-connection".to_string(),
                 name: "Connection Provider".to_string(),
                 protocol: ProviderProtocol::OpenaiChatCompletions,
-                models_endpoint: String::new(),
+                models_endpoint: "http://localhost/models".to_string(),
                 generate_endpoint,
                 api_key: "sk-connection".to_string(),
                 headers: HashMap::new(),
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn model_catalog_does_not_apply_custom_checkpoint_settings() {
+    fn model_catalog_applies_custom_checkpoint_settings() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].token_limits = ModelTokenLimits {
             context_window: Some(372_000),
@@ -148,25 +148,30 @@ mod tests {
             output_token_limit: Some(128_000),
             ..ModelTokenLimits::default()
         };
-        config.official_model_settings.custom_model = CustomModelCompressionSettings {
-            profile: CustomModelCompressionProfile::Custom,
-            percentages: CompressionPercentages {
-                token_threshold: 70,
-                max_token_limit: 90,
-                max_output_tokens: 5,
-            },
+        config.official_model_settings.custom_model = CompressionLimitsPolicy {
+            enabled: true,
+            mode: CheckpointLimitMode::Percentage,
+            token_threshold_percent: 70,
+            max_token_limit_percent: 90,
+            max_output_tokens_percent: 5,
+            token_threshold: 0,
+            max_token_limit: 0,
+            max_output_tokens: 0,
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
-        let model_id = config.virtual_models[0]
-            .effective_host_model_id()
-            .into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
         let catalog = server.handle_model_list(json!({ "models": {} }));
-        let custom_model = &catalog["models"][catalog_key];
+        let raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let checkpoint: serde_json::Value = serde_json::from_str(raw).unwrap();
 
-        assert_eq!(custom_model["model"], model_id);
-        assert!(custom_model.get("modelExperiments").is_none());
+        assert_eq!(checkpoint["token_threshold"], "260400");
+        assert_eq!(checkpoint["max_token_limit"], "334800");
+        assert_eq!(checkpoint["max_output_tokens"], "18600");
+        assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M71");
     }
 
     #[test]
@@ -183,12 +188,15 @@ mod tests {
             max_token_limit: 300_000,
             max_output_tokens: 20_000,
         });
-        config.official_model_settings = OfficialModelSettings {
-            gemini: OfficialCompressionSettings {
-                profile: OfficialCompressionProfile::Safe,
-                percentages: CompressionPercentages::default(),
-            },
-            ..OfficialModelSettings::default()
+        config.official_model_settings.gemini = CompressionLimitsPolicy {
+            enabled: true,
+            mode: CheckpointLimitMode::Absolute,
+            token_threshold_percent: 61,
+            max_token_limit_percent: 73,
+            max_output_tokens_percent: 2,
+            token_threshold: 430_000,
+            max_token_limit: 512_000,
+            max_output_tokens: 16_384,
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
@@ -201,15 +209,24 @@ mod tests {
                 }
             }
         }));
-        assert!(catalog["models"][catalog_key]
-            .get("modelExperiments")
-            .is_none());
+        let custom_raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let custom_checkpoint: serde_json::Value = serde_json::from_str(custom_raw).unwrap();
         let official_raw = catalog["models"]["gemini-pro"]["modelExperiments"]["experiments"]
             ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
             .as_str()
             .expect("official Gemini model must contain checkpoint settings");
         let official_checkpoint: serde_json::Value = serde_json::from_str(official_raw).unwrap();
 
+        assert_eq!(custom_checkpoint["token_threshold"], "250000");
+        assert_eq!(custom_checkpoint["max_token_limit"], "300000");
+        assert_eq!(custom_checkpoint["max_output_tokens"], "20000");
+        assert_eq!(
+            custom_checkpoint["checkpoint_model"],
+            "MODEL_PLACEHOLDER_M71"
+        );
         assert_eq!(official_checkpoint["token_threshold"], "430000");
         assert_eq!(official_checkpoint["max_token_limit"], "512000");
         assert_eq!(official_checkpoint["max_output_tokens"], "16384");
@@ -878,7 +895,7 @@ mod tests {
                 id: "p-1".to_string(),
                 name: "Anthropic".to_string(),
                 protocol: ProviderProtocol::AnthropicMessages,
-                models_endpoint: String::new(),
+                models_endpoint: "http://localhost/models".to_string(),
                 generate_endpoint: "http://localhost/messages".to_string(),
                 api_key: String::new(),
                 headers: HashMap::new(),

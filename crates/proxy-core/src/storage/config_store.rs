@@ -115,6 +115,9 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     pub fn in_memory(initial_config: AppConfig) -> Self {
+        initial_config
+            .validate()
+            .expect("in-memory config must be valid");
         Self {
             config: Arc::new(RwLock::new(initial_config)),
             file_path: None,

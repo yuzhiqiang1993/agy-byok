@@ -1,44 +1,35 @@
 import { t } from "../../i18n";
-
 import type { ProviderCatalogModel } from "../../types/catalog";
 import {
   catalogReasoningMetadataLabel,
   reasoningLevelLabel,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
-
 import type { CatalogModelRowState } from "./catalogModelRowState";
 import type { CatalogModelListState } from "./providerCatalogTypes";
 import { formatTokenLimit, resolveCatalogTokenLimits } from "./tokenLimits";
 
 export interface CatalogModelSummary {
   element: HTMLSpanElement;
-  refreshTokenAndCheckpoint: () => void;
+  refreshToken: () => void;
 }
 
-function createTokenAndCheckpointSummary(
+function createTokenSummary(
   model: ProviderCatalogModel,
   state: CatalogModelListState,
-): Pick<CatalogModelSummary, "refreshTokenAndCheckpoint"> & {
-  token: HTMLSpanElement;
-  checkpoint: HTMLSpanElement;
-} {
+): Pick<CatalogModelSummary, "refreshToken"> & { token: HTMLSpanElement } {
   const token = document.createElement("span");
   token.className = "catalog-model-summary-item token";
-  const checkpoint = document.createElement("span");
-  const refreshTokenAndCheckpoint = () => {
+  const refreshToken = () => {
     const limits = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
     token.textContent = t("models.tokenLimitSummary", {
       input: formatTokenLimit(limits.input_token_limit),
       output: formatTokenLimit(limits.output_token_limit),
     });
-    checkpoint.className = "catalog-model-summary-item checkpoint disabled";
-    checkpoint.textContent = t("models.checkpointByomUnavailableSummary");
-    checkpoint.title = t("models.checkpointByomUnavailablePreview");
   };
 
-  refreshTokenAndCheckpoint();
-  return { token, checkpoint, refreshTokenAndCheckpoint };
+  refreshToken();
+  return { token, refreshToken };
 }
 
 function createModelSummary(
@@ -48,14 +39,14 @@ function createModelSummary(
   const { model, reasoningEnabled, selectedReasoningLevels } = rowState;
   const summary = document.createElement("span");
   summary.className = "catalog-model-summary";
-  const { token, checkpoint, refreshTokenAndCheckpoint } = createTokenAndCheckpointSummary(model, state);
+  const { token, refreshToken } = createTokenSummary(model, state);
   const vision = document.createElement("span");
   vision.className = `catalog-model-summary-item${state.catalogVisionEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
   vision.textContent = t("models.visionInput");
   const tools = document.createElement("span");
   tools.className = `catalog-model-summary-item${state.catalogToolsEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
   tools.textContent = t("models.toolCalling");
-  summary.append(token, checkpoint, vision, tools);
+  summary.append(token, vision, tools);
 
   if (reasoningEnabled && selectedReasoningLevels) {
     const reasoning = document.createElement("span");
@@ -65,7 +56,7 @@ function createModelSummary(
     });
     summary.append(reasoning);
   }
-  return { element: summary, refreshTokenAndCheckpoint };
+  return { element: summary, refreshToken };
 }
 
 export function createModelCopy(

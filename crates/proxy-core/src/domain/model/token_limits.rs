@@ -33,8 +33,14 @@ impl ModelTokenLimits {
         if self.context_window == Some(0) {
             return Err("context_window must be greater than 0");
         }
+        if self.context_window.is_some_and(|value| value < 2) {
+            return Err("context_window must be at least 2 for Checkpointer");
+        }
         if self.input_token_limit == Some(0) {
             return Err("input_token_limit must be greater than 0");
+        }
+        if self.input_token_limit.is_some_and(|value| value < 2) {
+            return Err("input_token_limit must be at least 2 for Checkpointer");
         }
         if self.output_token_limit == Some(0) {
             return Err("output_token_limit must be greater than 0");

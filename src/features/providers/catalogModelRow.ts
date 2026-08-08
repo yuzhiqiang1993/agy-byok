@@ -115,7 +115,7 @@ function createModelActions(
   actions.className = "catalog-model-actions";
   actions.hidden = !expanded;
   actions.append(
-    createTokenLimitControls(model, selected, selected && expanded, context, state, refreshSummary),
+    createTokenLimitControls(model, selected, context, state, refreshSummary),
     capabilityGroup,
   );
   return actions;
@@ -143,7 +143,7 @@ export function createCatalogModelRow(
   header.append(selection.element, headerActions);
   row.append(
     header,
-    createModelActions(rowState, context, state, selection.summary.refreshTokenAndCheckpoint, rerender),
+    createModelActions(rowState, context, state, selection.summary.refreshToken, rerender),
   );
   return row;
 }

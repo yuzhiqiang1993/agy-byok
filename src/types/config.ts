@@ -47,40 +47,49 @@ interface TokenizerConfig {
   encoding: TiktokenEncoding;
 }
 
-export type OfficialCompressionProfile =
-  | "official"
-  | "safe"
-  | "balanced"
-  | "aggressive"
-  | "custom";
+export type CheckpointLimitMode = "percentage" | "absolute";
 
-export type CustomModelCompressionProfile =
-  | "none"
-  | "safe"
-  | "balanced"
-  | "aggressive"
-  | "custom";
-
-export interface CompressionPercentages {
+export interface CompressionLimitsPolicy {
+  enabled: boolean;
+  mode: CheckpointLimitMode;
+  token_threshold_percent: number;
+  max_token_limit_percent: number;
+  max_output_tokens_percent: number;
   token_threshold: number;
   max_token_limit: number;
   max_output_tokens: number;
 }
 
-interface OfficialCompressionSettings {
-  profile: OfficialCompressionProfile;
-  percentages: CompressionPercentages;
+export interface CustomModelCheckpointRetryConfig {
+  max_retries: number;
+  initial_sleep_duration_ms: number;
+  exponential_multiplier: number;
+  include_error_feedback: boolean;
 }
 
-interface CustomModelCompressionSettings {
-  profile: CustomModelCompressionProfile;
-  percentages: CompressionPercentages;
+export interface CheckpointExecutionPolicy {
+  enabled: boolean;
+  checkpoint_model: string;
+  strategy: string;
+  max_overhead_ratio: string;
+  moving_window_size: string;
+  use_last_planner_model: boolean;
+  is_sync: boolean;
+  max_user_requests: number;
+  include_last_user_message: boolean;
+  include_conversation_log: boolean;
+  include_running_task_snapshots: boolean;
+  include_subagent_snapshots: boolean;
+  include_artifact_snapshots: boolean;
+  retry_config: CustomModelCheckpointRetryConfig;
 }
 
 export interface OfficialModelSettings {
-  gemini: OfficialCompressionSettings;
-  claude: OfficialCompressionSettings;
-  custom_model: CustomModelCompressionSettings;
+  gemini: CompressionLimitsPolicy;
+  claude: CompressionLimitsPolicy;
+  custom_model: CompressionLimitsPolicy;
+  custom_model_checkpoint: CheckpointExecutionPolicy;
+  model_checkpoint_policies: Record<string, CheckpointExecutionPolicy>;
 }
 
 export interface Provider {

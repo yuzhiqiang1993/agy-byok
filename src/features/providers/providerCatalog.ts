@@ -3,7 +3,6 @@ import { t } from "../../i18n";
 import { store } from "../../store/appStore";
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
-  ModelCheckpointOverride,
   ProviderProtocol,
   UpstreamModel,
   VirtualModel,
@@ -41,9 +40,7 @@ function emptyCatalogState(): InternalProviderCatalogState {
     catalogToolsEnabledModelIds: new Set(),
     catalogReasoningEnabledModelIds: new Set(),
     catalogTokenLimitsByModel: new Map(),
-    catalogCheckpointOverridesByModel: new Map(),
     changedCatalogTokenLimitModelIds: new Set(),
-    changedCatalogCheckpointOverrideModelIds: new Set(),
     changedCatalogCapabilityModelIds: new Set(),
     changedCatalogReasoningModelIds: new Set(),
     unavailableCatalogModelIds: new Set(),
@@ -74,12 +71,6 @@ function catalogCapability(
   if (!capabilities || Array.isArray(capabilities)) return undefined;
   const value = capabilities[name];
   return typeof value === "boolean" ? value : undefined;
-}
-
-function cloneCheckpointOverride(
-  override: ModelCheckpointOverride | null | undefined,
-): ModelCheckpointOverride | null {
-  return override ? { ...override } : null;
 }
 
 function mergedCatalogModels(
@@ -170,12 +161,7 @@ function loadedCatalogState(
       model.id,
       resolveCatalogTokenLimits(model, upstreamByModelId.get(model.id)?.token_limits),
     ])),
-    catalogCheckpointOverridesByModel: new Map(models.map((model) => [
-      model.id,
-      cloneCheckpointOverride(upstreamByModelId.get(model.id)?.checkpoint_override),
-    ])),
     changedCatalogTokenLimitModelIds: new Set(),
-    changedCatalogCheckpointOverrideModelIds: new Set(),
     changedCatalogCapabilityModelIds: new Set(),
     changedCatalogReasoningModelIds: new Set(),
     unavailableCatalogModelIds: unavailableModelIds,

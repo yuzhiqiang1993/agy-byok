@@ -42,7 +42,7 @@ fn route(source: TokenLimitSource, input_limit: u32) -> ResolvedRoute {
             id: "provider".to_string(),
             name: "Provider".to_string(),
             protocol: ProviderProtocol::OpenaiChatCompletions,
-            models_endpoint: String::new(),
+            models_endpoint: "https://example.com/v1/models".to_string(),
             generate_endpoint: "https://example.com/v1/chat/completions".to_string(),
             api_key: String::new(),
             headers: HashMap::new(),

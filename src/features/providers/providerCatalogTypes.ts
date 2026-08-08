@@ -1,6 +1,5 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
-  ModelCheckpointOverride,
   ModelTokenLimits,
   Provider,
   ProviderProtocol,
@@ -16,9 +15,7 @@ export interface ProviderCatalogState {
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
-  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: ReadonlySet<string>;
-  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   unavailableCatalogModelIds: ReadonlySet<string>;
@@ -40,9 +37,7 @@ export interface ProviderCatalogContext {
 
 export interface CatalogControlState {
   catalogTokenLimitsByModel: Map<string, ModelTokenLimits>;
-  catalogCheckpointOverridesByModel: Map<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: Set<string>;
-  changedCatalogCheckpointOverrideModelIds: Set<string>;
 }
 
 export interface CatalogModelListState extends CatalogControlState {

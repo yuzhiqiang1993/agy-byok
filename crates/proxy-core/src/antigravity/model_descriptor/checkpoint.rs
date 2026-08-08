@@ -1,14 +1,15 @@
 use super::AntigravityModelDescriptor;
 use crate::domain::model::ClaudeCheckpointMetadata;
 use crate::domain::OfficialModelSettings;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 impl AntigravityModelDescriptor {
-    /// 覆盖官方 Gemini 与 Claude 模型目录中的检查点参数。
+    /// 根据当前官方模型设置生成 Gemini 与 Claude 的 Checkpointer 参数。
     ///
-    /// Antigravity IDE 会从 `modelExperiments` 中读取检查点策略；这与实际
-    /// 生成请求的 `max_tokens` 不是同一层配置。官方档位不做任何改写，避免
-    /// 上游将来的参数变化被本地默认值遮蔽。
+    /// Antigravity IDE 会从 `modelExperiments` 中读取 Checkpointer 策略；这与实际
+    /// 生成请求的 `max_tokens` 不是同一层配置。每次都生成新的 payload，不读取或
+    /// 复用目录响应中的旧 Checkpointer 字段。
     pub fn apply_official_model_overrides(
         models_json: &mut Value,
         settings: &OfficialModelSettings,
@@ -104,13 +105,7 @@ fn official_model_family(key: Option<&str>, entry: &Value) -> Option<OfficialMod
     for value in candidates {
         mark_model_family(value, &mut is_gemini, &mut is_claude);
     }
-    if let Some(checkpoint_model) = existing_checkpoint(entry)
-        .as_ref()
-        .and_then(|checkpoint| checkpoint.get("checkpoint_model"))
-        .and_then(Value::as_str)
-    {
-        mark_model_family(checkpoint_model, &mut is_gemini, &mut is_claude);
-    }
+
     for field in ["modelProvider", "apiProvider"] {
         if entry
             .get(field)
@@ -158,17 +153,6 @@ fn claude_checkpoint_metadata(entry: &Value) -> Option<ClaudeCheckpointMetadata>
     })
 }
 
-fn existing_checkpoint(entry: &Value) -> Option<Value> {
-    entry
-        .get("modelExperiments")?
-        .get("experiments")?
-        .get("CASCADE_USE_EXPERIMENT_CHECKPOINTER")?
-        .get("stringValue")?
-        .as_str()
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .filter(Value::is_object)
-}
-
 fn minimum_positive_field(entry: &Value, fields: &[&str]) -> Option<u32> {
     fields
         .iter()
@@ -191,17 +175,10 @@ fn apply_checkpoint_override(
     max_output_tokens: u32,
     fallback_checkpoint_model: &str,
 ) {
-    let checkpoint_model = existing_checkpoint(entry)
-        .as_ref()
-        .and_then(|checkpoint| checkpoint.get("checkpoint_model"))
-        .and_then(Value::as_str)
+    let checkpoint_model = ["model", "modelId", "requestedModel", "planModel", "id"]
+        .iter()
+        .find_map(|field| entry.get(*field).and_then(Value::as_str))
         .map(str::to_string)
-        .or_else(|| {
-            ["model", "modelId", "requestedModel", "planModel", "id"]
-                .iter()
-                .find_map(|field| entry.get(*field).and_then(Value::as_str))
-                .map(str::to_string)
-        })
         .unwrap_or_else(|| fallback_checkpoint_model.to_string());
     apply_checkpoint_override_with_model(
         entry,
@@ -210,6 +187,84 @@ fn apply_checkpoint_override(
         max_output_tokens,
         &checkpoint_model,
     );
+}
+
+pub(super) fn apply_custom_checkpoint_policy<P: Serialize>(
+    entry: &mut Value,
+    policy: &P,
+    checkpoint_model: &str,
+    token_threshold: u32,
+    max_token_limit: u32,
+    max_output_tokens: u32,
+) {
+    let payload = build_custom_checkpoint_payload(
+        policy,
+        checkpoint_model,
+        token_threshold,
+        max_token_limit,
+        max_output_tokens,
+    );
+    let Some(entry_object) = entry.as_object_mut() else {
+        return;
+    };
+    let experiment = entry_object
+        .entry("modelExperiments")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .and_then(|experiments| {
+            experiments
+                .entry("experiments")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+        })
+        .and_then(|experiments| {
+            experiments
+                .entry("CASCADE_USE_EXPERIMENT_CHECKPOINTER")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+        });
+    let Some(experiment) = experiment else {
+        return;
+    };
+    experiment.insert(
+        "stringValue".to_string(),
+        Value::String(
+            serde_json::to_string(&payload)
+                .expect("custom checkpoint payload serialization cannot fail"),
+        ),
+    );
+}
+
+pub(super) fn build_custom_checkpoint_payload<P: Serialize>(
+    policy: &P,
+    checkpoint_model: &str,
+    token_threshold: u32,
+    max_token_limit: u32,
+    max_output_tokens: u32,
+) -> Value {
+    let mut payload =
+        serde_json::to_value(policy).expect("custom checkpoint policy serialization cannot fail");
+    let payload_object = payload
+        .as_object_mut()
+        .expect("custom checkpoint policy must serialize as an object");
+    payload_object.insert("enabled".to_string(), Value::Bool(true));
+    payload_object.insert(
+        "checkpoint_model".to_string(),
+        Value::String(checkpoint_model.to_string()),
+    );
+    payload_object.insert(
+        "token_threshold".to_string(),
+        Value::String(token_threshold.to_string()),
+    );
+    payload_object.insert(
+        "max_token_limit".to_string(),
+        Value::String(max_token_limit.to_string()),
+    );
+    payload_object.insert(
+        "max_output_tokens".to_string(),
+        Value::String(max_output_tokens.to_string()),
+    );
+    payload
 }
 
 pub(super) fn apply_checkpoint_override_with_model(
@@ -242,42 +297,21 @@ pub(super) fn apply_checkpoint_override_with_model(
         return;
     };
 
-    let mut checkpoint = experiment
-        .get("stringValue")
-        .and_then(Value::as_str)
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({}));
-    let Some(checkpoint) = checkpoint.as_object_mut() else {
-        return;
-    };
-    checkpoint.insert(
-        "strategy".to_string(),
-        Value::String("CHECKPOINT_STRATEGY_UNSPECIFIED".to_string()),
+    let payload = json!({
+        "enabled": true,
+        "strategy": "CHECKPOINT_STRATEGY_UNSPECIFIED",
+        "token_threshold": threshold.to_string(),
+        "max_token_limit": max_token_limit.to_string(),
+        "max_output_tokens": max_output_tokens.to_string(),
+        "max_overhead_ratio": "0.15",
+        "moving_window_size": "1",
+        "checkpoint_model": checkpoint_model,
+    });
+    experiment.insert(
+        "stringValue".to_string(),
+        Value::String(
+            serde_json::to_string(&payload)
+                .expect("official checkpoint payload serialization cannot fail"),
+        ),
     );
-    checkpoint.insert(
-        "token_threshold".to_string(),
-        Value::String(threshold.to_string()),
-    );
-    checkpoint.insert(
-        "max_token_limit".to_string(),
-        Value::String(max_token_limit.to_string()),
-    );
-    checkpoint.insert(
-        "max_output_tokens".to_string(),
-        Value::String(max_output_tokens.to_string()),
-    );
-    checkpoint
-        .entry("max_overhead_ratio")
-        .or_insert_with(|| json!(0.15));
-    checkpoint
-        .entry("moving_window_size")
-        .or_insert_with(|| json!(1));
-    checkpoint.insert(
-        "checkpoint_model".to_string(),
-        Value::String(checkpoint_model.to_string()),
-    );
-    if let Ok(serialized) = serde_json::to_string(&Value::Object(checkpoint.clone())) {
-        experiment.insert("stringValue".to_string(), Value::String(serialized));
-    }
 }

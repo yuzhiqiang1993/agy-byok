@@ -368,11 +368,8 @@ mod tests {
         .to_string();
         let (official_url, _official_handle) =
             MockProviderServer::start(200, &official_catalog).await;
-        let mut config = model_config("http://127.0.0.1/unused".to_string());
-        config.upstream_models[0].checkpoint_override = Some(ModelCheckpointOverride::Percentage {
-            threshold_percent: 80,
-        });
-        let (proxy, token) = create_proxy(config, 0).await;
+        let (proxy, token) =
+            create_proxy(model_config("http://127.0.0.1/unused".to_string()), 0).await;
         let mut options = test_options();
         options.official_cloud_code_endpoint = Some(official_url);
         let handle = LoopbackHttpServer::start(proxy, options).await.unwrap();
@@ -410,7 +407,6 @@ mod tests {
         let custom_model = &catalog["models"]["custom-virtual-1"];
         assert_eq!(custom_model["model"], custom_model["requestedModel"]);
         assert!(custom_model["supportedMimeTypes"].is_object());
-        assert!(custom_model.get("modelExperiments").is_none());
         assert!(custom_model.get("id").is_none());
         assert!(custom_model.get("name").is_none());
 

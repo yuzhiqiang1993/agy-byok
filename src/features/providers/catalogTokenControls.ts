@@ -1,7 +1,6 @@
 import { t } from "../../i18n";
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type { ModelTokenLimits } from "../../types/config";
-import { createCheckpointControls } from "./catalogCheckpointControls";
 import type { CatalogControlState, ProviderCatalogContext } from "./providerCatalogTypes";
 import {
   catalogContextWindow,
@@ -39,7 +38,7 @@ function createTokenLimitUpdater(
   initialLimits: ModelTokenLimits,
   context: ProviderCatalogContext,
   state: CatalogControlState,
-  refreshPreview: () => void,
+  refreshSummary: () => void,
 ): (field: TokenLimitField, value: string) => void {
   return (field, value) => {
     const trimmed = value.trim();
@@ -57,7 +56,7 @@ function createTokenLimitUpdater(
     state.changedCatalogTokenLimitModelIds.add(model.id);
     context.setProviderEditorDirty(true);
     context.refreshProviderEditorControls();
-    refreshPreview();
+    refreshSummary();
   };
 }
 
@@ -185,7 +184,7 @@ function createTokenPreset(
   fieldSelects: Partial<Record<EditableTokenLimitField, HTMLSelectElement>>,
   context: ProviderCatalogContext,
   state: CatalogControlState,
-  refreshPreview: () => void,
+  refreshSummary: () => void,
 ): HTMLSelectElement {
   const preset = document.createElement("select");
   preset.className = "catalog-token-preset";
@@ -224,7 +223,7 @@ function createTokenPreset(
     }
     context.setProviderEditorDirty(true);
     context.refreshProviderEditorControls();
-    refreshPreview();
+    refreshSummary();
   });
   return preset;
 }
@@ -242,17 +241,15 @@ function createTokenHeading(): HTMLDivElement {
 export function createTokenLimitControls(
   model: ProviderCatalogModel,
   selected: boolean,
-  checkpointControlsEnabled: boolean,
   context: ProviderCatalogContext,
   state: CatalogControlState,
-  onPreviewChange: () => void,
+  onTokenLimitChange: () => void,
 ): HTMLDivElement {
   const control = document.createElement("div");
   control.className = "catalog-token-controls";
-  let refreshCheckpointPreview = onPreviewChange;
-  const refreshPreview = () => refreshCheckpointPreview();
+  const refreshSummary = () => onTokenLimitChange();
   const currentLimits = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
-  const updateTokenLimit = createTokenLimitUpdater(model, currentLimits, context, state, refreshPreview);
+  const updateTokenLimit = createTokenLimitUpdater(model, currentLimits, context, state, refreshSummary);
   const fields = document.createElement("div");
   fields.className = "catalog-token-fields";
   const fieldSelects: Partial<Record<EditableTokenLimitField, HTMLSelectElement>> = {};
@@ -293,19 +290,9 @@ export function createTokenLimitControls(
       fieldSelects,
       context,
       state,
-      refreshPreview,
+      refreshSummary,
     ));
   }
   control.append(fields, createTokenMetadata(model, catalogContextLimit));
-  const checkpointControls = createCheckpointControls(
-    model,
-    checkpointControlsEnabled,
-    context,
-    state,
-    onPreviewChange,
-  );
-  refreshCheckpointPreview = checkpointControls.refreshPreview;
-  control.append(checkpointControls.element);
-  checkpointControls.refreshPreview();
   return control;
 }

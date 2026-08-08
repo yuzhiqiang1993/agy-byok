@@ -1,7 +1,6 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
   AppConfig,
-  ModelCheckpointOverride,
   ModelTokenLimits,
   Provider,
 } from "../../types/config";
@@ -23,9 +22,7 @@ interface ProviderSavePlanInput {
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
-  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: ReadonlySet<string>;
-  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   unavailableCatalogModelIds: ReadonlySet<string>;
@@ -68,12 +65,20 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
         display_name: stripConfiguredModelSuffix(virtualModel.display_name, previousProvider.name),
       }))
     : modelPlan.virtuals;
+  const nextUpstreamModels = [...remainingUpstreams, ...modelPlan.upstreams];
+  const nextUpstreamModelIds = new Set(nextUpstreamModels.map((model) => model.upstream_model_id));
   const nextConfig: AppConfig = {
     proxy_port: currentConfig.proxy_port,
     providers,
-    upstream_models: [...remainingUpstreams, ...modelPlan.upstreams],
+    upstream_models: nextUpstreamModels,
     virtual_models: [...remainingVirtuals, ...providerVirtuals],
-    official_model_settings: currentConfig.official_model_settings,
+    official_model_settings: {
+      ...currentConfig.official_model_settings,
+      model_checkpoint_policies: Object.fromEntries(
+        Object.entries(currentConfig.official_model_settings.model_checkpoint_policies)
+          .filter(([modelId]) => nextUpstreamModelIds.has(modelId)),
+      ),
+    },
   };
   const summary = summarizeProviderChanges(
     currentConfig,

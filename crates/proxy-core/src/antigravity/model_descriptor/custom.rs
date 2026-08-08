@@ -1,3 +1,4 @@
+use super::checkpoint::apply_custom_checkpoint_policy;
 use super::AntigravityModelDescriptor;
 use crate::domain::{OfficialModelSettings, ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
@@ -93,14 +94,11 @@ impl AntigravityModelDescriptor {
         );
     }
 
-    /// 自定义占位模型只注入路由和能力元数据，不注入实验性 Checkpointer。
-    /// Language Server 会把自指的 BYOM `checkpoint_model` 当成有效状态源，
-    /// 但该链路无法产出可恢复的 Checkpoint，进而在正常生成前直接失败。
     pub fn inject_into_model_list_with_settings(
         models_json: &mut Value,
         virtual_models: &[VirtualModel],
         upstream_models: &[UpstreamModel],
-        _settings: &OfficialModelSettings,
+        settings: &OfficialModelSettings,
     ) {
         let models = virtual_models
             .iter()
@@ -124,7 +122,7 @@ impl AntigravityModelDescriptor {
                         .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
                         .collect::<Vec<_>>()
                 });
-                inject_models(target, models);
+                inject_models(target, models, settings);
                 if let Some(catalog_keys) = catalog_keys {
                     append_catalog_keys_to_model_sorts(
                         catalog.get_mut("agentModelSorts"),
@@ -135,7 +133,7 @@ impl AntigravityModelDescriptor {
             }
         }
 
-        inject_models(models_json, models);
+        inject_models(models_json, models, settings);
     }
 }
 
@@ -195,29 +193,69 @@ fn apply_reasoning_metadata(
     }
 }
 
-fn custom_model_object(virtual_model: &VirtualModel, upstream_model: &UpstreamModel) -> Value {
-    AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model)
+fn apply_custom_model_checkpoint_override(
+    descriptor: &mut Value,
+    upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
+) {
+    let policy = settings.custom_model_checkpoint_policy(&upstream_model.upstream_model_id);
+    let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
+    let checkpoint_token_limit = context_window.min(input_token_limit);
+    let Some(limits) = settings.custom_model_checkpoint_limits_with_override(
+        upstream_model.checkpoint_override.as_ref(),
+        checkpoint_token_limit,
+        output_token_limit,
+    ) else {
+        return;
+    };
+    apply_custom_checkpoint_policy(
+        descriptor,
+        policy,
+        &policy.checkpoint_model,
+        limits.token_threshold,
+        limits.max_token_limit,
+        limits.max_output_tokens,
+    );
+}
+
+fn custom_model_object(
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
+) -> Value {
+    let mut descriptor =
+        AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model);
+    apply_custom_model_checkpoint_override(&mut descriptor, upstream_model, settings);
+    descriptor
 }
 
 fn custom_cloud_code_catalog_entry(
     virtual_model: &VirtualModel,
     upstream_model: &UpstreamModel,
+    settings: &OfficialModelSettings,
 ) -> Value {
-    AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model)
+    let mut descriptor =
+        AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model);
+    apply_custom_model_checkpoint_override(&mut descriptor, upstream_model, settings);
+    descriptor
 }
 
-fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)>) {
+fn inject_models(
+    target: &mut Value,
+    models: Vec<(&VirtualModel, &UpstreamModel)>,
+    settings: &OfficialModelSettings,
+) {
     match target {
         Value::Array(entries) => {
             entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
-                custom_model_object(virtual_model, upstream_model)
+                custom_model_object(virtual_model, upstream_model, settings)
             }));
         }
         Value::Object(entries) => {
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
                 );
             }
         }
@@ -226,7 +264,7 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
                 );
             }
             *target = Value::Object(entries);

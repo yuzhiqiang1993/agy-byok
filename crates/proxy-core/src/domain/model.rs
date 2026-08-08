@@ -11,9 +11,8 @@ mod tokenizer;
 
 pub(crate) use checkpoint::ClaudeCheckpointMetadata;
 pub use checkpoint::{
-    CompressionPercentages, CustomModelCompressionProfile, CustomModelCompressionSettings,
-    ModelCheckpointOverride, OfficialCompressionProfile, OfficialCompressionSettings,
-    OfficialModelSettings,
+    CheckpointExecutionPolicy, CheckpointLimitMode, CompressionLimitsPolicy,
+    ModelCheckpointOverride, OfficialModelSettings,
 };
 pub use definition::{ModelCapabilities, UpstreamModel, VirtualModel};
 pub use reasoning::{ReasoningCapability, ReasoningLevel, ReasoningMapping};

@@ -6,11 +6,20 @@ import { providerService } from "../services/providerService";
 import { updateConfig } from "./configController";
 
 export async function persistConfig(nextConfig: AppConfig): Promise<AppConfig> {
-  return updateConfig((current) => ({
-    ...nextConfig,
-    proxy_port: current.proxy_port,
-    official_model_settings: current.official_model_settings,
-  }));
+  return updateConfig((current) => {
+    const retainedModelKeys = new Set(nextConfig.upstream_models.map((model) => model.upstream_model_id));
+    return {
+      ...nextConfig,
+      proxy_port: current.proxy_port,
+      official_model_settings: {
+        ...current.official_model_settings,
+        model_checkpoint_policies: Object.fromEntries(
+          Object.entries(current.official_model_settings.model_checkpoint_policies)
+            .filter(([modelId]) => retainedModelKeys.has(modelId)),
+        ),
+      },
+    };
+  });
 }
 
 export async function removeProvider(providerId: string): Promise<AppConfig> {
@@ -19,6 +28,7 @@ export async function removeProvider(providerId: string): Promise<AppConfig> {
       (model) => model.provider_id !== providerId,
     );
     const retainedUpstreamIds = new Set(upstreamModels.map((model) => model.id));
+    const retainedModelKeys = new Set(upstreamModels.map((model) => model.upstream_model_id));
     return {
       ...current,
       providers: current.providers.filter((provider) => provider.id !== providerId),
@@ -26,6 +36,13 @@ export async function removeProvider(providerId: string): Promise<AppConfig> {
       virtual_models: current.virtual_models.filter(
         (model) => retainedUpstreamIds.has(model.upstream_model_id),
       ),
+      official_model_settings: {
+        ...current.official_model_settings,
+        model_checkpoint_policies: Object.fromEntries(
+          Object.entries(current.official_model_settings.model_checkpoint_policies)
+            .filter(([modelId]) => retainedModelKeys.has(modelId)),
+        ),
+      },
     };
   });
 }

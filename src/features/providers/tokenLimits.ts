@@ -58,12 +58,6 @@ interface CustomModelCheckpointLimits {
 }
 
 const MAX_U32 = 0xffffffff;
-const COMPRESSION_PROFILE_REFERENCE_LIMIT = 1_048_576;
-const DEFAULT_CHECKPOINT_PERCENTAGES = {
-  token_threshold: 61,
-  max_token_limit: 73,
-  max_output_tokens: 2,
-} as const;
 
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_U32;
@@ -91,76 +85,48 @@ export function customModelCheckpointLimits(
   limits: ModelTokenLimits | undefined,
   override: ModelCheckpointOverride | null,
 ): CustomModelCheckpointLimits | null {
-  if (!isValidModelCheckpointOverride(override)) return null;
+  if (!settings.custom_model.enabled || !isValidModelCheckpointOverride(override)) return null;
 
   const contextLimit = limits?.context_window ?? DEFAULT_CONTEXT_WINDOW;
   const inputLimit = limits?.input_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const outputLimit = limits?.output_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const checkpointTokenLimit = Math.min(contextLimit, inputLimit);
-  const profile = settings.custom_model.profile;
-  const referenceValues = profile === "safe"
-    ? { threshold: 430_000, maxTokenLimit: 512_000 }
-    : profile === "aggressive"
-      ? { threshold: 760_000, maxTokenLimit: 900_000 }
-      : { threshold: 640_000, maxTokenLimit: 768_000 };
-  const scaleReferenceValue = (value: number): number => Math.floor(
-    checkpointTokenLimit * value / COMPRESSION_PROFILE_REFERENCE_LIMIT,
-  );
-  const customPercentThreshold = settings.custom_model.percentages.token_threshold;
-  const customPercentHardLimit = settings.custom_model.percentages.max_token_limit;
-  const customPercentOutputReserve = settings.custom_model.percentages.max_output_tokens;
-  const customProfileIsValid = isValidPercentage(customPercentThreshold)
-    && isValidPercentage(customPercentHardLimit)
-    && isValidPercentage(customPercentOutputReserve);
-  if (profile === "custom" && !customProfileIsValid && override?.kind !== "custom") {
-    return null;
-  }
-  if (profile === "none" && override?.kind !== "percentage" && override?.kind !== "custom") {
-    return null;
-  }
-  const profileValues = profile === "custom"
-    ? {
-        threshold: Math.floor(checkpointTokenLimit * customPercentThreshold / 100),
-        maxTokenLimit: Math.floor(checkpointTokenLimit * customPercentHardLimit / 100),
-      }
-    : profile === "none"
-      ? {
-          threshold: Math.floor(
-            checkpointTokenLimit * DEFAULT_CHECKPOINT_PERCENTAGES.token_threshold / 100,
-          ),
-          maxTokenLimit: Math.floor(
-            checkpointTokenLimit * DEFAULT_CHECKPOINT_PERCENTAGES.max_token_limit / 100,
-          ),
-        }
-      : {
-          threshold: scaleReferenceValue(referenceValues.threshold),
-          maxTokenLimit: scaleReferenceValue(referenceValues.maxTokenLimit),
-        };
-  const profileOutputLimit = profile === "custom"
-    ? Math.floor(checkpointTokenLimit * customPercentOutputReserve / 100)
-    : profile === "none"
-      ? Math.floor(checkpointTokenLimit * DEFAULT_CHECKPOINT_PERCENTAGES.max_output_tokens / 100)
-      : scaleReferenceValue(16_384);
+  const limitsPolicy = settings.custom_model;
+  const customPercentThreshold = limitsPolicy.token_threshold_percent;
+  const customPercentHardLimit = limitsPolicy.max_token_limit_percent;
+  const customPercentOutputReserve = limitsPolicy.max_output_tokens_percent;
+  const percentageValues = {
+    threshold: Math.ceil(checkpointTokenLimit * customPercentThreshold / 100),
+    maxTokenLimit: Math.ceil(checkpointTokenLimit * customPercentHardLimit / 100),
+  };
+  const absoluteValues = {
+    threshold: limitsPolicy.token_threshold,
+    maxTokenLimit: limitsPolicy.max_token_limit,
+  };
+  const requestedValues = limitsPolicy.mode === "absolute" ? absoluteValues : percentageValues;
+  const requestedOutputLimit = limitsPolicy.mode === "absolute"
+    ? limitsPolicy.max_output_tokens
+    : Math.ceil(checkpointTokenLimit * customPercentOutputReserve / 100);
   const requestedThreshold = override?.kind === "custom"
     ? override.token_threshold
-    : profileValues.threshold;
+    : requestedValues.threshold;
   const requestedMaxTokenLimit = override?.kind === "custom"
     ? override.max_token_limit
-    : profileValues.maxTokenLimit;
+    : requestedValues.maxTokenLimit;
   const requestedMaxOutputTokens = override?.kind === "custom"
     ? override.max_output_tokens
-    : profileOutputLimit;
+    : requestedOutputLimit;
   const thresholdPercent = override?.kind === "percentage"
     ? override.threshold_percent
     : null;
-  const maxTokenLimit = Math.min(requestedMaxTokenLimit, checkpointTokenLimit);
+  const maxTokenLimit = Math.min(Math.max(requestedMaxTokenLimit, 2), checkpointTokenLimit);
   const maxOutputTokens = Math.min(
     requestedMaxOutputTokens,
     outputLimit,
     Math.max(maxTokenLimit - 1, 0),
   );
   const thresholdBeforeReserve = thresholdPercent !== null
-    ? Math.floor(maxTokenLimit * thresholdPercent / 100)
+    ? Math.ceil(maxTokenLimit * thresholdPercent / 100)
     : requestedThreshold;
   const threshold = Math.min(
     thresholdBeforeReserve,

@@ -11,7 +11,6 @@ import { buildProviderSavePlan } from "./providerPlan";
 import type { ProviderCatalogState } from "./providerCatalog";
 import { element } from "../../utils/domUtils";
 import { customReasoningMapping } from "../../utils/reasoningUtils";
-import { isValidModelCheckpointOverride } from "./tokenLimits";
 import { getLanguage, t } from "../../i18n";
 import type { ProviderCatalogModel } from "../../types/catalog";
 
@@ -148,12 +147,7 @@ function providerSelectionError(
   if (invalidCustomReasoning) {
     return t("models.invalidReasoningValue", { name: invalidCustomReasoning.displayName });
   }
-  const invalidCheckpointOverride = selectedModels.find((model) =>
-    !isValidModelCheckpointOverride(catalog.catalogCheckpointOverridesByModel.get(model.id) ?? null)
-  );
-  return invalidCheckpointOverride
-    ? t("models.invalidCheckpointOverride", { name: invalidCheckpointOverride.displayName })
-    : null;
+  return null;
 }
 
 function createProviderSavePlan(
@@ -173,9 +167,7 @@ function createProviderSavePlan(
     catalogToolsEnabledModelIds: catalog.catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds: catalog.catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel: catalog.catalogTokenLimitsByModel,
-    catalogCheckpointOverridesByModel: catalog.catalogCheckpointOverridesByModel,
     changedCatalogTokenLimitModelIds: catalog.changedCatalogTokenLimitModelIds,
-    changedCatalogCheckpointOverrideModelIds: catalog.changedCatalogCheckpointOverrideModelIds,
     changedCatalogCapabilityModelIds: catalog.changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds: catalog.changedCatalogReasoningModelIds,
     unavailableCatalogModelIds: catalog.unavailableCatalogModelIds,

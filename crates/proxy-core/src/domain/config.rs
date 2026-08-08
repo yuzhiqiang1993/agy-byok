@@ -172,6 +172,7 @@ impl AppConfig {
                     model.id
                 )));
             }
+
             model.token_limits.validate().map_err(|error| {
                 ConfigError::InvalidValue(format!("UpstreamModel {}: {error}", model.id))
             })?;
@@ -188,6 +189,23 @@ impl AppConfig {
 
         let mut virtual_ids = HashSet::new();
         let mut accepted_virtual_ids: HashMap<String, &str> = HashMap::new();
+        let configured_upstream_model_ids = self
+            .upstream_models
+            .iter()
+            .map(|model| model.upstream_model_id.as_str())
+            .collect::<HashSet<_>>();
+        for model_id in self
+            .official_model_settings
+            .model_checkpoint_policies
+            .keys()
+        {
+            if !configured_upstream_model_ids.contains(model_id.as_str()) {
+                return Err(ConfigError::InvalidValue(format!(
+                    "model_checkpoint_policies[{model_id}] references missing upstream model ID"
+                )));
+            }
+        }
+
         for model in &self.virtual_models {
             validate_id("VirtualModel", &model.id)?;
             if !virtual_ids.insert(model.id.as_str()) {

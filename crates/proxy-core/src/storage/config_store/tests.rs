@@ -1,8 +1,9 @@
 use super::*;
 use crate::domain::{
-    AppConfig, ModelCapabilities, ModelCheckpointOverride, ModelTokenLimits, OfficialModelSettings,
-    ParameterOverrides, Provider, ProviderProtocol, TiktokenEncoding, TokenLimitSource,
-    TokenizerConfig, UpstreamModel, VirtualModel, DEFAULT_PROXY_PORT, MIN_PROXY_PORT,
+    AppConfig, CheckpointExecutionPolicy, ModelCapabilities, ModelCheckpointOverride,
+    ModelTokenLimits, OfficialModelSettings, ParameterOverrides, Provider, ProviderProtocol,
+    TiktokenEncoding, TokenLimitSource, TokenizerConfig, UpstreamModel, VirtualModel,
+    DEFAULT_PROXY_PORT, MIN_PROXY_PORT,
 };
 use std::collections::HashMap;
 
@@ -434,6 +435,23 @@ fn config_validation_rejects_zero_model_token_limits() {
     assert!(error
         .to_string()
         .contains("input_token_limit must be greater than 0"));
+}
+
+#[test]
+fn config_validation_rejects_orphan_model_policies() {
+    let mut orphan_policy = sample_config();
+    orphan_policy
+        .official_model_settings
+        .model_checkpoint_policies
+        .insert(
+            "missing-model".to_string(),
+            CheckpointExecutionPolicy::default(),
+        );
+    assert!(orphan_policy
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("references missing upstream model ID"));
 }
 
 #[test]

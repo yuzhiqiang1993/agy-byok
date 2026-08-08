@@ -1,4 +1,4 @@
-/* Official Antigravity model compression settings */
+/* Compression policy settings */
 
 .official-compression-card {
   display: flex;
@@ -43,7 +43,8 @@
   gap: 14px;
 }
 
-.compression-model-card {
+.compression-model-card,
+.compression-policy-section {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -55,19 +56,21 @@
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.compression-model-card:focus-within {
+.compression-model-card:focus-within,
+.compression-policy-section:focus-within {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--surface-border));
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .compression-model-card-head {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 360px);
   gap: 16px 20px;
   align-items: center;
 }
 
-.compression-model-copy {
+.compression-model-copy,
+.compression-section-heading {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -87,42 +90,111 @@
   letter-spacing: 0.02em;
 }
 
-.compression-model-copy strong {
+.compression-model-copy strong,
+.compression-section-heading h4 {
   color: var(--text-main);
-  font-size: 14px;
   font-weight: 720;
   line-height: 1.35;
 }
 
-.compression-model-copy p {
+.compression-model-copy strong {
+  font-size: 14px;
+}
+
+.compression-section-heading h4 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+.compression-model-copy p,
+.compression-section-heading p {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
 
-.compression-model-control {
-  display: block;
+.compression-section-heading p {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.compression-model-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 160px);
+  gap: 12px;
+  align-items: end;
+}
+
+.compression-toggle,
+.compression-policy-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.compression-toggle input,
+.compression-policy-checkbox input {
+  accent-color: var(--accent);
+}
+
+.compression-toggle input:disabled {
+  opacity: 0.9;
+}
+
+.compression-field,
+.compression-policy-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
   min-width: 0;
 }
 
-.compression-model-control .custom-select {
+.compression-field > span,
+.compression-policy-field > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.compression-field input,
+.compression-policy-field input,
+.compression-field .custom-select,
+.compression-policy-field .custom-select {
   width: 100%;
-  min-width: 0;
-  min-height: 42px;
-  background-color: var(--surface);
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border: 1px solid var(--input-border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text-main);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.compression-field input:focus,
+.compression-policy-field input:focus,
+.compression-field .custom-select:focus,
+.compression-policy-field .custom-select:focus,
+.compression-json-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.compression-field input:disabled,
+.compression-policy-field input:disabled,
+.compression-field .custom-select:disabled,
+.compression-policy-field .custom-select:disabled {
+  cursor: default;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 .compression-parameters {
@@ -135,70 +207,164 @@
   background: var(--surface-inner);
 }
 
-.compression-section-heading h4 {
-  margin: 0 0 3px;
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 680;
-}
-
-.compression-section-heading p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.compression-metric-grid {
+.compression-metric-grid,
+.compression-policy-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.compression-field {
+.compression-policy-grid {
+  align-items: start;
+}
+
+.compression-policy-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+
+.compression-policy-checkbox-primary {
+  grid-column: 1 / -1;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+}
+
+.compression-policy-editor {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 14px;
   min-width: 0;
 }
 
-.compression-field span {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 650;
+.compression-policy-editor-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
 }
 
-.compression-field input {
-  width: 100%;
-  height: 40px;
-  box-sizing: border-box;
-  padding: 0 11px;
-  border: 1px solid var(--input-border);
-  border-radius: 9px;
-  background: var(--input-bg);
+.compression-policy-editor-heading strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.compression-policy-editor-heading code,
+.compression-custom-model-copy code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--surface-inner);
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.compression-policy-inherited {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surface-inner);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.compression-policy-limit-section,
+.compression-policy-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-inner) 78%, var(--surface) 22%);
+}
+
+.compression-policy-limit-section h4,
+.compression-policy-advanced h4 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compression-policy-advanced summary {
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compression-policy-reset {
+  align-self: flex-start;
+}
+
+.compression-policy-toolbar,
+.compression-json-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.compression-custom-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.compression-custom-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+}
+
+.compression-custom-model-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.compression-custom-model-copy strong {
   color: var(--text-main);
   font-size: 13px;
-  font-variant-numeric: tabular-nums;
 }
 
-.compression-field input:disabled {
-  cursor: default;
-  appearance: textfield;
+.compression-custom-model-facts,
+.compression-json-status {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.compression-json-editor {
+  width: 100%;
+  min-height: 300px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
   background: var(--surface-inner);
+  color: var(--text-main);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.compression-json-editor[readonly] {
   color: var(--text-secondary);
-  opacity: 1;
 }
 
-.compression-field input:disabled::-webkit-inner-spin-button,
-.compression-field input:disabled::-webkit-outer-spin-button {
+.compression-json-status {
   margin: 0;
-  appearance: none;
-}
-
-.compression-field input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .compression-context-hint {
@@ -250,4 +416,53 @@
 .compression-footer-actions .primary,
 .compression-footer-actions .secondary {
   min-width: 96px;
+}
+
+@media (max-width: 1180px) {
+  .compression-model-card-head {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 860px) {
+  .compression-metric-grid,
+  .compression-policy-grid,
+  .compression-policy-checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compression-model-controls {
+    grid-template-columns: 1fr 160px;
+  }
+}
+
+@media (max-width: 560px) {
+  .official-compression-card {
+    padding: 18px;
+  }
+
+  .compression-model-card,
+  .compression-policy-section {
+    padding: 14px;
+  }
+
+  .compression-model-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .compression-custom-model-row,
+  .compression-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compression-footer-actions {
+    width: 100%;
+  }
+
+  .compression-footer-actions .primary,
+  .compression-footer-actions .secondary {
+    flex: 1 1 auto;
+  }
 }

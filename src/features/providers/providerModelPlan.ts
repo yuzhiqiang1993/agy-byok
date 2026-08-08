@@ -1,7 +1,6 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type {
   AppConfig,
-  ModelCheckpointOverride,
   ModelTokenLimits,
   Provider,
   UpstreamModel,
@@ -32,9 +31,7 @@ interface ProviderModelPlanInput {
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
-  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
   changedCatalogTokenLimitModelIds: ReadonlySet<string>;
-  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
   changedCatalogCapabilityModelIds: ReadonlySet<string>;
   changedCatalogReasoningModelIds: ReadonlySet<string>;
   providerUpstreams: UpstreamModel[];
@@ -161,11 +158,8 @@ function updatedStableReasoningUpstream(
   existingUpstream: UpstreamModel,
 ): UpstreamModel {
   const capabilitiesChanged = input.changedCatalogCapabilityModelIds.has(model.id);
-  const checkpointOverrideChanged = input.changedCatalogCheckpointOverrideModelIds.has(model.id);
-  const checkpointOverride = input.catalogCheckpointOverridesByModel.get(model.id) ?? null;
   return {
     ...existingUpstream,
-    ...(checkpointOverrideChanged ? { checkpoint_override: checkpointOverride } : {}),
     capabilities: {
       ...existingUpstream.capabilities,
       ...(capabilitiesChanged
@@ -192,7 +186,6 @@ function buildUpstream(
   existingUpstream: UpstreamModel | undefined,
   reasoning: ReasoningPlan["reasoning"],
 ): UpstreamModel {
-  const checkpointOverride = input.catalogCheckpointOverridesByModel.get(model.id) ?? null;
   const tokenLimits = tokenLimitsFromCatalog(
     model,
     existingUpstream?.token_limits,
@@ -209,9 +202,6 @@ function buildUpstream(
   if (existingUpstream) {
     return {
       ...existingUpstream,
-      ...(input.changedCatalogCheckpointOverrideModelIds.has(model.id)
-        ? { checkpoint_override: checkpointOverride }
-        : {}),
       capabilities,
       token_limits: tokenLimits,
     };
@@ -224,7 +214,7 @@ function buildUpstream(
     display_name: model.displayName,
     capabilities,
     token_limits: tokenLimits,
-    checkpoint_override: checkpointOverride,
+    checkpoint_override: null,
     tokenizer: null,
     parameter_overrides: emptyParameters(),
     enabled: true,
