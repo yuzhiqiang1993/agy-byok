@@ -1,8 +1,4 @@
 /* Official Antigravity model compression settings */
-#settings-antigravity .settings-pane-header p {
-  max-width: 1040px;
-  line-height: 1.65;
-}
 
 .official-compression-card {
   display: flex;
