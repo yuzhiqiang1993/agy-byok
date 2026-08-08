@@ -96,13 +96,17 @@ AGY BYOK 使用一个只监听本机地址的本地代理完成协议转换和�
 - 官方原生模型继续使用官方 Cloud Code；
 - AGY BYOK 生成的模型进入本地代理和对应的 Provider Adapter。
 
-宿主接入方式如下：
+宿主接入方式按平台区分如下：
 
-| 入口 | 接入方式 | 生效方式 |
+| 平台与入口 | 接入方式 | 生效方式 |
 | :--- | :--- | :--- |
-| Antigravity IDE | 修改用户 `settings.json` 中的 `jetski.cloudCodeUrl` | 运行中切换时按需重启 |
-| Antigravity App | 管理指向本地代理的 `language_server` wrapper | 运行中切换时按需重启 |
-| Antigravity CLI | 写入 Shell 环境变量 `CLOUD_CODE_URL` | 新终端或重新加载 Shell 后生效 |
+| macOS / Windows · Antigravity IDE | 修改用户 `settings.json` 中的 `jetski.cloudCodeUrl`，并记录可恢复的 ownership | 运行中切换时按需重启 |
+| macOS · Antigravity App | 管理用户会话级 `CLOUD_CODE_URL`，不修改厂商签名包 | 运行中切换时按需重启，AGY BYOK 启动时恢复已启用状态 |
+| Windows · Antigravity App | 管理用户级 `CLOUD_CODE_URL` 环境变量 | 运行中切换时按需重启 |
+| macOS · Antigravity CLI | 管理用户会话级 `CLOUD_CODE_URL` | 完全退出并重新打开终端应用后生效，AGY BYOK 启动时恢复已启用状态 |
+| Windows · Antigravity CLI | 管理用户级 `CLOUD_CODE_URL` 环境变量 | 完全退出并重新打开终端应用后生效 |
+
+同一平台上的 App 与 CLI 共享一份环境变量 ownership；只有最后一个入口停用时才恢复接入前的值，避免互相覆盖。macOS 使用当前登录会话环境，Windows 使用用户级环境。通过 CLI 卡片变更共享环境时，正在运行的 App 会同步重启，确保进程实际环境与界面状态一致。
 
 ### 4. 上游协议与模型能力
 
@@ -140,7 +144,7 @@ AGY BYOK 使用一个只监听本机地址的本地代理完成协议转换和�
 
 应用设置用于管理本地代理服务端口、配置文件和应用偏好：
 
-- **常规偏好**：切换界面语言和外观主题；
+- **常规偏好**：切换简体中文 / English 界面和外观主题；
 - **网络代理**：查看和调整本地代理相关配置；
 - **数据存储**：管理本地配置和数据位置；
 - **关于应用**：查看应用信息。
@@ -168,7 +172,7 @@ Antigravity IDE / App / CLI
 
 ## 安装指南 (Installation)
 
-当前项目支持 macOS 和 Windows，下面以 macOS 为主要示例；Windows 使用相同的 Tauri / npm 命令构建。
+当前项目面向 macOS 和 Windows，并在 CI 中分别执行 Rust Clippy、测试和完整 Tauri 桌面构建。下面以 macOS 为主要示例；Windows 使用相同的 Tauri / npm 命令构建。
 
 
 ### 1.直接下载编译好的对应平台的安装包安装使用
@@ -229,7 +233,7 @@ sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"
 2. 在“运行概览”中确认本地代理正在运行，并记下实际监听地址；
 3. 确认对应宿主卡片显示为已启用代理模式；
 4. 如果 IDE 或 App 正在运行，等待其按需重启，或手动重新打开；
-5. CLI 需要打开新终端
+5. CLI 需要完全退出并重新打开终端应用；
 6. 查看“调用日志”确认请求是否到达本地代理。
 
 ### Provider 连接测试失败？
