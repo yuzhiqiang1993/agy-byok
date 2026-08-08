@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn model_catalog_applies_custom_checkpoint_settings() {
+    fn model_catalog_does_not_apply_custom_checkpoint_settings() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].token_limits = ModelTokenLimits {
             context_window: Some(372_000),
@@ -157,22 +157,16 @@ mod tests {
             },
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
-        let checkpoint_model = config.virtual_models[0]
+        let model_id = config.virtual_models[0]
             .effective_host_model_id()
             .into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
         let catalog = server.handle_model_list(json!({ "models": {} }));
-        let raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
-            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
-            .as_str()
-            .expect("custom model must contain checkpoint settings");
-        let checkpoint: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let custom_model = &catalog["models"][catalog_key];
 
-        assert_eq!(checkpoint["token_threshold"], "260400");
-        assert_eq!(checkpoint["max_token_limit"], "334800");
-        assert_eq!(checkpoint["max_output_tokens"], "18600");
-        assert_eq!(checkpoint["checkpoint_model"], checkpoint_model);
+        assert_eq!(custom_model["model"], model_id);
+        assert!(custom_model.get("modelExperiments").is_none());
     }
 
     #[test]
@@ -197,9 +191,6 @@ mod tests {
             ..OfficialModelSettings::default()
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
-        let checkpoint_model = config.virtual_models[0]
-            .effective_host_model_id()
-            .into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
         let catalog = server.handle_model_list(json!({
@@ -210,21 +201,15 @@ mod tests {
                 }
             }
         }));
-        let custom_raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
-            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
-            .as_str()
-            .expect("custom model must contain checkpoint settings");
-        let custom_checkpoint: serde_json::Value = serde_json::from_str(custom_raw).unwrap();
+        assert!(catalog["models"][catalog_key]
+            .get("modelExperiments")
+            .is_none());
         let official_raw = catalog["models"]["gemini-pro"]["modelExperiments"]["experiments"]
             ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
             .as_str()
             .expect("official Gemini model must contain checkpoint settings");
         let official_checkpoint: serde_json::Value = serde_json::from_str(official_raw).unwrap();
 
-        assert_eq!(custom_checkpoint["token_threshold"], "250000");
-        assert_eq!(custom_checkpoint["max_token_limit"], "300000");
-        assert_eq!(custom_checkpoint["max_output_tokens"], "20000");
-        assert_eq!(custom_checkpoint["checkpoint_model"], checkpoint_model);
         assert_eq!(official_checkpoint["token_threshold"], "430000");
         assert_eq!(official_checkpoint["max_token_limit"], "512000");
         assert_eq!(official_checkpoint["max_output_tokens"], "16384");

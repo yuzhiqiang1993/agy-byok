@@ -1,20 +1,15 @@
 import { t } from "../../i18n";
-import { store } from "../../store/appStore";
+
 import type { ProviderCatalogModel } from "../../types/catalog";
 import {
   catalogReasoningMetadataLabel,
   reasoningLevelLabel,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
-import { checkpointSourceLabel } from "./catalogCheckpointControls";
+
 import type { CatalogModelRowState } from "./catalogModelRowState";
 import type { CatalogModelListState } from "./providerCatalogTypes";
-import {
-  customModelCheckpointLimits,
-  formatTokenLimit,
-  isValidModelCheckpointOverride,
-  resolveCatalogTokenLimits,
-} from "./tokenLimits";
+import { formatTokenLimit, resolveCatalogTokenLimits } from "./tokenLimits";
 
 export interface CatalogModelSummary {
   element: HTMLSpanElement;
@@ -37,23 +32,9 @@ function createTokenAndCheckpointSummary(
       input: formatTokenLimit(limits.input_token_limit),
       output: formatTokenLimit(limits.output_token_limit),
     });
-    const override = state.catalogCheckpointOverridesByModel.get(model.id) ?? null;
-    const valid = isValidModelCheckpointOverride(override);
-    const checkpointLimits = valid
-      ? customModelCheckpointLimits(store.config.official_model_settings, limits, override)
-      : null;
-    const source = checkpointSourceLabel(override);
-    checkpoint.className = `catalog-model-summary-item checkpoint${override ? " active" : ""}${!valid ? " invalid" : ""}`;
-    const text = checkpointLimits
-      ? `${t("models.checkpointSummary", {
-          threshold: formatTokenLimit(checkpointLimits.threshold),
-          hard: formatTokenLimit(checkpointLimits.max_token_limit),
-          percent: checkpointLimits.threshold_percent,
-          source,
-        })}${checkpointLimits.clipped ? ` · ${t("models.checkpointClipped")}` : ""}`
-      : t("models.checkpointSummaryUnavailable", { source });
-    checkpoint.textContent = text;
-    checkpoint.title = text;
+    checkpoint.className = "catalog-model-summary-item checkpoint disabled";
+    checkpoint.textContent = t("models.checkpointByomUnavailableSummary");
+    checkpoint.title = t("models.checkpointByomUnavailablePreview");
   };
 
   refreshTokenAndCheckpoint();

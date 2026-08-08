@@ -298,6 +298,7 @@ impl OfficialModelSettings {
             .then_some(limits)
     }
 
+    #[cfg(test)]
     pub(crate) fn custom_model_checkpoint_limits_with_override(
         &self,
         checkpoint_override: Option<&ModelCheckpointOverride>,
@@ -349,6 +350,7 @@ impl OfficialModelSettings {
             ))
     }
 
+    #[cfg(test)]
     fn custom_model_checkpoint_profile_limits(
         &self,
         effective_token_limit: u32,

@@ -60,7 +60,7 @@ pub fn discover_ide_sync(
                                 ClientIntegrationState::Mismatch
                             },
                             status.endpoint_matches,
-                            false,
+                            status.endpoint_matches,
                             true,
                         ),
                     },

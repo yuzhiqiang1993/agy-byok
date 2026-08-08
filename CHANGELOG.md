@@ -1,5 +1,22 @@
 # 更新日志
 
+## [1.0.5] - 2026-08-08
+
+### 稳定性与兼容性
+
+- **修复自定义模型注入后立即失败**：不再向 BYOM 占位模型注入实验性 `CASCADE_USE_EXPERIMENT_CHECKPOINTER`。`v1.0.4` 将占位模型自身写为 `checkpoint_model`，会触发 Antigravity Language Server 的 `bad checkpoint state`，并在上游生成请求发出前终止会话。
+- **保留自定义压缩配置**：全局自定义模型策略和模型级 `checkpoint_override` 继续按原结构保存与校验，避免丢失用户配置；在 Antigravity 提供可验证的 BYOM Checkpoint 契约前，不再把这些配置转换为不稳定的实验字段。
+- **保持官方模型行为**：官方 Gemini 与 Claude 的 Checkpoint 覆盖逻辑不变。
+- **修复 IDE 代理停用判断**：ownership 文件缺失时，只要 IDE 当前 endpoint 仍指向本代理，也允许安全停用并正确标记 endpoint 匹配状态。
+
+### 验证
+
+- `cargo fmt --all -- --check`
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace`
+- `npm run build`
+- `git diff --check`
+
 ## [1.0.4] - 2026-08-08
 
 ### 新增功能

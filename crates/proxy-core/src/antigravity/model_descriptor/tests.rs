@@ -109,7 +109,7 @@ fn uses_explicit_model_limits_in_both_descriptors() {
 }
 
 #[test]
-fn adds_checkpoint_experiments_to_custom_catalog_entries() {
+fn does_not_enable_experimental_checkpointer_for_custom_catalog_entries() {
     let (virtual_model, mut upstream_model) = models();
     upstream_model.token_limits = ModelTokenLimits {
         context_window: Some(372_000),
@@ -117,6 +117,9 @@ fn adds_checkpoint_experiments_to_custom_catalog_entries() {
         output_token_limit: Some(128_000),
         ..ModelTokenLimits::default()
     };
+    upstream_model.checkpoint_override = Some(ModelCheckpointOverride::Percentage {
+        threshold_percent: 80,
+    });
     let virtual_models = [virtual_model];
     let upstream_models = [upstream_model];
     let settings = OfficialModelSettings {
@@ -131,7 +134,7 @@ fn adds_checkpoint_experiments_to_custom_catalog_entries() {
         &upstream_models,
         &settings,
     );
-    let object_checkpoint = checkpoint(&object_catalog["models"]["custom-model"]);
+    let object_entry = &object_catalog["models"]["custom-model"];
 
     let mut array_catalog = json!({ "models": [] });
     AntigravityModelDescriptor::inject_into_model_list_with_settings(
@@ -140,13 +143,12 @@ fn adds_checkpoint_experiments_to_custom_catalog_entries() {
         &upstream_models,
         &settings,
     );
-    let array_checkpoint = checkpoint(&array_catalog["models"][0]);
+    let array_entry = &array_catalog["models"][0];
 
-    for checkpoint in [object_checkpoint, array_checkpoint] {
-        assert_eq!(checkpoint["token_threshold"], "227050");
-        assert_eq!(checkpoint["max_token_limit"], "272460");
-        assert_eq!(checkpoint["max_output_tokens"], "5812");
-        assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M400");
+    assert_eq!(object_entry["model"], "MODEL_PLACEHOLDER_M400");
+    assert_eq!(array_entry["name"], "models/MODEL_PLACEHOLDER_M400");
+    for entry in [object_entry, array_entry] {
+        assert!(entry.get("modelExperiments").is_none());
     }
 }
 
@@ -171,138 +173,6 @@ fn leaves_custom_catalog_entries_without_checkpoint_by_default() {
     assert!(catalog["models"]["custom-model"]
         .get("modelExperiments")
         .is_none());
-}
-
-#[test]
-fn model_percentage_override_wins_global_and_is_scoped_to_upstream_model() {
-    let (first_virtual_model, mut first_upstream_model) = models();
-    first_upstream_model.token_limits = ModelTokenLimits {
-        context_window: Some(372_000),
-        input_token_limit: Some(372_000),
-        output_token_limit: Some(128_000),
-        ..ModelTokenLimits::default()
-    };
-    first_upstream_model.checkpoint_override = Some(ModelCheckpointOverride::Percentage {
-        threshold_percent: 80,
-    });
-
-    let mut second_virtual_model = first_virtual_model.clone();
-    second_virtual_model.id = "custom-model-2".to_string();
-    second_virtual_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
-    second_virtual_model.upstream_model_id = "upstream-model-2".to_string();
-    let mut second_upstream_model = first_upstream_model.clone();
-    second_upstream_model.id = "upstream-model-2".to_string();
-    second_upstream_model.upstream_model_id = "provider-model-2".to_string();
-    second_upstream_model.checkpoint_override = None;
-
-    let settings = OfficialModelSettings {
-        custom_model: custom_compression(CustomModelCompressionProfile::Custom, 60, 80, 5),
-        ..OfficialModelSettings::default()
-    };
-    let mut catalog = json!({ "models": {} });
-
-    AntigravityModelDescriptor::inject_into_model_list_with_settings(
-        &mut catalog,
-        &[first_virtual_model, second_virtual_model],
-        &[first_upstream_model, second_upstream_model],
-        &settings,
-    );
-
-    let first_checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(first_checkpoint["token_threshold"], "238080");
-    assert_eq!(first_checkpoint["max_token_limit"], "297600");
-    assert_eq!(first_checkpoint["max_output_tokens"], "18600");
-
-    let second_checkpoint = checkpoint(&catalog["models"]["custom-model-2"]);
-    assert_eq!(second_checkpoint["token_threshold"], "223200");
-    assert_eq!(second_checkpoint["max_token_limit"], "297600");
-    assert_eq!(second_checkpoint["max_output_tokens"], "18600");
-}
-
-#[test]
-fn custom_model_override_replaces_global_values_and_is_safely_clipped() {
-    let (virtual_model, mut upstream_model) = models();
-    upstream_model.token_limits = ModelTokenLimits {
-        context_window: Some(200_000),
-        input_token_limit: Some(372_000),
-        output_token_limit: Some(10_000),
-        ..ModelTokenLimits::default()
-    };
-    upstream_model.checkpoint_override = Some(ModelCheckpointOverride::Custom {
-        token_threshold: 250_000,
-        max_token_limit: 300_000,
-        max_output_tokens: 20_000,
-    });
-    let settings = OfficialModelSettings::default();
-    let mut catalog = json!({ "models": {} });
-
-    AntigravityModelDescriptor::inject_into_model_list_with_settings(
-        &mut catalog,
-        &[virtual_model],
-        &[upstream_model],
-        &settings,
-    );
-
-    let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(checkpoint["token_threshold"], "190000");
-    assert_eq!(checkpoint["max_token_limit"], "200000");
-    assert_eq!(checkpoint["max_output_tokens"], "10000");
-}
-
-#[test]
-fn applies_custom_model_percentage_profile_for_200k_effective_limit() {
-    let (virtual_model, mut upstream_model) = models();
-    upstream_model.token_limits = ModelTokenLimits {
-        context_window: Some(200_000),
-        input_token_limit: Some(372_000),
-        output_token_limit: Some(32_000),
-        ..ModelTokenLimits::default()
-    };
-    let settings = OfficialModelSettings {
-        custom_model: custom_compression(CustomModelCompressionProfile::Custom, 70, 90, 5),
-        ..OfficialModelSettings::default()
-    };
-    let mut catalog = json!({ "models": {} });
-
-    AntigravityModelDescriptor::inject_into_model_list_with_settings(
-        &mut catalog,
-        &[virtual_model],
-        &[upstream_model],
-        &settings,
-    );
-
-    let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(checkpoint["token_threshold"], "140000");
-    assert_eq!(checkpoint["max_token_limit"], "180000");
-    assert_eq!(checkpoint["max_output_tokens"], "10000");
-}
-
-#[test]
-fn scales_explicit_balanced_custom_model_profile_to_effective_context_limit() {
-    let (virtual_model, mut upstream_model) = models();
-    upstream_model.token_limits = ModelTokenLimits {
-        context_window: Some(200_000),
-        input_token_limit: Some(372_000),
-        output_token_limit: Some(32_000),
-        ..ModelTokenLimits::default()
-    };
-    let settings = OfficialModelSettings {
-        custom_model: custom_compression(CustomModelCompressionProfile::Balanced, 61, 73, 2),
-        ..OfficialModelSettings::default()
-    };
-    let mut catalog = json!({ "models": {} });
-
-    AntigravityModelDescriptor::inject_into_model_list_with_settings(
-        &mut catalog,
-        &[virtual_model],
-        &[upstream_model],
-        &settings,
-    );
-
-    let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(checkpoint["token_threshold"], "122070");
-    assert_eq!(checkpoint["max_token_limit"], "146484");
-    assert_eq!(checkpoint["max_output_tokens"], "3125");
 }
 
 #[test]
@@ -517,7 +387,7 @@ fn distinguishes_official_and_custom_placeholder_ranges() {
 }
 
 #[test]
-fn keeps_gemini_claude_and_custom_model_profiles_independent() {
+fn keeps_official_profiles_independent_from_custom_model_settings() {
     let (virtual_model, mut upstream_model) = models();
     upstream_model.token_limits = ModelTokenLimits {
         context_window: Some(372_000),
@@ -565,10 +435,9 @@ fn keeps_gemini_claude_and_custom_model_profiles_independent() {
     assert_eq!(claude_checkpoint["max_token_limit"], "146484");
     assert_eq!(claude_checkpoint["max_output_tokens"], "3125");
 
-    let custom_checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(custom_checkpoint["token_threshold"], "148800");
-    assert_eq!(custom_checkpoint["max_token_limit"], "223200");
-    assert_eq!(custom_checkpoint["max_output_tokens"], "18600");
+    assert!(catalog["models"]["custom-model"]
+        .get("modelExperiments")
+        .is_none());
     assert!(catalog["models"]["native-model"]
         .get("modelExperiments")
         .is_none());

@@ -141,7 +141,7 @@ fn repeated_enable_and_disable_are_idempotent() {
 }
 
 #[test]
-fn matching_endpoint_without_ownership_is_external_and_not_modified() {
+fn matching_endpoint_without_ownership_can_be_disabled() {
     let fixture = Fixture::new();
     let original = format!("{{\n  \"jetski.cloudCodeUrl\": \"{ENDPOINT}\"\n}}\n");
     fixture.write_settings(&original);
@@ -160,12 +160,10 @@ fn matching_endpoint_without_ownership_is_external_and_not_modified() {
 
     let disabled =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
-    assert_eq!(disabled.state, IdeSettingsState::External);
-    assert!(disabled.endpoint_matches);
-    assert_eq!(
-        fs::read_to_string(&fixture.settings_path).unwrap(),
-        original
-    );
+    assert_eq!(disabled.state, IdeSettingsState::Disabled);
+    assert!(cloud_code_value(&fs::read(&fixture.settings_path).unwrap())
+        .unwrap()
+        .is_none());
 }
 
 #[test]

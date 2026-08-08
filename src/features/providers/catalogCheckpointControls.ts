@@ -5,7 +5,6 @@ import type { ModelCheckpointOverride } from "../../types/config";
 import type { CatalogControlState, ProviderCatalogContext } from "./providerCatalogTypes";
 import {
   customModelCheckpointLimits,
-  formatTokenLimit,
   isValidModelCheckpointOverride,
   resolveCatalogTokenLimits,
 } from "./tokenLimits";
@@ -187,39 +186,9 @@ function updateInputState(inputs: CheckpointInputs, selected: boolean): void {
   }
 }
 
-function renderCheckpointPreview(
-  model: ProviderCatalogModel,
-  state: CatalogControlState,
-  preview: HTMLParagraphElement,
-): void {
-  const override = state.catalogCheckpointOverridesByModel.get(model.id) ?? null;
-  const valid = isValidModelCheckpointOverride(override);
-  const checkpoint = valid
-    ? customModelCheckpointLimits(
-        store.config.official_model_settings,
-        state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model),
-        override,
-      )
-    : null;
-  const source = checkpointSourceLabel(override);
-  preview.className = `catalog-checkpoint-preview${!valid ? " invalid" : checkpoint?.clipped ? " clipped" : ""}`;
-  if (!valid) {
-    preview.textContent = t("models.checkpointInvalidPreview", { source });
-  } else if (!checkpoint) {
-    const isUnset = store.config.official_model_settings.custom_model.profile === "none" && !override;
-    preview.textContent = isUnset
-      ? t("models.checkpointSummaryUnavailable", { source })
-      : t("models.checkpointUnavailablePreview", { source });
-  } else {
-    preview.textContent = t("models.checkpointEffectivePreview", {
-      threshold: formatTokenLimit(checkpoint.threshold),
-      hard: formatTokenLimit(checkpoint.max_token_limit),
-      output: formatTokenLimit(checkpoint.max_output_tokens),
-      percent: checkpoint.threshold_percent,
-      source,
-      clipped: checkpoint.clipped ? t("models.checkpointClipped") : t("models.checkpointNotClipped"),
-    });
-  }
+function renderCheckpointPreview(preview: HTMLParagraphElement): void {
+  preview.className = "catalog-checkpoint-preview";
+  preview.textContent = t("models.checkpointByomUnavailablePreview");
 }
 
 function bindCheckpointInputs(inputs: CheckpointInputs, commit: () => void): void {
@@ -252,7 +221,7 @@ export function createCheckpointControls(
   preview.setAttribute("role", "status");
   const refreshPreview = () => {
     updateInputState(inputs, selected);
-    renderCheckpointPreview(model, state, preview);
+    renderCheckpointPreview(preview);
     onPreviewChange();
   };
   const commitOverride = () => {

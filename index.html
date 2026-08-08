@@ -474,7 +474,7 @@
             </div>
             <div class="official-compression-card-copy">
               <h3 id="compression-card-title" data-i18n="settings.geminiCompressionTitle">策略档位</h3>
-              <p data-i18n="settings.geminiCompressionDesc">三类模型独立生效；官方模型可使用官方配置，自定义模型仍以模型卡中的单独配置为最高优先级。</p>
+              <p data-i18n="settings.geminiCompressionDesc">官方 Gemini 与 Claude 策略独立生效；自定义模型配置暂仅保留，不注入实验性 Checkpoint。</p>
             </div>
           </div>
 
@@ -566,7 +566,7 @@
                 <div class="compression-model-copy">
                   <span class="compression-model-badge" data-i18n="settings.customModelPolicyBadge">Custom</span>
                   <strong data-i18n="settings.customModelPolicyTitle">自定义模型</strong>
-                  <p id="custom-model-policy-desc" data-i18n="settings.customModelPolicyDesc">档位会按各模型的有效上下文上限换算，模型卡配置优先。</p>
+                  <p id="custom-model-policy-desc" data-i18n="settings.customModelPolicyDesc">配置会继续保存，但当前不会向 IDE 注入实验性 BYOM Checkpoint。</p>
                 </div>
                 <label class="compression-model-control" for="settings-custom-model-compression-profile">
                   <span class="visually-hidden" data-i18n="settings.customModelPolicyTitle">自定义模型</span>
@@ -583,7 +583,7 @@
               <div id="settings-custom-model-custom-parameters" class="compression-parameters" hidden>
                 <div class="compression-section-heading">
                   <h4 data-i18n="settings.customModelCustomParametersTitle">自定义模型参数</h4>
-                  <p id="custom-model-custom-parameters-desc" data-i18n="settings.customModelCustomParametersDesc">作为全局默认比例，应用到模型前会按各模型有效上下文上限换算；模型卡单独配置优先。</p>
+                  <p id="custom-model-custom-parameters-desc" data-i18n="settings.customModelCustomParametersDesc">参数会保存在配置中，当前暂不转换为 IDE 的实验性 Checkpoint 字段。</p>
                 </div>
                 <div class="compression-metric-grid">
                   <label class="compression-field">
@@ -605,11 +605,11 @@
 
           <div class="compression-context-hint">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            <p data-i18n="settings.geminiCompressionContextHint">模型有效上下文上限取上下文窗口与输入 Token 上限等约束中的安全值；所有策略都会为系统规则、工具调用和压缩摘要保留空间。</p>
+            <p data-i18n="settings.geminiCompressionContextHint">官方模型的有效上下文上限取上下文窗口与输入 Token 上限等约束中的安全值，并为系统规则、工具调用和压缩摘要保留空间。</p>
           </div>
 
           <div class="compression-footer">
-            <span id="settings-gemini-source" class="compression-source" data-i18n="settings.compressionStrategyStatus">三类策略独立生效；自定义模型的模型级配置始终优先。</span>
+            <span id="settings-gemini-source" class="compression-source" data-i18n="settings.compressionStrategyStatus">官方 Gemini 与 Claude 策略独立生效；自定义模型策略暂仅保存。</span>
             <div class="compression-footer-actions">
               <button id="reset-gemini-settings" type="button" class="secondary compact-button" data-i18n="settings.geminiCompressionReset">恢复默认</button>
               <button id="save-gemini-settings" type="button" class="primary compact-button" data-i18n="settings.geminiCompressionSave">保存更改</button>
