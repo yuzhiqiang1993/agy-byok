@@ -12,36 +12,60 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: Validate desktop app
-    runs-on: macos-14
+  rust-format:
+    name: Rust formatting
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-          cache: npm
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
+          components: rustfmt
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
-      - name: Check Rust desktop target
-        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-14
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./ -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint Rust workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --locked
+
+      - name: Build desktop application
+        run: npm run tauri build -- --debug --no-bundle
