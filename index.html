@@ -11,7 +11,7 @@
     <div class="workspace-shell">
       <aside class="sidebar">
         <div class="sidebar-brand" data-tauri-drag-region="deep">
-          <img class="brand-mark" src="/app-icon.png" alt="AGY BYOK Logo" />
+          <img class="brand-mark" src="/app-icon.svg" alt="AGY BYOK Logo" />
           <strong class="brand-title" data-i18n-static>AGY BYOK</strong>
         </div>
         <div class="sidebar-divider"></div>
@@ -641,6 +641,7 @@
                       <label class="compression-model-control" for="settings-custom-model-compression-profile">
                         <span class="visually-hidden" data-i18n="settings.customModelPolicyTitle">自定义模型</span>
                         <select id="settings-custom-model-compression-profile" class="custom-select" aria-describedby="custom-model-policy-desc">
+                          <option value="none" data-i18n="settings.compressionNone">不设置（默认）</option>
                           <option value="safe" data-i18n="settings.compressionSafe">稳妥：阈值 41.0% / 上限 48.8%</option>
                           <option value="balanced" data-i18n="settings.compressionBalanced">平衡：阈值 61.0% / 上限 73.2%</option>
                           <option value="aggressive" data-i18n="settings.compressionAggressive">激进：阈值 72.5% / 上限 85.8%</option>
@@ -766,7 +767,7 @@
             <section id="settings-about" class="settings-pane">
               <div class="about-hero-card">
                 <div class="about-logo-wrapper">
-                  <img class="about-hero-logo" src="/app-icon.png" alt="AGY BYOK Logo" />
+                  <img class="about-hero-logo" src="/app-icon.svg" alt="AGY BYOK Logo" />
                 </div>
                 <div class="about-hero-info">
                   <div class="about-title-row">
