@@ -7,6 +7,7 @@ export const zhCN = {
     settings: "设置",
     workspaceNavigation: "工作区导航",
     featureNavigation: "功能导航",
+    toggleSidebar: "展开/折叠侧边栏",
   },
   // Header / Topbar
   header: {

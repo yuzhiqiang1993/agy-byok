@@ -8,6 +8,7 @@ export const enUS: TranslationDict = {
     settings: "Settings",
     workspaceNavigation: "Workspace navigation",
     featureNavigation: "Feature navigation",
+    toggleSidebar: "Toggle sidebar",
   },
   header: {
     themeSystem: "System Default",

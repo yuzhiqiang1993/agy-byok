@@ -22,7 +22,8 @@
 }
 @media (max-width: 940px) {
   .workspace-shell { display: block; }
-  .sidebar { display: none; }
+  .sidebar,
+  .sidebar-toggle { display: none; }
   .topbar .app-tabs { display: flex; }
   .status-grid { grid-template-columns: 1fr; }
   .status-card { height: auto; min-height: auto; }

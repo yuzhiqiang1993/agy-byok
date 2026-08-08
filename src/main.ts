@@ -81,7 +81,38 @@ function setupWindowShortcuts(): void {
   });
 }
 
+function setupSidebarToggle(): void {
+  const toggleBtn = document.querySelector<HTMLButtonElement>("#sidebar-toggle");
+  const shell = document.querySelector<HTMLElement>(".workspace-shell");
+  if (!toggleBtn || !shell) return;
+
+  const isCollapsed = localStorage.getItem("sidebar-collapsed") === "true";
+  const setCollapsed = (collapsed: boolean): void => {
+    shell.classList.toggle("sidebar-collapsed", collapsed);
+    localStorage.setItem("sidebar-collapsed", String(collapsed));
+    toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+  };
+
+  setCollapsed(isCollapsed);
+
+  toggleBtn.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+
+  toggleBtn.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
+
+  toggleBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setCollapsed(!shell.classList.contains("sidebar-collapsed"));
+  });
+}
+
 setupWindowShortcuts();
+setupSidebarToggle();
+
 setupNoticeBar();
 setupProxyCard();
 setupIdeCard();
