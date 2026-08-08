@@ -9,7 +9,6 @@ import {
   compressionSettingsAreEqual,
   compressionSettingsAreValid,
   DEFAULT_COMPRESSION_SETTINGS,
-  percentagesAreValid,
   updateCompressionPercentages,
   updateCompressionProfile,
   type CompressionScope,
@@ -104,8 +103,7 @@ class CompressionSettingsController {
     this.render(true);
   }
 
-  private restoreInvalidPercentages(scope: CompressionScope): void {
-    if (percentagesAreValid(this.draftSettings[scope].percentages)) return;
+  private restoreDefaultPercentages(scope: CompressionScope): void {
     this.draftSettings = updateCompressionPercentages(
       this.draftSettings,
       scope,
@@ -118,7 +116,7 @@ class CompressionSettingsController {
     const updated = updateCompressionProfile(this.draftSettings, control.scope, profile);
     if (!updated) return;
     this.draftSettings = updated;
-    if (profile !== "custom") this.restoreInvalidPercentages(control.scope);
+    if (profile !== "custom") this.restoreDefaultPercentages(control.scope);
     this.render(true);
   }
 
