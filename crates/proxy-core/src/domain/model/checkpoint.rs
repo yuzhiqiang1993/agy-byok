@@ -23,9 +23,11 @@ pub enum OfficialCompressionProfile {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CustomModelCompressionProfile {
+    #[default]
+    None,
     Safe,
     Balanced,
     Aggressive,
@@ -176,7 +178,7 @@ pub struct CustomModelCompressionSettings {
 impl Default for CustomModelCompressionSettings {
     fn default() -> Self {
         Self {
-            profile: CustomModelCompressionProfile::Balanced,
+            profile: CustomModelCompressionProfile::None,
             percentages: CompressionPercentages::default(),
         }
     }
@@ -314,7 +316,17 @@ impl OfficialModelSettings {
                 max_token_limit,
                 max_output_tokens,
             }) => CheckpointLimits::new(*token_threshold, *max_token_limit, *max_output_tokens),
-            _ => self.custom_model_checkpoint_profile_limits(effective_token_limit),
+            Some(ModelCheckpointOverride::Percentage { .. }) => self
+                .custom_model_checkpoint_profile_limits(effective_token_limit)
+                .unwrap_or_else(|| {
+                    // 模型级比例是显式开启策略；全局“不设置”时使用稳定的默认比例作为
+                    // 硬上限和摘要预留基准，仅让模型级阈值比例覆盖触发点。
+                    scale_percentage_checkpoint_limits(
+                        effective_token_limit,
+                        CompressionPercentages::default(),
+                    )
+                }),
+            None => self.custom_model_checkpoint_profile_limits(effective_token_limit)?,
         };
         let max_token_limit = requested.max_token_limit.min(effective_token_limit);
         let max_output_tokens = requested
@@ -340,8 +352,9 @@ impl OfficialModelSettings {
     fn custom_model_checkpoint_profile_limits(
         &self,
         effective_token_limit: u32,
-    ) -> CheckpointLimits {
+    ) -> Option<CheckpointLimits> {
         let reference = match self.custom_model.profile {
+            CustomModelCompressionProfile::None => return None,
             CustomModelCompressionProfile::Safe => CheckpointLimits::new(
                 GEMINI_SAFE_TOKEN_THRESHOLD,
                 GEMINI_SAFE_MAX_TOKEN_LIMIT,
@@ -361,11 +374,12 @@ impl OfficialModelSettings {
                 return scale_percentage_checkpoint_limits(
                     effective_token_limit,
                     self.custom_model.percentages,
-                );
+                )
+                .into();
             }
         };
 
-        CheckpointLimits::new(
+        Some(CheckpointLimits::new(
             scale_and_cap(
                 effective_token_limit,
                 reference.token_threshold,
@@ -384,7 +398,7 @@ impl OfficialModelSettings {
                 GEMINI_CONTEXT_WINDOW_LIMIT,
                 effective_token_limit,
             ),
-        )
+        ))
     }
 
     pub fn validate(&self) -> Result<(), String> {

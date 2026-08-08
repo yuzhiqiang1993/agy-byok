@@ -111,3 +111,31 @@ fn context_length_errors_are_not_retryable_for_fallback() {
 
     assert!(!error.is_retryable_for_fallback());
 }
+
+#[test]
+fn upstream_error_message_preserves_structured_detail() {
+    let body = r#"{"error":{"message":"prompt is too long: 213079 tokens"}}"#;
+
+    assert_eq!(
+        upstream_error_message("OpenAI", 400, body),
+        "OpenAI upstream status 400: prompt is too long: 213079 tokens"
+    );
+}
+
+#[test]
+fn upstream_error_message_falls_back_to_status() {
+    assert_eq!(
+        upstream_error_message("OpenAI", 400, "not-json"),
+        "OpenAI upstream status 400"
+    );
+}
+
+#[test]
+fn upstream_error_message_truncates_long_detail_with_ellipsis() {
+    let long_msg = "a".repeat(600);
+    let body = format!(r#"{{"error":{{"message":"{long_msg}"}}}}"#);
+    let result = upstream_error_message("OpenAI", 400, &body);
+
+    let expected = format!("OpenAI upstream status 400: {}...", "a".repeat(500));
+    assert_eq!(result, expected);
+}

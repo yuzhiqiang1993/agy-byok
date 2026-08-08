@@ -13,7 +13,7 @@ export function createDefaultOfficialModelSettings(): OfficialModelSettings {
   return {
     gemini: { profile: "official", percentages: createDefaultPercentages() },
     claude: { profile: "official", percentages: createDefaultPercentages() },
-    custom_model: { profile: "balanced", percentages: createDefaultPercentages() },
+    custom_model: { profile: "none", percentages: createDefaultPercentages() },
   };
 }
 

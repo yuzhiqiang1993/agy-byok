@@ -106,7 +106,7 @@ fn official_model_settings_default_to_independent_profiles_and_percentages() {
     );
     assert_eq!(
         settings.custom_model.profile,
-        CustomModelCompressionProfile::Balanced
+        CustomModelCompressionProfile::None
     );
     assert_eq!(
         [
@@ -118,7 +118,19 @@ fn official_model_settings_default_to_independent_profiles_and_percentages() {
     );
     assert_eq!(
         settings.custom_model_checkpoint_limits_with_override(None, 200_000, 32_000),
-        Some(checkpoint(122_070, 146_484, 3_125))
+        None
+    );
+}
+
+#[test]
+fn custom_model_none_profile_round_trips_without_checkpoint_limits() {
+    let settings = OfficialModelSettings::default();
+    let value = serde_json::to_value(&settings).unwrap();
+
+    assert_eq!(value["custom_model"]["profile"], "none");
+    assert_eq!(
+        serde_json::from_value::<OfficialModelSettings>(value).unwrap(),
+        settings
     );
 }
 
@@ -410,6 +422,19 @@ fn custom_model_profile_preserves_checkpoint_override_priority() {
     assert_eq!(
         settings.custom_model_checkpoint_limits_with_override(Some(&custom), 200_000, 32_000,),
         Some(checkpoint(150_000, 180_000, 10_000))
+    );
+}
+
+#[test]
+fn explicit_percentage_override_enables_checkpoint_when_global_profile_is_none() {
+    let settings = OfficialModelSettings::default();
+    let percentage = ModelCheckpointOverride::Percentage {
+        threshold_percent: 80,
+    };
+
+    assert_eq!(
+        settings.custom_model_checkpoint_limits_with_override(Some(&percentage), 200_000, 32_000),
+        Some(checkpoint(116_800, 146_000, 4_000))
     );
 }
 

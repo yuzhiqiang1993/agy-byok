@@ -119,7 +119,10 @@ fn adds_checkpoint_experiments_to_custom_catalog_entries() {
     };
     let virtual_models = [virtual_model];
     let upstream_models = [upstream_model];
-    let settings = OfficialModelSettings::default();
+    let settings = OfficialModelSettings {
+        custom_model: custom_compression(CustomModelCompressionProfile::Balanced, 61, 73, 2),
+        ..OfficialModelSettings::default()
+    };
 
     let mut object_catalog = json!({ "models": {} });
     AntigravityModelDescriptor::inject_into_model_list_with_settings(
@@ -145,6 +148,29 @@ fn adds_checkpoint_experiments_to_custom_catalog_entries() {
         assert_eq!(checkpoint["max_output_tokens"], "5812");
         assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M400");
     }
+}
+
+#[test]
+fn leaves_custom_catalog_entries_without_checkpoint_by_default() {
+    let (virtual_model, mut upstream_model) = models();
+    upstream_model.token_limits = ModelTokenLimits {
+        context_window: Some(372_000),
+        input_token_limit: Some(372_000),
+        output_token_limit: Some(128_000),
+        ..ModelTokenLimits::default()
+    };
+    let mut catalog = json!({ "models": {} });
+
+    AntigravityModelDescriptor::inject_into_model_list_with_settings(
+        &mut catalog,
+        &[virtual_model],
+        &[upstream_model],
+        &OfficialModelSettings::default(),
+    );
+
+    assert!(catalog["models"]["custom-model"]
+        .get("modelExperiments")
+        .is_none());
 }
 
 #[test]

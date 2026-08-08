@@ -37,7 +37,9 @@ interface CheckpointInitialValues {
 export function checkpointSourceLabel(override: ModelCheckpointOverride | null): string {
   if (override?.kind === "percentage") return t("models.checkpointSourcePercentage");
   if (override?.kind === "custom") return t("models.checkpointSourceCustom");
-  return t("models.checkpointSourceGlobal");
+  return store.config.official_model_settings.custom_model.profile === "none"
+    ? t("models.checkpointSourceGlobalUnset")
+    : t("models.checkpointSourceGlobal");
 }
 
 function initialCheckpointValues(
@@ -47,18 +49,23 @@ function initialCheckpointValues(
   const override = state.catalogCheckpointOverridesByModel.get(model.id) ?? null;
   const limits = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
   const inherited = customModelCheckpointLimits(store.config.official_model_settings, limits, null);
+  const explicitDefaults = inherited ?? customModelCheckpointLimits(
+    store.config.official_model_settings,
+    limits,
+    { kind: "percentage", threshold_percent: 61 },
+  );
   const percentage = override?.kind === "percentage"
     ? override.threshold_percent
-    : inherited
-      ? Math.max(1, Math.min(100, Math.round(inherited.threshold / inherited.max_token_limit * 100)))
+    : explicitDefaults
+      ? Math.max(1, Math.min(100, Math.round(explicitDefaults.threshold / explicitDefaults.max_token_limit * 100)))
       : 80;
   const custom = override?.kind === "custom"
     ? override
     : {
         kind: "custom" as const,
-        token_threshold: inherited?.threshold ?? 1,
-        max_token_limit: inherited?.max_token_limit ?? 2,
-        max_output_tokens: inherited?.max_output_tokens ?? 1,
+        token_threshold: explicitDefaults?.threshold ?? 1,
+        max_token_limit: explicitDefaults?.max_token_limit ?? 2,
+        max_output_tokens: explicitDefaults?.max_output_tokens ?? 1,
       };
   return { mode: override?.kind ?? "global", percentage, custom };
 }
@@ -199,7 +206,10 @@ function renderCheckpointPreview(
   if (!valid) {
     preview.textContent = t("models.checkpointInvalidPreview", { source });
   } else if (!checkpoint) {
-    preview.textContent = t("models.checkpointUnavailablePreview", { source });
+    const isUnset = store.config.official_model_settings.custom_model.profile === "none" && !override;
+    preview.textContent = isUnset
+      ? t("models.checkpointSummaryUnavailable", { source })
+      : t("models.checkpointUnavailablePreview", { source });
   } else {
     preview.textContent = t("models.checkpointEffectivePreview", {
       threshold: formatTokenLimit(checkpoint.threshold),

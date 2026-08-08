@@ -592,7 +592,10 @@ mod tests {
         assert_eq!(activity.common.status_code, 401);
         assert!(activity.fallback_attempted);
         assert!(!activity.fallback_succeeded);
-        assert!(activity.common.error_detail.is_none());
+        assert_eq!(
+            activity.common.error_detail.as_deref(),
+            Some("OpenAI upstream status 401: fallback unauthorized")
+        );
     }
 
     #[tokio::test]
@@ -618,7 +621,10 @@ mod tests {
         assert_eq!(activity.virtual_model_id, "vm-primary");
         assert!(activity.fallback_attempted);
         assert!(!activity.fallback_succeeded);
-        assert!(activity.common.error_detail.is_none());
+        assert_eq!(
+            activity.common.error_detail.as_deref(),
+            Some("Virtual model not found or disabled: vm-fallback")
+        );
     }
 
     #[tokio::test]

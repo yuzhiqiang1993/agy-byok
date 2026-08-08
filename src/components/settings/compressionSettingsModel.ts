@@ -27,7 +27,7 @@ function isOfficialProfile(value: string): value is OfficialCompressionProfile {
 }
 
 function isCustomModelProfile(value: string): value is CustomModelCompressionProfile {
-  return ["safe", "balanced", "aggressive", "custom"].includes(value);
+  return ["none", "safe", "balanced", "aggressive", "custom"].includes(value);
 }
 
 export function percentagesAreValid(value: CompressionPercentages): boolean {

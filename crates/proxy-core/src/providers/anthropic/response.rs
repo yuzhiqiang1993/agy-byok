@@ -3,7 +3,7 @@ use crate::domain::response::NeutralChoice;
 use crate::domain::{
     ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel, UsageInfo,
 };
-use crate::providers::error::classify_response_error;
+use crate::providers::error::{classify_response_error, upstream_error_message};
 use serde_json::Value;
 
 pub(super) fn parse_response(
@@ -13,10 +13,12 @@ pub(super) fn parse_response(
 ) -> Result<NeutralChatResponse, ProxyError> {
     if status >= 400 {
         let cat = classify_response_error(status, body);
-        return Err(
-            ProxyError::new(cat, format!("Anthropic upstream status {}", status), status)
-                .with_upstream_body(body),
-        );
+        return Err(ProxyError::new(
+            cat,
+            upstream_error_message("Anthropic", status, body),
+            status,
+        )
+        .with_upstream_body(body));
     }
 
     let val: Value = serde_json::from_str(body).map_err(|e| {

@@ -12,6 +12,31 @@ pub(super) fn classify_response_error(status: u16, body: &str) -> ErrorCategory 
     }
 }
 
+pub(super) fn upstream_error_message(provider: &str, status: u16, body: &str) -> String {
+    let detail = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|payload| {
+            let error = payload.get("error").unwrap_or(&payload);
+            structured_message(error, &payload)
+                .map(str::trim)
+                .filter(|message| !message.is_empty())
+                .map(str::to_owned)
+        });
+
+    match detail {
+        Some(detail) => {
+            let detail = if detail.chars().count() > 500 {
+                let truncated: String = detail.chars().take(500).collect();
+                format!("{truncated}...")
+            } else {
+                detail
+            };
+            format!("{provider} upstream status {status}: {detail}")
+        }
+        None => format!("{provider} upstream status {status}"),
+    }
+}
+
 fn has_context_length_error(body: &str) -> bool {
     let Ok(payload) = serde_json::from_str::<Value>(body) else {
         return false;

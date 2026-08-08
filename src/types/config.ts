@@ -55,6 +55,7 @@ export type OfficialCompressionProfile =
   | "custom";
 
 export type CustomModelCompressionProfile =
+  | "none"
   | "safe"
   | "balanced"
   | "aggressive"

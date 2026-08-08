@@ -134,7 +134,9 @@ impl ProxyServer {
                     error_category: outcome
                         .error
                         .map(|error| ActivityErrorCategory::from(&error.category)),
-                    error_detail: None,
+                    error_detail: outcome
+                        .error
+                        .map(|error| Self::sanitize_log_text(&error.message)),
                 },
                 requested_virtual_model_id: request.virtual_model_id.clone(),
                 virtual_model_id,
