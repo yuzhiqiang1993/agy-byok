@@ -121,7 +121,6 @@ body {
   background: var(--sidebar-bg);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-  position: relative;
 }
 .sidebar-bottom {
   margin-top: auto;
