@@ -1,10 +1,10 @@
 import { element } from "../utils/domUtils";
 import { confirmDiscardProviderChanges, closeProviderEditor } from "./ProviderEditor";
-import { t, subscribeLanguage } from "../i18n";
+import { t, subscribeLanguage, type TranslationKey } from "../i18n";
 
 let activeTabId = "tab-status";
 
-const tabKeys: Record<string, { titleKey: string; descKey: string }> = {
+const tabKeys: Record<string, { titleKey: TranslationKey; descKey: TranslationKey }> = {
   "tab-status": {
     titleKey: "overview.pageTitle",
     descKey: "overview.pageDesc",
@@ -23,7 +23,7 @@ const tabKeys: Record<string, { titleKey: string; descKey: string }> = {
   },
 };
 
-export function updatePageHeader(targetId: string = activeTabId): void {
+function updatePageHeader(targetId: string = activeTabId): void {
   const pageTitle = element<HTMLSpanElement>("#page-title-text");
   const pageDescription = element<HTMLParagraphElement>("#page-description");
 

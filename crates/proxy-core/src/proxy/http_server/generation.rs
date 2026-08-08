@@ -4,6 +4,7 @@ use super::responses::{error_response, full_response, proxy_error_response};
 use super::streaming::HttpFrameSink;
 use super::types::{HttpResponse, HttpServerOptions};
 use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
+use crate::proxy::activity::ActivityErrorCategory;
 use crate::proxy::server::ProxyServer;
 use bytes::Bytes;
 use http_body_util::{BodyExt, StreamBody};
@@ -33,7 +34,7 @@ pub(super) async fn handle_generate_request(
             return error_response(
                 StatusCode::BAD_REQUEST,
                 "Request body must be valid UTF-8 JSON",
-                "invalid_request",
+                ActivityErrorCategory::InvalidRequest,
             )
         }
     };
@@ -47,7 +48,7 @@ pub(super) async fn handle_generate_request(
             return error_response(
                 StatusCode::BAD_GATEWAY,
                 "Native model forwarding is not configured",
-                "native_forwarding_unavailable",
+                ActivityErrorCategory::NativeForwardingUnavailable,
             );
         };
         let request_shape = AntigravityRequestParser::parse(body_text).ok();
@@ -112,7 +113,7 @@ pub(super) async fn handle_generate_request(
             let payload = json!({
                 "error": {
                     "code": error.status_code,
-                    "category": format!("{:?}", error.category),
+                    "category": error.category.as_str(),
                     "message": error.message
                 }
             });

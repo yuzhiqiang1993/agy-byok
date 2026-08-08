@@ -3,7 +3,7 @@ import type { ProviderProtocol, UpstreamModel, VirtualModel } from "../types/con
 import type { ProviderCatalogModel } from "../types/catalog";
 import { t } from "../i18n";
 
-export const REASONING_LEVEL_ORDER: Record<ReasoningLevel, number> = {
+const REASONING_LEVEL_ORDER: Record<ReasoningLevel, number> = {
   off: 0,
   low: 1,
   medium: 2,
@@ -39,7 +39,7 @@ export function reasoningLevelLabel(level: ReasoningLevel): string {
   }[level];
 }
 
-export function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableReasoningLevel[] {
+function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableReasoningLevel[] {
   return protocol === "gemini_generate_content"
     ? ["low", "medium", "high"]
     : ["low", "medium", "high", "x_high", "max"];
@@ -118,7 +118,7 @@ function defaultReasoningMapping(
   return { kind: "effort", value: level === "x_high" ? "xhigh" : level };
 }
 
-export function reasoningLevels(
+function reasoningLevels(
   protocol: ProviderProtocol,
 ): Partial<Record<ReasoningLevel, ReasoningMapping>> {
   const levels = configurableReasoningLevels(protocol);

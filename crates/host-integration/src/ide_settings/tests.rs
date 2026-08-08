@@ -1,8 +1,7 @@
 use super::jsonc_editor::cloud_code_value;
 use super::{
-    disable_ide_settings, enable_ide_settings, inspect_ide_settings, IdeSettingsState,
-    IDE_CLOUD_CODE_SETTING, IDE_SETTINGS_BACKUP_FILE, IDE_SETTINGS_RECEIPT_FILE,
-    IDE_SETTING_OWNERSHIP_FILE,
+    atomic_file::validate_settings_path, disable_ide_settings, enable_ide_settings,
+    inspect_ide_settings, IdeSettingsState, IDE_CLOUD_CODE_SETTING, IDE_SETTING_OWNERSHIP_FILE,
 };
 use crate::error::HostIntegrationError;
 use serde_json::Value;
@@ -37,6 +36,26 @@ impl Fixture {
 
 fn configured_endpoint(bytes: &[u8], endpoint: &str) -> Result<bool, HostIntegrationError> {
     Ok(cloud_code_value(bytes)?.as_ref().and_then(Value::as_str) == Some(endpoint))
+}
+
+#[test]
+fn settings_path_rejects_parent_traversal() {
+    let temp = tempfile::tempdir().unwrap();
+    let settings_path = temp.path().join("Antigravity IDE/../settings.json");
+
+    assert!(validate_settings_path(&settings_path).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn settings_path_accepts_windows_drive_prefix() {
+    let settings_path =
+        PathBuf::from(r"C:\Users\test\AppData\Roaming\Antigravity IDE\User\settings.json");
+
+    assert_eq!(
+        validate_settings_path(&settings_path).unwrap(),
+        settings_path
+    );
 }
 
 #[test]
@@ -122,7 +141,7 @@ fn repeated_enable_and_disable_are_idempotent() {
 }
 
 #[test]
-fn matching_endpoint_without_ownership_is_external_and_restorable() {
+fn matching_endpoint_without_ownership_is_external_and_not_modified() {
     let fixture = Fixture::new();
     let original = format!("{{\n  \"jetski.cloudCodeUrl\": \"{ENDPOINT}\"\n}}\n");
     fixture.write_settings(&original);
@@ -141,10 +160,12 @@ fn matching_endpoint_without_ownership_is_external_and_restorable() {
 
     let disabled =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
-    assert_eq!(disabled.state, IdeSettingsState::Disabled);
-    assert!(!fs::read_to_string(&fixture.settings_path)
-        .unwrap()
-        .contains(IDE_CLOUD_CODE_SETTING));
+    assert_eq!(disabled.state, IdeSettingsState::External);
+    assert!(disabled.endpoint_matches);
+    assert_eq!(
+        fs::read_to_string(&fixture.settings_path).unwrap(),
+        original
+    );
 }
 
 #[test]
@@ -176,19 +197,20 @@ fn local_endpoint_without_ownership_is_detected_as_external_mismatch() {
 }
 
 #[test]
-fn external_local_endpoint_can_be_restored_to_official_settings() {
+fn external_local_endpoint_is_not_modified_without_ownership() {
     let fixture = Fixture::new();
     let stale_endpoint = "http://127.0.0.1:54321";
     fixture.write_settings(&format!(
         "{{\n  \"jetski.cloudCodeUrl\": \"{stale_endpoint}\",\n  \"editor.fontSize\": 14\n}}\n"
     ));
 
-    let restored =
+    let unchanged =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
 
-    assert_eq!(restored.state, IdeSettingsState::Disabled);
+    assert_eq!(unchanged.state, IdeSettingsState::External);
+    assert!(!unchanged.endpoint_matches);
     let settings = fs::read_to_string(&fixture.settings_path).unwrap();
-    assert!(!settings.contains(IDE_CLOUD_CODE_SETTING));
+    assert!(settings.contains(stale_endpoint));
     assert!(settings.contains("editor.fontSize"));
 }
 
@@ -282,7 +304,7 @@ fn stale_managed_endpoint_remains_disableable_after_proxy_port_changes() {
 }
 
 #[test]
-fn user_endpoint_change_is_treated_as_disabled_and_is_not_overwritten_on_disable() {
+fn user_endpoint_change_is_external_and_is_not_overwritten_on_disable() {
     let fixture = Fixture::new();
     fixture.write_settings("{}\n");
     enable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
@@ -290,40 +312,17 @@ fn user_endpoint_change_is_treated_as_disabled_and_is_not_overwritten_on_disable
         "{\n  \"jetski.cloudCodeUrl\": \"http://127.0.0.1:60000\",\n  \"userSetting\": true\n}\n",
     );
 
-    assert_eq!(
-        inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
-            .unwrap()
-            .state,
-        IdeSettingsState::Disabled
-    );
-    disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+    let inspected =
+        inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+    assert_eq!(inspected.state, IdeSettingsState::External);
+    assert!(!inspected.endpoint_matches);
+    let disabled =
+        disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
+    assert_eq!(disabled.state, IdeSettingsState::External);
+    assert!(!disabled.endpoint_matches);
     let unchanged = fs::read_to_string(&fixture.settings_path).unwrap();
     assert!(unchanged.contains("http://127.0.0.1:60000"));
     assert!(unchanged.contains("\"userSetting\": true"));
-}
-
-#[test]
-fn legacy_receipt_and_backup_do_not_affect_status() {
-    let fixture = Fixture::new();
-    fixture.write_settings("{}\n");
-    fs::create_dir_all(&fixture.integration_root).unwrap();
-    fs::write(
-        fixture.integration_root.join(IDE_SETTINGS_RECEIPT_FILE),
-        b"legacy receipt",
-    )
-    .unwrap();
-    fs::write(
-        fixture.integration_root.join(IDE_SETTINGS_BACKUP_FILE),
-        b"legacy backup",
-    )
-    .unwrap();
-
-    assert_eq!(
-        inspect_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT)
-            .unwrap()
-            .state,
-        IdeSettingsState::Disabled
-    );
 }
 
 #[cfg(unix)]

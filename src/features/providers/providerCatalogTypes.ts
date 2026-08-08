@@ -1,0 +1,59 @@
+import type { ProviderCatalogModel } from "../../types/catalog";
+import type {
+  ModelCheckpointOverride,
+  ModelTokenLimits,
+  Provider,
+  ProviderProtocol,
+} from "../../types/config";
+import type { ConfigurableReasoningLevel } from "../../types/reasoning";
+
+export interface ProviderCatalogState {
+  catalogModels: ProviderCatalogModel[];
+  selectedCatalogModelIds: ReadonlySet<string>;
+  catalogReasoningLevelsByModel: ReadonlyMap<string, ReadonlySet<ConfigurableReasoningLevel>>;
+  catalogCustomReasoningByModel: ReadonlyMap<string, string>;
+  catalogVisionEnabledModelIds: ReadonlySet<string>;
+  catalogToolsEnabledModelIds: ReadonlySet<string>;
+  catalogReasoningEnabledModelIds: ReadonlySet<string>;
+  catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
+  catalogCheckpointOverridesByModel: ReadonlyMap<string, ModelCheckpointOverride | null>;
+  changedCatalogTokenLimitModelIds: ReadonlySet<string>;
+  changedCatalogCheckpointOverrideModelIds: ReadonlySet<string>;
+  changedCatalogCapabilityModelIds: ReadonlySet<string>;
+  changedCatalogReasoningModelIds: ReadonlySet<string>;
+  unavailableCatalogModelIds: ReadonlySet<string>;
+}
+
+export interface ProviderCatalogContext {
+  getEditingProviderId: () => string | null;
+  selectedProtocol: () => ProviderProtocol;
+  providerFromForm: () => Provider;
+  setProviderEditorDirty: (dirty: boolean) => void;
+  withProviderEditorBusy: (
+    button: HTMLButtonElement,
+    action: () => Promise<void>,
+    busyLabel?: string,
+  ) => Promise<void>;
+  invalidatePendingProviderSave: () => void;
+  refreshProviderEditorControls: () => void;
+}
+
+export interface CatalogControlState {
+  catalogTokenLimitsByModel: Map<string, ModelTokenLimits>;
+  catalogCheckpointOverridesByModel: Map<string, ModelCheckpointOverride | null>;
+  changedCatalogTokenLimitModelIds: Set<string>;
+  changedCatalogCheckpointOverrideModelIds: Set<string>;
+}
+
+export interface CatalogModelListState extends CatalogControlState {
+  catalogModels: ProviderCatalogModel[];
+  selectedCatalogModelIds: Set<string>;
+  catalogReasoningLevelsByModel: Map<string, Set<ConfigurableReasoningLevel>>;
+  catalogVisionEnabledModelIds: Set<string>;
+  catalogToolsEnabledModelIds: Set<string>;
+  catalogReasoningEnabledModelIds: Set<string>;
+  changedCatalogCapabilityModelIds: Set<string>;
+  changedCatalogReasoningModelIds: Set<string>;
+  unavailableCatalogModelIds: Set<string>;
+  expandedCatalogModelIds: Set<string>;
+}

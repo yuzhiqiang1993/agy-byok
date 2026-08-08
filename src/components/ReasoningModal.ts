@@ -1,4 +1,4 @@
-import { element } from "../utils/domUtils";
+import { element, visibleFocusableElements } from "../utils/domUtils";
 import type { ProviderCatalogModel } from "../types/catalog";
 import type { Provider, ProviderProtocol, UpstreamModel } from "../types/config";
 import type { ModelConnectionTestResult } from "../types/proxy";
@@ -10,8 +10,9 @@ import {
   sortReasoningLevels,
 } from "../utils/reasoningUtils";
 import { t, subscribeLanguage } from "../i18n";
+import { connectionTestErrorMessage } from "../utils/connectionTestUtils";
 
-export interface ReasoningModalContext {
+interface ReasoningModalContext {
   providerProtocol: ProviderProtocol;
   existingUpstream?: UpstreamModel;
   currentLevels: ReadonlySet<ConfigurableReasoningLevel>;
@@ -31,9 +32,10 @@ export interface ReasoningModalContext {
   onConfirm: (modelId: string, levels: Set<ConfigurableReasoningLevel>) => void;
 }
 
-export let activeReasoningModel: ProviderCatalogModel | null = null;
+let activeReasoningModel: ProviderCatalogModel | null = null;
 let draftReasoningLevels = new Set<ConfigurableReasoningLevel>();
 let activeContext: ReasoningModalContext | null = null;
+let reasoningReturnFocus: HTMLElement | null = null;
 
 subscribeLanguage(() => {
   if (!activeReasoningModel || !activeContext) return;
@@ -56,6 +58,9 @@ subscribeLanguage(() => {
 });
 
 export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
+  reasoningReturnFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
   activeReasoningModel = model;
   activeContext = context;
   draftReasoningLevels = new Set(sortReasoningLevels(context.currentLevels));
@@ -126,11 +131,13 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
         if (response.success) {
           result.className = "reasoning-level-test-result success";
           result.textContent = t("models.testSuccess", { time: response.durationMs });
+          result.title = result.textContent;
         } else {
+          const message = connectionTestErrorMessage(response);
           result.className = "reasoning-level-test-result error";
-          result.textContent = t("models.testFailed", { msg: response.message });
+          result.textContent = t("models.testFailed", { msg: message });
+          result.title = message;
         }
-        result.title = response.message;
       }, t("models.testing"));
     });
 
@@ -141,6 +148,12 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
 
   const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
   reasoningModal.hidden = false;
+  window.setTimeout(() => {
+    const firstLevel = reasoningModalLevelsContainer.querySelector<HTMLInputElement>(
+      'input:not([disabled])',
+    );
+    (firstLevel ?? element<HTMLButtonElement>("#confirm-reasoning-modal")).focus();
+  }, 0);
 }
 
 export function closeReasoningModal(): void {
@@ -148,6 +161,9 @@ export function closeReasoningModal(): void {
   reasoningModal.hidden = true;
   activeReasoningModel = null;
   activeContext = null;
+  const returnFocus = reasoningReturnFocus;
+  reasoningReturnFocus = null;
+  if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
 }
 
 export function setupReasoningModal(): void {
@@ -155,8 +171,10 @@ export function setupReasoningModal(): void {
   const cancelReasoningModalButton = element<HTMLButtonElement>("#cancel-reasoning-modal");
   const closeReasoningModalButton = element<HTMLButtonElement>("#close-reasoning-modal");
   const reasoningModalBackdrop = element<HTMLDivElement>("#reasoning-modal-backdrop");
+  const confirmModal = element<HTMLDivElement>("#confirm-modal");
+  const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
 
-  element<HTMLDivElement>("#reasoning-modal").hidden = true;
+  reasoningModal.hidden = true;
 
   confirmReasoningModalButton.addEventListener("click", () => {
     if (!activeReasoningModel || !activeContext) return;
@@ -168,4 +186,25 @@ export function setupReasoningModal(): void {
   cancelReasoningModalButton.addEventListener("click", closeReasoningModal);
   closeReasoningModalButton.addEventListener("click", closeReasoningModal);
   reasoningModalBackdrop.addEventListener("click", closeReasoningModal);
+  document.addEventListener("keydown", (event) => {
+    if (reasoningModal.hidden || !confirmModal.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeReasoningModal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = visibleFocusableElements(reasoningModal);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !reasoningModal.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !reasoningModal.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
 }

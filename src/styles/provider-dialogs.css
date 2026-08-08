@@ -1,0 +1,100 @@
+.reasoning-modal-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.reasoning-modal-body {
+  padding: 20px 24px;
+}
+.reasoning-modal-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.reasoning-modal-level-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+}
+.reasoning-level-test-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.reasoning-level-test-result {
+  font-size: 10px;
+  font-weight: 700;
+}
+.reasoning-level-test-result.pending { color: #6a746f; }
+.reasoning-level-test-result.success { color: #3f681d; }
+.reasoning-level-test-result.error { color: #9d493e; }
+.reasoning-modal-readonly-note {
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border: 1px solid #d8e3f7;
+  border-radius: 7px;
+  background: #f4f7fd;
+  color: #58719c;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.reasoning-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0 0 12px 12px;
+  background: #f8fafc;
+}
+
+.confirm-modal-dialog {
+  width: min(500px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+}
+.confirm-modal-body {
+  padding: 22px 24px;
+}
+.confirm-modal-text {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.confirm-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--surface-border);
+  background: var(--surface-inner);
+}
+.provider-change-summary {
+  margin: 13px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #cadac0;
+  border-radius: 9px;
+  background: #f1f8eb;
+  color: #3e5d27;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.provider-change-summary.destructive {
+  border-color: #edc6bf;
+  background: #fff1ee;
+  color: #8b3e34;
+}
+.provider-change-summary.blocked {
+  border-color: #e5ce96;
+  background: #fff7df;
+  color: #75550f;
+}

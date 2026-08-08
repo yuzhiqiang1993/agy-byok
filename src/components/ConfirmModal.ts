@@ -41,9 +41,20 @@ export function confirmHostAction(
       if (event.key === "Escape") {
         event.preventDefault();
         handleCancel();
-      } else if (event.key === "Enter") {
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = [closeBtn, cancelBtn, okBtn];
+      const active = document.activeElement;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (active === first || !modal.contains(active))) {
         event.preventDefault();
-        handleOk();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !modal.contains(active))) {
+        event.preventDefault();
+        first.focus();
       }
     };
 

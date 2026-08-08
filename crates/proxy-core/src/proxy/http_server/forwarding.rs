@@ -6,6 +6,7 @@ use super::responses::{
 };
 use super::types::{HttpResponse, HttpServerOptions, LOCAL_TOKEN_HEADER};
 use crate::domain::{ErrorCategory, ProxyError};
+use crate::proxy::activity::ActivityErrorCategory;
 use crate::proxy::server::ProxyServer;
 use crate::upstream_body::read_limited_response_body;
 use bytes::Bytes;
@@ -38,7 +39,7 @@ pub(super) async fn handle_passthrough_request(
         return error_response(
             StatusCode::BAD_GATEWAY,
             "Official Cloud Code forwarding is not configured",
-            "native_forwarding_unavailable",
+            ActivityErrorCategory::NativeForwardingUnavailable,
         );
     };
     let (parts, body) = match read_request(request, options.max_body_bytes).await {
@@ -171,12 +172,12 @@ pub(super) async fn forward_native_request(
             Ok(_) => error_response(
                 StatusCode::BAD_GATEWAY,
                 "Official response body exceeds the buffered response limit",
-                "native_forwarding_failed",
+                ActivityErrorCategory::NativeForwardingFailed,
             ),
             Err(error) => error_response(
                 StatusCode::BAD_GATEWAY,
                 &format!("Failed to read official response: {error}"),
-                "native_forwarding_failed",
+                ActivityErrorCategory::NativeForwardingFailed,
             ),
         };
     }
@@ -234,6 +235,7 @@ async fn send_forward_request(
     for (name, value) in &parts.headers {
         if !is_hop_by_hop_header(name.as_str())
             && !name.as_str().eq_ignore_ascii_case(LOCAL_TOKEN_HEADER)
+            && *name != hyper::header::HOST
             && *name != ACCEPT_ENCODING
         {
             request = request.header(name, value);
@@ -243,7 +245,7 @@ async fn send_forward_request(
         error_response(
             StatusCode::BAD_GATEWAY,
             &format!("Failed to forward request to official Cloud Code: {error}"),
-            "native_forwarding_failed",
+            ActivityErrorCategory::NativeForwardingFailed,
         )
     })
 }

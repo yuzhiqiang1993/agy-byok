@@ -1,6 +1,5 @@
 use http_body_util::BodyExt;
 use std::convert::Infallible;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -9,16 +8,13 @@ use tokio::sync::oneshot;
 pub struct RecordedRequest {
     pub method: hyper::Method,
     pub path_and_query: String,
+    pub host: Option<String>,
     pub authorization: Option<String>,
     pub local_token: Option<String>,
     pub body: bytes::Bytes,
 }
 
-pub struct MockProviderServer {
-    pub addr: SocketAddr,
-    pub response_body: String,
-    pub response_status: u16,
-}
+pub struct MockProviderServer;
 
 impl MockProviderServer {
     pub async fn start(status: u16, body: &str) -> (String, tokio::task::JoinHandle<()>) {
@@ -87,6 +83,11 @@ impl MockProviderServer {
                                     .path_and_query()
                                     .map(ToString::to_string)
                                     .unwrap_or_default(),
+                                host: parts
+                                    .headers
+                                    .get(hyper::header::HOST)
+                                    .and_then(|value| value.to_str().ok())
+                                    .map(ToOwned::to_owned),
                                 authorization: parts
                                     .headers
                                     .get(hyper::header::AUTHORIZATION)

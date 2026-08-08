@@ -5,6 +5,7 @@ import { store } from "../store/appStore";
 let ideStatusRequestVersion = 0;
 let appStatusRequestVersion = 0;
 let cliStatusRequestVersion = 0;
+let hostRefreshInFlight: Promise<void> | null = null;
 
 export async function refreshIde(): Promise<void> {
   const requestVersion = ++ideStatusRequestVersion;
@@ -64,18 +65,26 @@ export async function launchIde(): Promise<void> {
 
 export async function enableAppIntegration(): Promise<AppStatus> {
   appStatusRequestVersion += 1;
-  const status = await hostService.enableAppIntegration();
-  appStatusRequestVersion += 1;
-  store.setAppStatus(status);
-  return status;
+  try {
+    const status = await hostService.enableAppIntegration();
+    appStatusRequestVersion += 1;
+    store.setAppStatus(status);
+    return status;
+  } finally {
+    await refreshCli().catch(() => undefined);
+  }
 }
 
 export async function disableAppIntegration(): Promise<AppStatus> {
   appStatusRequestVersion += 1;
-  const status = await hostService.disableAppIntegration();
-  appStatusRequestVersion += 1;
-  store.setAppStatus(status);
-  return status;
+  try {
+    const status = await hostService.disableAppIntegration();
+    appStatusRequestVersion += 1;
+    store.setAppStatus(status);
+    return status;
+  } finally {
+    await refreshCli().catch(() => undefined);
+  }
 }
 
 export async function launchApp(): Promise<void> {
@@ -84,18 +93,26 @@ export async function launchApp(): Promise<void> {
 
 export async function enableCliIntegration(): Promise<CliStatus> {
   cliStatusRequestVersion += 1;
-  const status = await hostService.enableCliIntegration();
-  cliStatusRequestVersion += 1;
-  store.setCliStatus(status);
-  return status;
+  try {
+    const status = await hostService.enableCliIntegration();
+    cliStatusRequestVersion += 1;
+    store.setCliStatus(status);
+    return status;
+  } finally {
+    await refreshApp().catch(() => undefined);
+  }
 }
 
 export async function disableCliIntegration(): Promise<CliStatus> {
   cliStatusRequestVersion += 1;
-  const status = await hostService.disableCliIntegration();
-  cliStatusRequestVersion += 1;
-  store.setCliStatus(status);
-  return status;
+  try {
+    const status = await hostService.disableCliIntegration();
+    cliStatusRequestVersion += 1;
+    store.setCliStatus(status);
+    return status;
+  } finally {
+    await refreshApp().catch(() => undefined);
+  }
 }
 
 export function openPath(path: string): Promise<void> {
@@ -104,6 +121,10 @@ export function openPath(path: string): Promise<void> {
 
 export function openConfigDir(): Promise<void> {
   return hostService.openConfigDir();
+}
+
+export function getConfigPath(): Promise<string> {
+  return hostService.getConfigPath();
 }
 
 export function openExternalUrl(url: string): Promise<void> {
@@ -120,5 +141,3 @@ export async function refreshHostStatuses(): Promise<void> {
     if (hostRefreshInFlight === task) hostRefreshInFlight = null;
   }
 }
-
-export let hostRefreshInFlight: Promise<void> | null = null;

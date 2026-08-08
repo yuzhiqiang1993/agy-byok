@@ -1,6 +1,6 @@
 import type { ActivityItem } from "../../types/activity";
 
-export interface ActivityState {
+interface ActivityState {
   items: ActivityItem[];
   snapshot: string;
   loadError: string | null;

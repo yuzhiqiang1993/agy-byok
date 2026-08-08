@@ -1,5 +1,5 @@
-pub mod config_store;
-pub mod paths;
+pub(crate) mod config_store;
+pub(crate) mod paths;
 
-pub use config_store::{AppConfig, ConfigStore, DEFAULT_PROXY_PORT};
+pub use config_store::{ConfigStore, ConfigStoreError};
 pub use paths::default_config_path;

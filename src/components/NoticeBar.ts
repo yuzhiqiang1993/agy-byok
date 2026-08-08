@@ -15,7 +15,7 @@ export function showNotice(message: string, kind: "success" | "error" = "success
   }, kind === "error" ? 8000 : 4000);
 }
 
-export function dismissNotice(): void {
+function dismissNotice(): void {
   const notice = element<HTMLDivElement>("#notice");
   if (noticeTimer !== null) window.clearTimeout(noticeTimer);
   noticeTimer = null;

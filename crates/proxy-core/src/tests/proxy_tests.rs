@@ -4,10 +4,12 @@ mod tests {
         AntigravityModelDescriptor, AntigravityRequestParser, AntigravityResponseEncoder,
         AntigravityStreamEncoder,
     };
+    use crate::domain::response::NeutralChoice;
     use crate::domain::*;
+    use crate::proxy::activity::ActivityProtocol;
     use crate::proxy::ProxyServer;
     use crate::routing::RouteTable;
-    use crate::storage::{AppConfig, ConfigStore};
+    use crate::storage::ConfigStore;
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
@@ -146,18 +148,14 @@ mod tests {
             output_token_limit: Some(128_000),
             ..ModelTokenLimits::default()
         };
-        config
-            .official_model_settings
-            .custom_model_compression_profile = CustomModelCompressionProfile::Custom;
-        config
-            .official_model_settings
-            .custom_model_token_threshold_percent = 70;
-        config
-            .official_model_settings
-            .custom_model_max_token_limit_percent = 90;
-        config
-            .official_model_settings
-            .custom_model_max_output_tokens_percent = 5;
+        config.official_model_settings.custom_model = CustomModelCompressionSettings {
+            profile: CustomModelCompressionProfile::Custom,
+            percentages: CompressionPercentages {
+                token_threshold: 70,
+                max_token_limit: 90,
+                max_output_tokens: 5,
+            },
+        };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let checkpoint_model = config.virtual_models[0]
             .effective_host_model_id()
@@ -192,7 +190,10 @@ mod tests {
             max_output_tokens: 20_000,
         });
         config.official_model_settings = OfficialModelSettings {
-            gemini_compression_profile: OfficialCompressionProfile::Safe,
+            gemini: OfficialCompressionSettings {
+                profile: OfficialCompressionProfile::Safe,
+                percentages: CompressionPercentages::default(),
+            },
             ..OfficialModelSettings::default()
         };
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
@@ -548,21 +549,21 @@ mod tests {
         assert!(response.contains("fallback response"));
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
+        let activity = activities[0].as_chat().expect("expected chat activity");
         assert_eq!(
-            activities[0].requested_virtual_model_id,
+            activity.requested_virtual_model_id,
             "MODEL_PLACEHOLDER_M400"
         );
-        assert_eq!(activities[0].virtual_model_id, "vm-fallback");
+        assert_eq!(activity.virtual_model_id, "vm-fallback");
         assert_eq!(
-            activities[0].upstream_model_id.as_deref(),
+            activity.upstream_model_id.as_deref(),
             Some("fallback-model")
         );
-        assert!(activities[0].used_fallback);
-        assert!(activities[0].fallback_attempted);
-        assert!(activities[0].fallback_succeeded);
-        assert_eq!(activities[0].input_tokens, Some(5));
-        assert_eq!(activities[0].output_tokens, Some(2));
-        assert_eq!(activities[0].total_tokens, Some(7));
+        assert!(activity.fallback_attempted);
+        assert!(activity.fallback_succeeded);
+        assert_eq!(activity.input_tokens, Some(5));
+        assert_eq!(activity.output_tokens, Some(2));
+        assert_eq!(activity.total_tokens, Some(7));
     }
 
     #[tokio::test]
@@ -586,14 +587,12 @@ mod tests {
         assert_eq!(error.status_code, 401);
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].virtual_model_id, "vm-fallback");
-        assert_eq!(activities[0].status_code, 401);
-        assert!(activities[0].fallback_attempted);
-        assert!(!activities[0].fallback_succeeded);
-        assert_eq!(
-            activities[0].error_detail.as_deref(),
-            Some("message=fallback unauthorized")
-        );
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.virtual_model_id, "vm-fallback");
+        assert_eq!(activity.common.status_code, 401);
+        assert!(activity.fallback_attempted);
+        assert!(!activity.fallback_succeeded);
+        assert!(activity.common.error_detail.is_none());
     }
 
     #[tokio::test]
@@ -614,15 +613,12 @@ mod tests {
 
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].status_code, error.status_code);
-        assert_eq!(activities[0].virtual_model_id, "vm-primary");
-        assert!(activities[0].fallback_attempted);
-        assert!(!activities[0].fallback_succeeded);
-        assert!(activities[0]
-            .error_detail
-            .as_deref()
-            .unwrap_or_default()
-            .contains("vm-fallback"));
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.common.status_code, error.status_code);
+        assert_eq!(activity.virtual_model_id, "vm-primary");
+        assert!(activity.fallback_attempted);
+        assert!(!activity.fallback_succeeded);
+        assert!(activity.common.error_detail.is_none());
     }
 
     #[tokio::test]
@@ -716,25 +712,25 @@ mod tests {
 
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].requested_virtual_model_id, "vm-test-1");
-        assert_eq!(activities[0].virtual_model_id, "vm-test-1");
-        assert_eq!(activities[0].upstream_model_id.as_deref(), Some("gpt-4o"));
-        assert_eq!(activities[0].provider_id, "p-test");
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.requested_virtual_model_id, "vm-test-1");
+        assert_eq!(activity.virtual_model_id, "vm-test-1");
+        assert_eq!(activity.upstream_model_id.as_deref(), Some("gpt-4o"));
+        assert_eq!(activity.provider_id, "p-test");
         assert_eq!(
-            activities[0].provider_protocol.as_deref(),
-            Some("openai_chat_completions")
+            activity.provider_protocol,
+            Some(ActivityProtocol::OpenaiChatCompletions)
         );
-        assert_eq!(activities[0].status_code, 200);
-        assert!(!activities[0].stream);
-        assert_eq!(activities[0].message_count, 1);
-        assert_eq!(activities[0].tool_count, 0);
-        assert!(!activities[0].used_fallback);
-        assert!(!activities[0].fallback_attempted);
-        assert!(!activities[0].fallback_succeeded);
-        assert_eq!(activities[0].input_tokens, Some(7));
-        assert_eq!(activities[0].output_tokens, Some(4));
-        assert_eq!(activities[0].total_tokens, Some(11));
-        assert!(activities[0].error_detail.is_none());
+        assert_eq!(activity.common.status_code, 200);
+        assert!(!activity.stream);
+        assert_eq!(activity.message_count, 1);
+        assert_eq!(activity.tool_count, 0);
+        assert!(!activity.fallback_attempted);
+        assert!(!activity.fallback_succeeded);
+        assert_eq!(activity.input_tokens, Some(7));
+        assert_eq!(activity.output_tokens, Some(4));
+        assert_eq!(activity.total_tokens, Some(11));
+        assert!(activity.common.error_detail.is_none());
     }
 
     #[tokio::test]
@@ -871,15 +867,16 @@ mod tests {
         );
         let activities = server.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].status_code, 200);
-        assert!(activities[0].stream);
-        assert_eq!(activities[0].message_count, 1);
-        assert_eq!(activities[0].input_tokens, Some(7));
-        assert_eq!(activities[0].output_tokens, Some(5));
-        assert_eq!(activities[0].cache_read_tokens, Some(5));
-        assert_eq!(activities[0].cache_write_tokens, None);
-        assert_eq!(activities[0].reasoning_tokens, Some(4));
-        assert_eq!(activities[0].total_tokens, Some(21));
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.common.status_code, 200);
+        assert!(activity.stream);
+        assert_eq!(activity.message_count, 1);
+        assert_eq!(activity.input_tokens, Some(7));
+        assert_eq!(activity.output_tokens, Some(5));
+        assert_eq!(activity.cache_read_tokens, Some(5));
+        assert_eq!(activity.cache_write_tokens, None);
+        assert_eq!(activity.reasoning_tokens, Some(4));
+        assert_eq!(activity.total_tokens, Some(21));
     }
 
     #[test]

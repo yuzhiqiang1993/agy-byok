@@ -60,11 +60,6 @@ impl UsageInfo {
             .saturating_add(self.cache_read_tokens.unwrap_or(0))
             .saturating_add(self.cache_write_tokens.unwrap_or(0))
     }
-
-    pub fn completion_tokens(&self) -> u32 {
-        self.output_tokens
-            .saturating_add(self.reasoning_tokens.unwrap_or(0))
-    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -153,7 +148,6 @@ mod tests {
         assert_eq!(usage.cache_read_tokens, Some(5));
         assert_eq!(usage.reasoning_tokens, Some(4));
         assert_eq!(usage.prompt_tokens(), 12);
-        assert_eq!(usage.completion_tokens(), 9);
         assert_eq!(usage.total_tokens, 21);
     }
 

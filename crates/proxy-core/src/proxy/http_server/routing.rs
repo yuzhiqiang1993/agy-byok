@@ -8,7 +8,8 @@ use super::types::{
     HttpActivityMetadata, HttpResponse, HttpServerOptions, INTERNAL_PROBE_HEADER,
     LOCAL_TOKEN_HEADER,
 };
-use crate::proxy::server::ProxyServer;
+use crate::proxy::activity::{ActivityErrorCategory, ActivityOperation};
+use crate::proxy::server::{HttpActivity, ProxyServer};
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -83,7 +84,7 @@ pub(super) async fn handle_request(
             with_cors(error_response(
                 StatusCode::METHOD_NOT_ALLOWED,
                 "Method not allowed for this route",
-                "method_not_allowed",
+                ActivityErrorCategory::MethodNotAllowed,
             ))
         } else if matches!(route, RouteKind::Health) {
             with_cors(health_response())
@@ -101,7 +102,7 @@ pub(super) async fn handle_request(
                 with_cors(error_response(
                     StatusCode::UNAUTHORIZED,
                     "Missing or invalid local proxy token",
-                    "authentication",
+                    ActivityErrorCategory::Authentication,
                 ))
             } else {
                 let semaphore = if matches!(route, RouteKind::Generate | RouteKind::StreamGenerate)
@@ -116,7 +117,7 @@ pub(super) async fn handle_request(
                         let response = error_response(
                             StatusCode::TOO_MANY_REQUESTS,
                             "Local proxy concurrency limit reached",
-                            "rate_limit",
+                            ActivityErrorCategory::RateLimit,
                         );
                         let response = with_cors(response);
                         if should_record_http_activity(route, &method, internal_probe) {
@@ -135,7 +136,7 @@ pub(super) async fn handle_request(
                 };
 
                 let response = match route {
-                    RouteKind::Health => unreachable!("health returned before authentication"),
+                    RouteKind::Health => health_response(),
                     RouteKind::Models => {
                         let _permit = permit;
                         model_list_response(&proxy)
@@ -194,17 +195,17 @@ fn route_kind(path: &str) -> RouteKind {
     RouteKind::Passthrough
 }
 
-fn operation_name(route: RouteKind, method: &str) -> &'static str {
+fn operation_name(route: RouteKind, method: &str) -> ActivityOperation {
     if method.eq_ignore_ascii_case("OPTIONS") {
-        return "cors_preflight";
+        return ActivityOperation::CorsPreflight;
     }
     match route {
-        RouteKind::Health => "health_check",
-        RouteKind::Models => "list_models",
-        RouteKind::FetchModels => "fetch_available_models",
-        RouteKind::Generate => "generate",
-        RouteKind::StreamGenerate => "stream_generate",
-        RouteKind::Passthrough => "passthrough",
+        RouteKind::Health => ActivityOperation::HealthCheck,
+        RouteKind::Models => ActivityOperation::ListModels,
+        RouteKind::FetchModels => ActivityOperation::FetchAvailableModels,
+        RouteKind::Generate => ActivityOperation::Generate,
+        RouteKind::StreamGenerate => ActivityOperation::StreamGenerate,
+        RouteKind::Passthrough => ActivityOperation::Passthrough,
     }
 }
 
@@ -236,18 +237,18 @@ fn record_http_activity(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
 
-    proxy.record_http_activity(
-        operation_name(route, method),
-        method,
-        path,
+    proxy.record_http_activity(HttpActivity {
+        operation: operation_name(route, method),
+        request_method: method,
+        request_path: path,
         request_body_bytes,
-        response.status().as_u16(),
-        started.elapsed().as_millis() as u64,
+        status_code: response.status().as_u16(),
+        duration_ms: started.elapsed().as_millis() as u64,
         response_body_bytes,
-        metadata.response_summary.as_deref(),
-        metadata.error_category.as_deref(),
-        metadata.error_detail.as_deref(),
-    );
+        response_summary: metadata.response_summary.as_deref(),
+        error_category: metadata.error_category,
+        error_detail: metadata.error_detail.as_deref(),
+    });
 }
 
 fn is_authorized(request: &Request<Incoming>, proxy: &ProxyServer) -> bool {

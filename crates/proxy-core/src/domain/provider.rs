@@ -1,41 +1,28 @@
+use super::serde_helpers::required_nullable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderProtocol {
-    #[serde(alias = "openai")]
     OpenaiChatCompletions,
-    #[serde(alias = "anthropic")]
     AnthropicMessages,
-    #[serde(alias = "gemini")]
     GeminiGenerateContent,
     OpenaiResponses,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ProviderProtocol;
-
-    #[test]
-    fn legacy_protocol_names_deserialize_and_new_names_serialize() {
-        assert_eq!(
-            serde_json::from_str::<ProviderProtocol>(r#""openai""#).unwrap(),
-            ProviderProtocol::OpenaiChatCompletions
-        );
-        assert_eq!(
-            serde_json::to_string(&ProviderProtocol::OpenaiChatCompletions).unwrap(),
-            r#""openai_chat_completions""#
-        );
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct ParameterOverrides {
+    #[serde(deserialize_with = "required_nullable")]
     pub temperature: Option<f32>,
+    #[serde(deserialize_with = "required_nullable")]
     pub max_tokens: Option<u32>,
+    #[serde(deserialize_with = "required_nullable")]
     pub top_p: Option<f32>,
+    #[serde(deserialize_with = "required_nullable")]
     pub top_k: Option<u32>,
+    #[serde(deserialize_with = "required_nullable")]
     pub extra_body: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -86,13 +73,13 @@ impl ParameterOverrides {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Provider {
     pub id: String,
     pub name: String,
     pub protocol: ProviderProtocol,
     pub models_endpoint: String,
     pub generate_endpoint: String,
-    #[serde(default)]
     pub api_key: String,
     pub headers: HashMap<String, String>,
     pub default_parameters: ParameterOverrides,

@@ -1,4 +1,5 @@
 import type { Provider, ProviderProtocol } from "../../types/config";
+import { confirmHostAction } from "../../components/ConfirmModal";
 import { store } from "../../store/appStore";
 import { setProviderEditorDirtyState } from "./providerState";
 import { element } from "../../utils/domUtils";
@@ -6,9 +7,9 @@ import { emptyParameters } from "../../utils/modelUtils";
 import { t } from "../../i18n";
 
 export let editingProviderId: string | null = null;
-export let draftProviderId = `provider-${crypto.randomUUID()}`;
+let draftProviderId = `provider-${crypto.randomUUID()}`;
 
-export interface ProviderFormContext {
+interface ProviderFormContext {
   resetCatalogResults: () => void;
   setProviderEditorDirty: (dirty: boolean) => void;
   invalidatePendingProviderSave: () => void;
@@ -120,7 +121,7 @@ export function resetProviderForm(context: ProviderFormContext): void {
   context.refreshProviderEditorControls();
 }
 
-const PROVIDER_PRESETS: Record<string, { protocol: ProviderProtocol; baseUrl: string }> = {
+const PROVIDER_PRESETS = {
   claude: { protocol: "anthropic_messages", baseUrl: "https://api.anthropic.com" },
   openai: { protocol: "openai_chat_completions", baseUrl: "https://api.openai.com/v1" },
   gemini: { protocol: "gemini_generate_content", baseUrl: "https://generativelanguage.googleapis.com" },
@@ -155,9 +156,13 @@ const PROVIDER_PRESETS: Record<string, { protocol: ProviderProtocol; baseUrl: st
   xunfei: { protocol: "openai_chat_completions", baseUrl: "https://spark-api-open.xf-yun.com/v1" },
   stepfun: { protocol: "openai_chat_completions", baseUrl: "https://api.stepfun.com/v1" },
   custom: { protocol: "openai_chat_completions", baseUrl: "" },
-};
+} satisfies Record<string, { protocol: ProviderProtocol; baseUrl: string }>;
 
-import { confirmHostAction } from "../../components/ConfirmModal";
+type ProviderPresetKey = keyof typeof PROVIDER_PRESETS;
+
+function isProviderPresetKey(value: string): value is ProviderPresetKey {
+  return value in PROVIDER_PRESETS;
+}
 
 export function setupProviderPresets(context: ProviderFormContext): void {
   const presetContainer = document.querySelector<HTMLElement>("#provider-presets");
@@ -167,9 +172,8 @@ export function setupProviderPresets(context: ProviderFormContext): void {
   for (const button of buttons) {
     button.addEventListener("click", async () => {
       const presetKey = button.dataset.preset;
-      if (!presetKey) return;
+      if (!presetKey || !isProviderPresetKey(presetKey)) return;
       const preset = PROVIDER_PRESETS[presetKey];
-      if (!preset) return;
 
       const currentBaseUrl = element<HTMLInputElement>("#provider-base-url").value.trim();
       const currentApiKey = element<HTMLInputElement>("#api-key").value.trim();

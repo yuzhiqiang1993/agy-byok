@@ -5,28 +5,24 @@ mod ownership;
 mod tests;
 
 use crate::error::HostIntegrationError;
-use serde::Serialize;
+use crate::local_endpoint::is_local_proxy_endpoint;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub const IDE_CLOUD_CODE_SETTING: &str = "jetski.cloudCodeUrl";
-pub const IDE_SETTINGS_RECEIPT_FILE: &str = "ide-settings-receipt.json";
-pub const IDE_SETTINGS_BACKUP_FILE: &str = "ide-settings-original.jsonc";
-pub const IDE_SETTING_OWNERSHIP_FILE: &str = "ide-setting-ownership.json";
+pub(super) const IDE_CLOUD_CODE_SETTING: &str = "jetski.cloudCodeUrl";
+pub(super) const IDE_SETTING_OWNERSHIP_FILE: &str = "ide-setting-ownership.json";
 const OWNERSHIP_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdeSettingsState {
     Disabled,
     Managed,
     External,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdeSettingsStatus {
     pub state: IdeSettingsState,
-    pub settings_path: PathBuf,
     pub endpoint_matches: bool,
 }
 
@@ -49,7 +45,6 @@ pub fn inspect_ide_settings(
     )?;
     Ok(IdeSettingsStatus {
         state,
-        settings_path,
         endpoint_matches: configured_endpoint.as_deref() == Some(endpoint),
     })
 }
@@ -69,7 +64,6 @@ pub fn enable_ide_settings(
             configured_setting_state(&settings_path, integration_root, Some(endpoint), endpoint)?;
         return Ok(IdeSettingsStatus {
             state,
-            settings_path,
             endpoint_matches: true,
         });
     }
@@ -78,12 +72,15 @@ pub fn enable_ide_settings(
     let current_trailing_comma = jsonc_editor::settings_trailing_comma(&current_bytes)?;
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
     let previous_ownership = ownership::read_ownership_if_present(&ownership_path, &settings_path)?;
-    let (previous_value, previous_trailing_comma) = match previous_ownership {
+    let (previous_value, previous_trailing_comma) = match previous_ownership.as_ref() {
         Some(ownership)
             if current_value.as_ref().and_then(Value::as_str)
                 == Some(ownership.managed_endpoint.as_str()) =>
         {
-            (ownership.previous_value, ownership.previous_trailing_comma)
+            (
+                ownership.previous_value.clone(),
+                ownership.previous_trailing_comma,
+            )
         }
         _ => (current_value, current_trailing_comma),
     };
@@ -94,10 +91,20 @@ pub fn enable_ide_settings(
         previous_value,
         previous_trailing_comma,
     };
-    atomic_file::write_json_private(&ownership_path, &ownership)?;
     let configured = jsonc_editor::configure_settings(&current_bytes, endpoint)?;
-    atomic_file::write_settings_file(&settings_path, &configured)?;
-    Ok(managed_status(settings_path))
+    atomic_file::write_json_private(&ownership_path, &ownership)?;
+    if let Err(settings_error) = atomic_file::write_settings_file(&settings_path, &configured) {
+        if let Err(recovery_error) =
+            ownership::restore_after_failed_enable(&ownership_path, previous_ownership.as_ref())
+        {
+            return Err(HostIntegrationError::RecoveryFailed {
+                operation: settings_error.to_string(),
+                recovery: recovery_error.to_string(),
+            });
+        }
+        return Err(settings_error);
+    }
+    Ok(managed_status())
 }
 
 pub fn disable_ide_settings(
@@ -109,46 +116,56 @@ pub fn disable_ide_settings(
     let integration_root = integration_root.as_ref();
     atomic_file::validate_integration_root_if_present(integration_root)?;
     let Some(current) = atomic_file::read_optional_regular_file(&settings_path)? else {
-        return Ok(disabled_status(settings_path));
+        return Ok(disabled_status());
     };
     let current_value = jsonc_editor::cloud_code_value(&current)?;
     let Some(configured_endpoint) = current_value.as_ref().and_then(Value::as_str) else {
-        return Ok(disabled_status(settings_path));
+        return Ok(disabled_status());
     };
     let ownership_path = integration_root.join(IDE_SETTING_OWNERSHIP_FILE);
     let ownership = ownership::read_ownership_if_present(&ownership_path, &settings_path)?;
     let ownership = match ownership {
         Some(ownership) if ownership.managed_endpoint == configured_endpoint => ownership,
-        Some(_) => return Ok(disabled_status(settings_path)),
-        None if configured_endpoint == endpoint || is_local_proxy_endpoint(configured_endpoint) => {
-            let updated = jsonc_editor::remove_setting(&current, false)?;
-            atomic_file::write_settings_file(&settings_path, &updated)?;
-            return Ok(disabled_status(settings_path));
+        _ if is_local_proxy_endpoint(configured_endpoint) => {
+            return Ok(external_status(configured_endpoint == endpoint));
         }
-        None => return Ok(disabled_status(settings_path)),
+        _ => return Ok(disabled_status()),
     };
     let updated = match ownership.previous_value.as_ref() {
         Some(previous_value) => jsonc_editor::configure_setting_value(&current, previous_value)?,
         None => jsonc_editor::remove_setting(&current, ownership.previous_trailing_comma)?,
     };
     atomic_file::write_settings_file(&settings_path, &updated)?;
-    atomic_file::remove_regular_file(&ownership_path)?;
-    Ok(disabled_status(settings_path))
+    if let Err(ownership_error) = atomic_file::remove_regular_file(&ownership_path) {
+        if let Err(recovery_error) = atomic_file::write_settings_file(&settings_path, &current) {
+            return Err(HostIntegrationError::RecoveryFailed {
+                operation: ownership_error.to_string(),
+                recovery: recovery_error.to_string(),
+            });
+        }
+        return Err(ownership_error);
+    }
+    Ok(disabled_status())
 }
 
-fn managed_status(settings_path: PathBuf) -> IdeSettingsStatus {
+fn managed_status() -> IdeSettingsStatus {
     IdeSettingsStatus {
         state: IdeSettingsState::Managed,
-        settings_path,
         endpoint_matches: true,
     }
 }
 
-fn disabled_status(settings_path: PathBuf) -> IdeSettingsStatus {
+fn disabled_status() -> IdeSettingsStatus {
     IdeSettingsStatus {
         state: IdeSettingsState::Disabled,
-        settings_path,
         endpoint_matches: false,
+    }
+}
+
+fn external_status(endpoint_matches: bool) -> IdeSettingsStatus {
+    IdeSettingsStatus {
+        state: IdeSettingsState::External,
+        endpoint_matches,
     }
 }
 
@@ -170,24 +187,11 @@ fn configured_setting_state(
     {
         return Ok(IdeSettingsState::Managed);
     }
-    if ownership.is_some() {
-        return Ok(IdeSettingsState::Disabled);
-    }
     if configured_endpoint == current_endpoint || is_local_proxy_endpoint(configured_endpoint) {
         Ok(IdeSettingsState::External)
     } else {
         Ok(IdeSettingsState::Disabled)
     }
-}
-
-fn is_local_proxy_endpoint(endpoint: &str) -> bool {
-    let Some(port) = endpoint.strip_prefix("http://127.0.0.1:") else {
-        return false;
-    };
-    let port = port.strip_suffix('/').unwrap_or(port);
-    !port.is_empty()
-        && port.chars().all(|character| character.is_ascii_digit())
-        && port.parse::<u16>().map(|value| value > 0).unwrap_or(false)
 }
 
 fn settings_conflict(message: impl Into<String>) -> HostIntegrationError {

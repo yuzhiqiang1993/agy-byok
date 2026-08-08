@@ -14,6 +14,8 @@ export const hostService = {
   enableCliIntegration: () => invoke<CliStatus>("enable_cli_integration"),
   disableCliIntegration: () => invoke<CliStatus>("disable_cli_integration"),
   openPath: (path: string) => invoke<void>("open_path", { path }),
+  getConfigPath: () => invoke<string>("get_config_path"),
+  setNativeLocale: (locale: string) => invoke<void>("set_native_locale", { locale }),
   openConfigDir: () => invoke<void>("open_config_dir"),
   openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
 };

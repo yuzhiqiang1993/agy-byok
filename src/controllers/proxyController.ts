@@ -2,17 +2,6 @@ import type { ProxyStatus } from "../types/proxy";
 import { proxyService } from "../services/proxyService";
 import { store } from "../store/appStore";
 
-export async function refreshProxy(): Promise<ProxyStatus> {
-  try {
-    const status = await proxyService.getStatus();
-    store.setProxyStatus(status);
-    return status;
-  } catch (error) {
-    store.setProxyStatusFailed();
-    throw error;
-  }
-}
-
 export async function startProxy(): Promise<ProxyStatus> {
   const status = await proxyService.start();
   store.setProxyStatus(status);

@@ -9,8 +9,24 @@ export interface ProxyStatus {
 export interface ModelConnectionTestResult {
   success: boolean;
   durationMs: number;
-  message: string;
+  errorCategory: ModelConnectionErrorCategory | null;
+  statusCode: number | null;
 }
+
+export type ProxyErrorCategory =
+  | "authentication"
+  | "invalid_request"
+  | "context_length_exceeded"
+  | "rate_limit"
+  | "model_not_found"
+  | "upstream_server_error"
+  | "timeout"
+  | "connection_failed"
+  | "stream_interrupted"
+  | "unsupported_feature"
+  | "internal";
+
+export type ModelConnectionErrorCategory = ProxyErrorCategory | "invalid_configuration";
 
 export type ModelConnectionTestOutcome =
   | { kind: "result"; result: ModelConnectionTestResult }
@@ -19,7 +35,7 @@ export type ModelConnectionTestOutcome =
 export type ConnectionTestViewState =
   | { status: "testing" }
   | { status: "success"; durationMs: number }
-  | { status: "error"; message: string };
+  | { status: "error"; error: ModelConnectionTestResult | string };
 
 export interface ProviderTestSession {
   targetVirtualModelIds: string[];
@@ -32,7 +48,7 @@ export interface ProviderChangeSummary {
   addedVirtualModels: VirtualModel[];
   removedVirtualModels: VirtualModel[];
   retainedVirtualCount: number;
-  legacyModelIds: string[];
+  unavailableModelIds: string[];
   fallbackBlockers: Array<{
     source: string;
     fallback: string;

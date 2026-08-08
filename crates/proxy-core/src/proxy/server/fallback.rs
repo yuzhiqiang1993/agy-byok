@@ -1,5 +1,5 @@
 use super::activity_recorder::ActivityOutcome;
-use super::execution::{CallbackFrameSink, EncodedFrameSink, StringFrameSink};
+use super::execution::{EncodedFrameSink, StringFrameSink};
 use super::ProxyServer;
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
@@ -67,17 +67,17 @@ impl ProxyServer {
                 route.final_parameters.max_tokens = Some(budget_tokens.saturating_add(1));
             }
         }
-        route.provider.request_timeout_ms = match route.provider.request_timeout_ms {
-            0 => CONNECTION_TEST_TIMEOUT_MS,
-            configured => configured.min(CONNECTION_TEST_TIMEOUT_MS),
-        };
+        route.provider.request_timeout_ms = route
+            .provider
+            .request_timeout_ms
+            .min(CONNECTION_TEST_TIMEOUT_MS);
 
         self.execute_route(&route, &request).await?;
         Ok(())
     }
 
     /// 处理单个中立聊天请求，包含 Adapter 转译、网络发送与备用路由降级
-    pub async fn handle_chat_request(
+    pub(crate) async fn handle_chat_request(
         &self,
         request: &NeutralChatRequest,
     ) -> Result<String, ProxyError> {
@@ -188,18 +188,6 @@ impl ProxyServer {
                 Err(primary_error)
             }
         }
-    }
-
-    pub async fn handle_chat_stream<F>(
-        &self,
-        request: &NeutralChatRequest,
-        on_frame: F,
-    ) -> Result<(), ProxyError>
-    where
-        F: FnMut(String) -> Result<(), ProxyError> + Send,
-    {
-        let mut frame_sink = CallbackFrameSink { callback: on_frame };
-        self.handle_chat_stream_to(request, &mut frame_sink).await
     }
 
     pub(crate) async fn handle_chat_stream_to(

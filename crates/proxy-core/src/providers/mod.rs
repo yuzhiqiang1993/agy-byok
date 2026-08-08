@@ -1,22 +1,22 @@
-pub mod anthropic;
-pub mod catalog;
+pub(crate) mod anthropic;
+pub(crate) mod catalog;
 mod error;
-pub mod gemini;
-pub mod openai;
-pub mod openai_responses;
-pub mod traits;
+pub(crate) mod gemini;
+pub(crate) mod openai;
+pub(crate) mod openai_responses;
+pub(crate) mod traits;
 
-pub use anthropic::AnthropicAdapter;
+pub(crate) use anthropic::AnthropicAdapter;
 pub use catalog::{fetch_provider_models, ProviderCatalogModel};
-pub use gemini::GeminiAdapter;
-pub use openai::OpenAIAdapter;
-pub use openai_responses::OpenAIResponsesAdapter;
-pub use traits::{ProviderAdapter, ProviderStreamDecoder};
+pub(crate) use gemini::GeminiAdapter;
+pub(crate) use openai::OpenAIAdapter;
+pub(crate) use openai_responses::OpenAIResponsesAdapter;
+pub(crate) use traits::{ProviderAdapter, ProviderStreamDecoder};
 
 use crate::domain::ProviderProtocol;
 use std::sync::Arc;
 
-pub fn get_adapter(protocol: &ProviderProtocol) -> Arc<dyn ProviderAdapter> {
+pub(crate) fn get_adapter(protocol: &ProviderProtocol) -> Arc<dyn ProviderAdapter> {
     match protocol {
         ProviderProtocol::OpenaiChatCompletions => Arc::new(OpenAIAdapter::new()),
         ProviderProtocol::AnthropicMessages => Arc::new(AnthropicAdapter::new()),

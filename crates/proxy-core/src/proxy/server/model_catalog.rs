@@ -3,7 +3,7 @@ use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::ReasoningLevel;
 
 impl ProxyServer {
-    pub fn is_custom_model_id(&self, model_id: &str) -> bool {
+    pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
         self.config_store
             .get_config()
             .virtual_models
@@ -17,7 +17,7 @@ impl ProxyServer {
     }
 
     /// 注入并融合包含自定义虚拟模型的模型列表描述 JSON
-    pub fn handle_model_list(&self, mut base_json: serde_json::Value) -> serde_json::Value {
+    pub(crate) fn handle_model_list(&self, mut base_json: serde_json::Value) -> serde_json::Value {
         let config = self.config_store.get_config();
         let catalog_virtual_models = config
             .virtual_models
@@ -81,11 +81,8 @@ pub(super) fn configured_model_display_name(
     provider_name: &str,
     supports_reasoning: bool,
 ) -> String {
-    let legacy_suffix = format!(" · {provider_name}");
     let provider_suffix = format!("({provider_name})");
-    let mut base_name = model_name
-        .strip_suffix(&legacy_suffix)
-        .unwrap_or(model_name);
+    let mut base_name = model_name;
     for known_reasoning in [
         "default", "off", "low", "medium", "high", "xhigh", "max", "auto",
     ] {

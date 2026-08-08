@@ -1,0 +1,266 @@
+/* Custom Select */
+.custom-select {
+  padding: 7px 32px 7px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-inner);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+/* Theme Segmented Control */
+.theme-segmented-ctrl {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-inner);
+  border: 1px solid var(--surface-border);
+}
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.theme-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Port Input Box */
+.port-input-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.port-input-box input {
+  width: 96px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-inner);
+  color: var(--text-main);
+  font-size: 13.5px;
+  font-weight: 650;
+  font-family: inherit;
+  text-align: center;
+  letter-spacing: 0.02em;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  transition: all 160ms ease;
+}
+
+.port-input-box input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
+}
+
+.port-input-box input::-webkit-outer-spin-button,
+.port-input-box input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.port-input-box button {
+  height: 36px;
+  min-width: 72px;
+  padding: 0 20px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+  transition: all 160ms ease;
+  flex-shrink: 0;
+}
+
+.port-input-box button:hover:not(:disabled) {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.port-input-box button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.port-input-box button:disabled {
+  background: var(--surface-inner);
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
+  box-shadow: none;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Dark mode adjustments */
+html[data-theme="dark"] .settings-nav-sidebar,
+html[data-theme="dark"] .settings-row,
+html[data-theme="dark"] .about-action-card,
+html[data-theme="dark"] .about-update-card {
+  background: rgba(15, 23, 42, 0.75);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .about-hero-card {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.25), rgba(15, 23, 42, 0.8));
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+/* Color Badge Schemes */
+.settings-row-icon.icon-blue {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+.settings-row-icon.icon-purple {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+.settings-row-icon.icon-cyan {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0ea5e9;
+}
+.settings-row-icon.icon-emerald {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+.settings-row-icon.icon-violet {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+}
+.settings-row-icon.icon-rose {
+  background: rgba(244, 63, 94, 0.1);
+  color: #f43f5e;
+}
+
+html[data-theme="dark"] .settings-row-icon.icon-blue {
+  background: rgba(37, 99, 235, 0.2);
+  color: #60a5fa;
+}
+html[data-theme="dark"] .settings-row-icon.icon-purple {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+html[data-theme="dark"] .settings-row-icon.icon-cyan {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+html[data-theme="dark"] .settings-row-icon.icon-emerald {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+html[data-theme="dark"] .settings-row-icon.icon-violet {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c084fc;
+}
+html[data-theme="dark"] .settings-row-icon.icon-rose {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+}
+
+/* Nav Item Micro Interactions */
+.settings-nav-item {
+  position: relative;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.settings-nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+.settings-nav-item:hover {
+  transform: translateX(2px);
+}
+
+/* Focus and input polish */
+.port-input-box input:focus,
+.custom-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+@media (max-width: 1180px) {
+  .compression-model-card-head {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 860px) {
+  .settings-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compression-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .official-compression-card {
+    padding: 18px;
+  }
+
+  .compression-model-card {
+    padding: 14px;
+  }
+
+  .compression-parameters {
+    padding: 12px;
+  }
+
+  .compression-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compression-footer-actions {
+    width: 100%;
+  }
+
+  .compression-footer-actions .primary,
+  .compression-footer-actions .secondary {
+    flex: 1 1 auto;
+  }
+
+}

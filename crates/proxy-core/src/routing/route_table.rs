@@ -1,8 +1,7 @@
 use crate::domain::{
-    ErrorCategory, NeutralChatRequest, ParameterOverrides, Provider, ProxyError, ReasoningLevel,
-    UpstreamModel, VirtualModel,
+    AppConfig, ErrorCategory, NeutralChatRequest, ParameterOverrides, Provider, ProxyError,
+    ReasoningLevel, UpstreamModel, VirtualModel,
 };
-use crate::storage::AppConfig;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,6 @@
 use super::types::{HttpActivityMetadata, HttpResponse};
 use crate::domain::ProxyError;
+use crate::proxy::activity::ActivityErrorCategory;
 use crate::proxy::server::ProxyServer;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -119,17 +120,25 @@ pub(super) fn with_response_summary(
 pub(super) fn proxy_error_response(error: &ProxyError) -> HttpResponse {
     let status =
         StatusCode::from_u16(error.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    error_response(status, &error.message, &format!("{:?}", error.category))
+    error_response(
+        status,
+        &error.message,
+        ActivityErrorCategory::from(&error.category),
+    )
 }
 
-pub(super) fn error_response(status: StatusCode, message: &str, category: &str) -> HttpResponse {
+pub(super) fn error_response(
+    status: StatusCode,
+    message: &str,
+    category: ActivityErrorCategory,
+) -> HttpResponse {
     let mut response = full_response(
         status,
         "application/json",
         json!({
             "error": {
                 "code": status.as_u16(),
-                "category": category,
+                "category": category.as_str(),
                 "message": message
             }
         })
@@ -137,7 +146,7 @@ pub(super) fn error_response(status: StatusCode, message: &str, category: &str) 
     );
     response.extensions_mut().insert(HttpActivityMetadata {
         response_summary: None,
-        error_category: Some(category.to_string()),
+        error_category: Some(category),
         error_detail: Some(message.to_string()),
     });
     response

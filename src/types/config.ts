@@ -1,6 +1,7 @@
 import type { ReasoningLevel, ReasoningMapping } from "./reasoning";
 
 export const DEFAULT_PROXY_PORT = 12345;
+export const MIN_PROXY_PORT = 1024;
 
 export type ProviderProtocol =
   | "openai_chat_completions"
@@ -16,15 +17,15 @@ export interface ParameterOverrides {
   extra_body: Record<string, unknown> | null;
 }
 
-export type TokenLimitSource = "catalog" | "configured" | "estimated" | "unknown";
+type TokenLimitSource = "catalog" | "configured" | "estimated" | "unknown";
 
 export interface ModelTokenLimits {
   context_window: number | null;
-  context_window_source?: TokenLimitSource;
+  context_window_source: TokenLimitSource;
   input_token_limit: number | null;
-  input_token_limit_source?: TokenLimitSource;
+  input_token_limit_source: TokenLimitSource;
   output_token_limit: number | null;
-  output_token_limit_source?: TokenLimitSource;
+  output_token_limit_source: TokenLimitSource;
 }
 
 export type ModelCheckpointOverride =
@@ -39,21 +40,14 @@ export type ModelCheckpointOverride =
       max_output_tokens: number;
     };
 
-export type TiktokenEncoding = "cl100k_base" | "o200k_base";
+type TiktokenEncoding = "cl100k_base" | "o200k_base";
 
-export interface TokenizerConfig {
+interface TokenizerConfig {
   kind: "tiktoken";
   encoding: TiktokenEncoding;
 }
 
 export type OfficialCompressionProfile =
-  | "official"
-  | "safe"
-  | "balanced"
-  | "aggressive"
-  | "custom";
-
-export type ClaudeCompressionProfile =
   | "official"
   | "safe"
   | "balanced"
@@ -66,19 +60,26 @@ export type CustomModelCompressionProfile =
   | "aggressive"
   | "custom";
 
+export interface CompressionPercentages {
+  token_threshold: number;
+  max_token_limit: number;
+  max_output_tokens: number;
+}
+
+interface OfficialCompressionSettings {
+  profile: OfficialCompressionProfile;
+  percentages: CompressionPercentages;
+}
+
+interface CustomModelCompressionSettings {
+  profile: CustomModelCompressionProfile;
+  percentages: CompressionPercentages;
+}
+
 export interface OfficialModelSettings {
-  gemini_compression_profile: OfficialCompressionProfile;
-  gemini_token_threshold_percent: number;
-  gemini_max_token_limit_percent: number;
-  gemini_max_output_tokens_percent: number;
-  claude_compression_profile: ClaudeCompressionProfile;
-  claude_token_threshold_percent: number;
-  claude_max_token_limit_percent: number;
-  claude_max_output_tokens_percent: number;
-  custom_model_compression_profile: CustomModelCompressionProfile;
-  custom_model_token_threshold_percent: number;
-  custom_model_max_token_limit_percent: number;
-  custom_model_max_output_tokens_percent: number;
+  gemini: OfficialCompressionSettings;
+  claude: OfficialCompressionSettings;
+  custom_model: CustomModelCompressionSettings;
 }
 
 export interface Provider {

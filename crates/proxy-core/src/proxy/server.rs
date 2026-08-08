@@ -14,17 +14,13 @@ use std::time::Duration;
 use super::activity::ActivityLog;
 use super::auth::AuthManager;
 
+pub(crate) use activity_recorder::HttpActivity;
 pub(crate) use execution::EncodedFrameSink;
 
 #[cfg(test)]
-use crate::domain::{ErrorCategory, ProxyError, ReasoningLevel};
+use crate::domain::ReasoningLevel;
 #[cfg(test)]
 use client_pool::MAX_PROVIDER_HTTP_CLIENTS;
-#[cfg(test)]
-use execution::{
-    effective_provider_connect_timeout_ms, effective_provider_request_timeout_ms,
-    DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS, DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS,
-};
 #[cfg(test)]
 use model_catalog::configured_model_display_name;
 
@@ -62,15 +58,16 @@ impl ProxyServer {
         }
     }
 
-    pub fn port(&self) -> u16 {
+    pub(crate) fn port(&self) -> u16 {
         self.port
     }
 
-    pub fn auth_manager(&self) -> &AuthManager {
+    pub(crate) fn auth_manager(&self) -> &AuthManager {
         &self.auth_manager
     }
 
-    pub fn activity_log(&self) -> Arc<ActivityLog> {
+    #[cfg(test)]
+    pub(crate) fn activity_log(&self) -> Arc<ActivityLog> {
         self.activity_log.clone()
     }
 }
@@ -115,40 +112,6 @@ mod tests {
         assert_eq!(
             configured_model_display_name("GPT Test high(Provider A)", None, "Provider A", false),
             "GPT Test(Provider A)"
-        );
-    }
-
-    #[test]
-    fn upstream_error_detail_keeps_diagnostics_and_redacts_credentials() {
-        let error = ProxyError::new(ErrorCategory::InvalidRequest, "rejected", 400)
-            .with_upstream_body(
-                r#"{"error":{"message":"Invalid schema; token sk-secret-value Bearer secret-token","type":"invalid_request_error","param":"tools[0].parameters","code":"invalid_function_parameters"}}"#,
-            );
-
-        let detail = ProxyServer::sanitized_upstream_error(&error).unwrap();
-
-        assert!(detail.contains("Invalid schema"));
-        assert!(detail.contains("param=tools[0].parameters"));
-        assert!(detail.contains("code=invalid_function_parameters"));
-        assert!(!detail.contains("sk-secret-value"));
-        assert!(!detail.contains("secret-token"));
-        assert!(detail.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn provider_timeouts_use_defaults_and_cap_connect_timeout() {
-        assert_eq!(
-            effective_provider_request_timeout_ms(0),
-            DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS
-        );
-        assert_eq!(effective_provider_request_timeout_ms(12_000), 12_000);
-        assert_eq!(
-            effective_provider_connect_timeout_ms(0, 60_000),
-            DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
-        );
-        assert_eq!(
-            effective_provider_connect_timeout_ms(15_000, 10_000),
-            10_000
         );
     }
 

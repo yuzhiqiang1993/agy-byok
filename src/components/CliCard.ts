@@ -1,16 +1,14 @@
 import type { CliStatus } from "../types/host";
-import { element, setButtonUnavailable, withClientBusy, withBusy } from "../utils/domUtils";
+import { element, setButtonUnavailable } from "../utils/domUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
-import { showNotice } from "./NoticeBar";
-import { confirmHostAction } from "./ConfirmModal";
 import {
   disableCliIntegration,
   enableCliIntegration,
   refreshCli,
 } from "../controllers/hostController";
 import { store } from "../store/appStore";
-import { switchTab } from "./TabManager";
 import { t } from "../i18n";
+import { setupHostIntegrationActions } from "./host/HostIntegrationActions";
 
 export function renderCli(status: CliStatus): void {
   const state = element<HTMLSpanElement>("#cli-state");
@@ -27,7 +25,6 @@ export function renderCli(status: CliStatus): void {
   integrationDetail.textContent = clientStatusMessage(
     status.integrationState,
     status.configurationState,
-    status.configurationMessage,
     "cli",
   );
 
@@ -36,8 +33,10 @@ export function renderCli(status: CliStatus): void {
 
   const needsReconfiguration = visibleIntegrationState === "mismatch"
     || status.configurationState === "needs_update";
-  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
-    && !needsReconfiguration;
+  const isManagedAndNormal = (
+    status.integrationState === "managed"
+      || (status.integrationState === "external" && !status.canEnableIntegration)
+  ) && !needsReconfiguration;
 
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableCliBtn.hidden = !showEnableOrUpdateButton;
@@ -46,7 +45,7 @@ export function renderCli(status: CliStatus): void {
   disableCliBtn.hidden = !status.canDisableIntegration;
   disableCliBtn.textContent = t("overview.disableIntegration");
 
-  const modelCount = store.config?.virtual_models.length ?? 0;
+  const modelCount = store.config.virtual_models.length;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
   enableCliBtn.title = modelCount === 0
     ? t("overview.hostModelsRequired", { count: 1 })
@@ -72,78 +71,15 @@ export function renderCliLoadFailure(message: string): void {
 }
 
 export function setupCliCard(): void {
-  const enableCliButton = element<HTMLButtonElement>("#enable-cli-integration");
-  const disableCliButton = element<HTMLButtonElement>("#disable-cli-integration");
-
-  enableCliButton.addEventListener("click", () => {
-    void (async () => {
-      const modelCount = store.config?.virtual_models.length ?? 0;
-      if (modelCount === 0) {
-        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
-        void switchTab("tab-models");
-        return;
-      }
-
-      const current = store.cliStatus;
-      const needsReconfiguration = current?.integrationState === "mismatch"
-        || current?.configurationState === "needs_update";
-      const alreadyEnabled = current?.integrationState === "managed" && !needsReconfiguration;
-      const status = await withClientBusy(enableCliButton, "cli", async () => {
-        const confirmMsg = needsReconfiguration
-          ? t("overview.cliUpdateConfirm")
-          : alreadyEnabled
-            ? t("overview.cliAlreadyEnabledConfirm")
-            : t("overview.cliEnableConfirm");
-        const confirmTitle = needsReconfiguration ? t("overview.hostUpdateTitle") : t("overview.hostEnableTitle");
-        const confirmOk = needsReconfiguration ? t("overview.hostUpdateOk") : t("overview.hostEnableOk");
-        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, t("overview.hostCancel"))) return null;
-
-        showNotice(t(needsReconfiguration ? "overview.hostUpdating" : "overview.hostEnabling", { client: t("overview.clientCli") }));
-        return enableCliIntegration();
-      });
-      if (status === null) return;
-      if (status) {
-        renderCli(status);
-        showNotice(alreadyEnabled && status.integrationState === "managed"
-          ? t("overview.cliAlreadyEnabled")
-          : needsReconfiguration
-            ? t("overview.cliUpdated")
-            : t("overview.cliEnabled"));
-      } else if (store.cliStatus) {
-        try {
-          await refreshCli();
-        } catch {
-          // withClientBusy already reported operation error
-        }
-      }
-    })();
-  });
-  
-  disableCliButton.addEventListener("click", () => {
-    void (async () => {
-      const status = await withClientBusy(disableCliButton, "cli", async () => {
-        const confirmMsg = t("overview.cliRestoreConfirm");
-        if (!await confirmHostAction(confirmMsg, t("overview.hostRestoreTitle"), t("overview.hostRestoreOk"), t("overview.hostCancel"))) return null;
-
-        showNotice(t("overview.hostRestoring", { client: t("overview.clientCli") }));
-        return disableCliIntegration();
-      });
-      if (status === null) return;
-      if (status) {
-        renderCli(status);
-        showNotice(t("overview.cliRestored"));
-      } else if (store.cliStatus) {
-        try {
-          await refreshCli();
-        } catch {
-          // withClientBusy already reported operation error
-        }
-      }
-    })();
-  });
-  
-  element<HTMLButtonElement>("#refresh-cli").addEventListener("click", (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    void withBusy(button, refreshCli);
+  setupHostIntegrationActions({
+    client: "cli",
+    messages: "cli",
+    getCurrentStatus: () => store.cliStatus,
+    isRunning: () => false,
+    enable: enableCliIntegration,
+    disable: disableCliIntegration,
+    refresh: refreshCli,
+    render: renderCli,
+    integrationRemainsActiveAfterDisable: (status) => status.integrationState === "external",
   });
 }

@@ -1,8 +1,8 @@
 import type { IdeStatus } from "../types/host";
-import { element, setButtonUnavailable, withClientBusy, errorMessage, withBusy } from "../utils/domUtils";
+import { element, setButtonUnavailable } from "../utils/domUtils";
+import { errorMessage } from "../utils/errorUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
 import { showNotice } from "./NoticeBar";
-import { confirmHostAction } from "./ConfirmModal";
 import {
   disableIdeIntegration,
   enableIdeIntegration,
@@ -11,8 +11,8 @@ import {
   openPath,
 } from "../controllers/hostController";
 import { store } from "../store/appStore";
-import { switchTab } from "./TabManager";
 import { t } from "../i18n";
+import { setupHostIntegrationActions } from "./host/HostIntegrationActions";
 
 export function renderIde(status: IdeStatus): void {
   const state = element<HTMLSpanElement>("#ide-state");
@@ -36,7 +36,6 @@ export function renderIde(status: IdeStatus): void {
   integrationDetail.textContent = clientStatusMessage(
     status.integrationState,
     status.configurationState,
-    status.configurationMessage,
     "ide",
   );
 
@@ -57,7 +56,7 @@ export function renderIde(status: IdeStatus): void {
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
   disableIdeIntegrationButton.textContent = t("overview.disableIntegration");
 
-  const modelCount = store.config?.virtual_models.length ?? 0;
+  const modelCount = store.config.virtual_models.length;
   const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
   enableIdeIntegrationButton.title = modelCount === 0
     ? t("overview.hostModelsRequired", { count: 1 })
@@ -84,104 +83,16 @@ export function renderIdeLoadFailure(message: string): void {
 }
 
 export function setupIdeCard(): void {
-  const enableIdeIntegrationButton = element<HTMLButtonElement>("#enable-ide-integration");
-  const launchIdeButton = element<HTMLButtonElement>("#launch-ide");
-  const disableIdeIntegrationButton = element<HTMLButtonElement>("#disable-ide-integration");
-
-  enableIdeIntegrationButton.addEventListener("click", () => {
-    void (async () => {
-      const modelCount = store.config?.virtual_models.length ?? 0;
-      if (modelCount === 0) {
-        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
-        void switchTab("tab-models");
-        return;
-      }
-
-      const current = store.ideStatus;
-      const isRunning = current?.ideRunning ?? false;
-      const needsReconfiguration = current?.integrationState === "mismatch"
-        || current?.configurationState === "needs_update";
-      const alreadyEnabled = current?.integrationState === "managed" && !needsReconfiguration;
-      const status = await withClientBusy(enableIdeIntegrationButton, "ide", async () => {
-        const confirmMsg = needsReconfiguration
-          ? isRunning
-            ? t("overview.hostUpdateConfirmRunning", { client: t("overview.clientIde") })
-            : t("overview.hostUpdateConfirmStopped", { client: t("overview.clientIde") })
-          : alreadyEnabled
-            ? t("overview.hostAlreadyEnabledConfirm", { client: t("overview.clientIde") })
-            : isRunning
-              ? t("overview.hostEnableConfirmRunning", { client: t("overview.clientIde") })
-              : t("overview.hostEnableConfirmStopped", { client: t("overview.clientIde") });
-        const confirmTitle = needsReconfiguration ? t("overview.hostUpdateTitle") : t("overview.hostEnableTitle");
-        const confirmOk = needsReconfiguration ? t("overview.hostUpdateOk") : t("overview.hostEnableOk");
-        if (!await confirmHostAction(confirmMsg, confirmTitle, confirmOk, t("overview.hostCancel"))) return null;
-
-        showNotice(t(needsReconfiguration ? "overview.hostUpdating" : "overview.hostEnabling", { client: t("overview.clientIde") }));
-        return enableIdeIntegration();
-      });
-      if (status === null) return;
-      if (status) {
-        renderIde(status);
-        const stillEnabled = status.integrationState === "managed"
-          && status.configurationState !== "needs_update";
-        showNotice(alreadyEnabled && stillEnabled
-          ? t("overview.hostAlreadyEnabled", { client: t("overview.clientIde") })
-          : needsReconfiguration
-            ? status.ideRunning
-              ? t("overview.hostUpdatedRunning", { client: t("overview.clientIde") })
-              : t("overview.hostUpdatedStopped", { client: t("overview.clientIde") })
-            : status.ideRunning
-              ? t("overview.hostEnabledRunning", { client: t("overview.clientIde") })
-              : t("overview.hostEnabledStopped", { client: t("overview.clientIde") }));
-      } else if (store.ideStatus) {
-        try {
-          await refreshIde();
-        } catch {
-          // withClientBusy already reported the operation error.
-        }
-      }
-    })();
-  });
-  
-  launchIdeButton.addEventListener("click", () => {
-    void withClientBusy(launchIdeButton, "ide", async () => {
-      await launchIde();
-      showNotice(t("overview.hostLaunched", { client: t("overview.clientIde") }));
-      window.setTimeout(() => void refreshIde().catch(() => undefined), 700);
-    }, t("overview.hostLaunching", { client: t("overview.clientIde") }));
-  });
-  
-  disableIdeIntegrationButton.addEventListener("click", () => {
-    void (async () => {
-      const status = await withClientBusy(disableIdeIntegrationButton, "ide", async () => {
-        const isRunning = store.ideStatus?.ideRunning ?? false;
-        const confirmMsg = isRunning
-          ? t("overview.hostRestoreConfirmRunning", { client: t("overview.clientIde") })
-          : t("overview.hostRestoreConfirmStopped", { client: t("overview.clientIde") });
-        if (!await confirmHostAction(confirmMsg, t("overview.hostRestoreTitle"), t("overview.hostRestoreOk"), t("overview.hostCancel"))) return null;
-  
-        showNotice(t("overview.hostRestoring", { client: t("overview.clientIde") }));
-        return disableIdeIntegration();
-      });
-      if (status === null) return;
-      if (status) {
-        renderIde(status);
-        showNotice(status.ideRunning
-          ? t("overview.hostRestoredRunning", { client: t("overview.clientIde") })
-          : t("overview.hostRestoredStopped", { client: t("overview.clientIde") }));
-      } else if (store.ideStatus) {
-        try {
-          await refreshIde();
-        } catch {
-          // withClientBusy already reported the operation error.
-        }
-      }
-    })();
-  });
-
-  element<HTMLButtonElement>("#refresh-ide").addEventListener("click", (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    void withBusy(button, refreshIde);
+  setupHostIntegrationActions({
+    client: "ide",
+    messages: "desktop",
+    getCurrentStatus: () => store.ideStatus,
+    isRunning: (status) => status?.ideRunning ?? false,
+    enable: enableIdeIntegration,
+    disable: disableIdeIntegration,
+    refresh: refreshIde,
+    render: renderIde,
+    launch: launchIde,
   });
 
   const openIdeSettingsBtn = document.querySelector("#open-ide-settings");

@@ -1,6 +1,6 @@
 import type { ReasoningLevel, ReasoningMapping } from "./reasoning";
 
-export interface ProviderCatalogReasoning {
+interface ProviderCatalogReasoning {
   supported?: boolean;
   levels?: ReasoningLevel[];
   mappings?: Partial<Record<ReasoningLevel, ReasoningMapping>>;

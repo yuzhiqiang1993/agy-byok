@@ -24,10 +24,10 @@ dependencies = [
  "tiktoken-rs",
  "tokio",
  "tokio-stream",
- "tokio-test",
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -38,6 +38,7 @@ dependencies = [
  "host-integration",
  "serde",
  "serde_json",
+ "sys-locale",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -48,6 +49,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1626,12 +1628,12 @@ name = "host-integration"
 version = "1.0.2"
 dependencies = [
  "json5",
- "plist",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror 2.0.19",
+ "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3862,6 +3864,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sys-locale"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "system-configuration"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4506,17 +4517,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

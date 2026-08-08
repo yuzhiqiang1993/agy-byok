@@ -18,6 +18,7 @@ impl AuthManager {
         }
     }
 
+    #[cfg(test)]
     pub fn get_token(&self) -> &str {
         &self.token
     }

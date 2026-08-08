@@ -12,9 +12,10 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
-    "dialog:default",
+    "dialog:allow-message",
     "window-state:default",
-    "process:default",
-    "updater:default"
+    "process:allow-restart",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }

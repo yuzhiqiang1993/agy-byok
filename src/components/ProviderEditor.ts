@@ -1,8 +1,4 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { Provider, ProviderProtocol } from "../types/config";
-import type { ModelConnectionTestResult } from "../types/proxy";
-import type { ReasoningLevel } from "../types/reasoning";
-import { store } from "../store/appStore";
 import {
   isProviderEditorDirty as getProviderEditorDirty,
   setProviderEditorDirtyState,
@@ -11,41 +7,19 @@ import { element, withBusy } from "../utils/domUtils";
 import { showNotice } from "./NoticeBar";
 import * as providerCatalog from "../features/providers/providerCatalog";
 import * as providerForm from "../features/providers/providerForm";
-import { testProviderModelConnection as testProviderModelConnectionImpl } from "../features/providers/providerTesting";
 import * as providerSave from "../features/providers/providerSave";
-import { closeReasoningModal } from "./ReasoningModal";
-import { t, subscribeLanguage } from "../i18n";
-
-export {
-  editingProviderId,
-  draftProviderId,
-} from "../features/providers/providerForm";
-export {
-  catalogModels,
-  selectedCatalogModelIds,
-  catalogReasoningLevelsByModel,
-  catalogCustomReasoningByModel,
-  catalogVisionEnabledModelIds,
-  catalogToolsEnabledModelIds,
-  catalogReasoningEnabledModelIds,
-  changedCatalogCapabilityModelIds,
-  changedCatalogReasoningModelIds,
-  legacyCatalogModelIds,
-} from "../features/providers/providerCatalog";
+import { t } from "../i18n";
+import { setupProviderEditorBindings } from "./providerEditor/ProviderEditorBindings";
 
 let providerEditorBusy = false;
 let providerEditorReturnFocus: HTMLElement | null = null;
 
-export function isProviderEditorDirty(): boolean {
-  return getProviderEditorDirty();
-}
-
-export function invalidatePendingProviderSave(): void {
+function invalidatePendingProviderSave(): void {
   providerSave.invalidatePendingProviderSave();
 }
 
 function refreshProviderEditorControls(): void {
-  const hasSelection = providerCatalog.selectedCatalogModelIds.size > 0;
+  const hasSelection = providerCatalog.getProviderCatalogState().selectedCatalogModelIds.size > 0;
   const saveProviderButton = element<HTMLButtonElement>("#save-provider");
   const cancelProviderButton = element<HTMLButtonElement>("#cancel-provider");
   const pendingProviderSavePlan = providerSave.getPendingProviderSavePlan();
@@ -58,7 +32,7 @@ function refreshProviderEditorControls(): void {
   }
 }
 
-export function setProviderEditorDirty(dirty: boolean): void {
+function setProviderEditorDirty(dirty: boolean): void {
   setProviderEditorDirtyState(dirty);
   element<HTMLElement>("#provider-editor-dirty").hidden = !dirty;
   if (dirty) invalidatePendingProviderSave();
@@ -77,7 +51,7 @@ function setProviderEditorBusy(busy: boolean): void {
   refreshProviderEditorControls();
 }
 
-export async function withProviderEditorBusy(
+async function withProviderEditorBusy(
   button: HTMLButtonElement,
   action: () => Promise<void>,
   busyLabel = t("models.processing"),
@@ -85,7 +59,7 @@ export async function withProviderEditorBusy(
   if (providerEditorBusy) return;
   setProviderEditorBusy(true);
   try {
-    await withBusy(button, action, busyLabel);
+    await withBusy(button, action, showNotice, busyLabel);
   } finally {
     setProviderEditorBusy(false);
   }
@@ -103,14 +77,6 @@ export async function confirmDiscardProviderChanges(): Promise<boolean> {
     console.error("Native confirm dialog failed:", error);
     return window.confirm(t("models.discardChanges"));
   }
-}
-
-export function selectedProtocol(): ProviderProtocol {
-  return providerForm.selectedProtocol();
-}
-
-export function providerFromForm(): Provider {
-  return providerForm.providerFromForm();
 }
 
 function createProviderCatalogContext(): providerCatalog.ProviderCatalogContext {
@@ -166,21 +132,7 @@ async function fetchProviderCatalog(): Promise<void> {
   await providerCatalog.fetchProviderCatalog(createProviderCatalogContext());
 }
 
-export async function testProviderModelConnection(
-  provider: Provider,
-  upstreamModelId: string,
-  reasoningLevel: ReasoningLevel | null,
-  customReasoningValue: string | null,
-): Promise<ModelConnectionTestResult> {
-  return testProviderModelConnectionImpl(
-    provider,
-    upstreamModelId,
-    reasoningLevel,
-    customReasoningValue,
-  );
-}
-
-export function renderCatalogModels(): void {
+function renderCatalogModels(): void {
   providerCatalog.renderCatalogModels(createProviderCatalogContext());
 }
 
@@ -192,6 +144,7 @@ function createProviderSaveContext(): providerSave.ProviderSaveContext {
     setProviderEditorDirty,
     refreshProviderEditorControls,
     closeProviderEditor,
+    notify: showNotice,
   };
 }
 
@@ -200,148 +153,15 @@ async function saveProvider(): Promise<void> {
 }
 
 export function setupProviderEditor(): void {
-  providerForm.setupProviderPresets({
-    resetCatalogResults: providerCatalog.resetCatalogResults,
-    setProviderEditorDirty,
-    invalidatePendingProviderSave,
-    refreshProviderEditorControls,
-  });
-  const providerFormElement = element<HTMLFormElement>("#provider-form");
-  const saveProviderButton = element<HTMLButtonElement>("#save-provider");
-
-  providerFormElement.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void withProviderEditorBusy(saveProviderButton, saveProvider, t("models.saving"));
-  });
-
-  element<HTMLButtonElement>("#fetch-provider-models").addEventListener("click", (event) => {
-    const button = event.currentTarget as HTMLButtonElement;
-    void withProviderEditorBusy(button, fetchProviderCatalog, t("models.fetching"));
-  });
-
-  element<HTMLButtonElement>("#back-to-config").addEventListener("click", () => {
-    element<HTMLElement>("#catalog-results").classList.remove("active");
-    element<HTMLElement>("#catalog-results").hidden = true;
-    element<HTMLElement>("#provider-step-config").hidden = false;
-    element<HTMLElement>("#provider-step-config").classList.add("active");
-  });
-
-  element<HTMLInputElement>("#provider-name").addEventListener("input", () => {
-    setProviderEditorDirty(true);
-  });
-  element<HTMLInputElement>("#provider-base-url").addEventListener("input", () => {
-    providerForm.updateSuggestedEndpoints(providerCatalog.resetCatalogResults);
-    setProviderEditorDirty(true);
-  });
-  element<HTMLSelectElement>("#protocol").addEventListener("change", () => {
-    providerForm.updateSuggestedEndpoints(providerCatalog.resetCatalogResults);
-    setProviderEditorDirty(true);
-  });
-  for (const selector of ["#models-endpoint", "#generate-endpoint", "#api-key"]) {
-    element<HTMLInputElement>(selector).addEventListener("input", () => {
-      providerCatalog.resetCatalogResults();
-      setProviderEditorDirty(true);
-    });
-  }
-
-  element<HTMLInputElement>("#catalog-search").addEventListener("input", renderCatalogModels);
-  element<HTMLInputElement>("#select-all-models").addEventListener("change", (event) => {
-    const checkbox = event.currentTarget as HTMLInputElement;
-    const query = element<HTMLInputElement>("#catalog-search").value.trim().toLowerCase();
-    const visibleIds = providerCatalog.catalogModels
-      .filter((model) => `${model.displayName} ${model.id}`.toLowerCase().includes(query))
-      .map((model) => model.id);
-    for (const id of visibleIds) {
-      if (checkbox.checked) providerCatalog.selectedCatalogModelIds.add(id);
-      else providerCatalog.selectedCatalogModelIds.delete(id);
-    }
-    setProviderEditorDirty(true);
-    renderCatalogModels();
-  });
-
-  element<HTMLButtonElement>("#close-provider-modal").addEventListener("click", () => {
-    void closeProviderEditor();
-  });
-
-  element<HTMLElement>("#provider-modal-backdrop").addEventListener("click", () => {
-    void closeProviderEditor();
-  });
-
-  const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
-  const providerFormPanel = element<HTMLElement>("#provider-form-panel");
-
-  document.addEventListener("keydown", (event) => {
-    if (!reasoningModal.hidden) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeReasoningModal();
-        return;
-      }
-    }
-    if (providerFormPanel.hidden) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      void closeProviderEditor();
-      return;
-    }
-    if (event.key !== "Tab") return;
-
-    const focusable = [...providerFormPanel.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
-    )].filter((item) => !item.hidden && item.getClientRects().length > 0);
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  });
-
-  window.addEventListener("beforeunload", (event) => {
-    if (!getProviderEditorDirty()) return;
-    event.preventDefault();
-    event.returnValue = "";
-  });
-
-  element<HTMLButtonElement>("#toggle-api-key").addEventListener("click", () => {
-    const input = element<HTMLInputElement>("#api-key");
-    input.type = input.type === "text" ? "password" : "text";
-    providerForm.syncApiKeyToggle();
-  });
-
-  const openProviderFormButton = element<HTMLButtonElement>("#open-provider-form");
-  openProviderFormButton.addEventListener("click", () => openProviderEditor());
-
-  const cancelProviderButton = element<HTMLButtonElement>("#cancel-provider");
-  cancelProviderButton.addEventListener("click", () => {
-    void closeProviderEditor();
-  });
-
-  providerForm.syncApiKeyToggle();
-
-  subscribeLanguage(() => {
-    providerForm.updateProtocolHelp();
-    providerForm.syncApiKeyToggle();
-    providerCatalog.renderCatalogStatus();
-    if (!element<HTMLElement>("#catalog-results").hidden && providerCatalog.catalogModels.length > 0) {
-      renderCatalogModels();
-    } else {
-      providerCatalog.updateCatalogSelection(createProviderCatalogContext());
-    }
-    refreshProviderEditorControls();
-    if (!element<HTMLElement>("#provider-form-panel").hidden) {
-      if (providerForm.editingProviderId) {
-        const provider = store.config.providers.find((item) => item.id === providerForm.editingProviderId);
-        if (provider) {
-          element<HTMLElement>("#provider-form-title").textContent = `${t("models.editProviderTitle")} · ${provider.name}`;
-        }
-      } else {
-        element<HTMLElement>("#provider-form-title").textContent = t("models.addProviderTitle");
-      }
-    }
+  setupProviderEditorBindings({
+    setDirty: setProviderEditorDirty,
+    withBusy: withProviderEditorBusy,
+    fetchCatalog: fetchProviderCatalog,
+    saveProvider,
+    renderCatalogModels,
+    closeEditor: closeProviderEditor,
+    openEditor: () => openProviderEditor(),
+    refreshControls: refreshProviderEditorControls,
+    createCatalogContext: createProviderCatalogContext,
   });
 }

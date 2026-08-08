@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use crate::domain::AppConfig;
     use crate::domain::*;
+    use crate::proxy::activity::{ActivityOperation, ActivityProtocol};
     use crate::proxy::{HttpServerOptions, LoopbackHttpServer, ProxyServer};
-    use crate::storage::{AppConfig, ConfigStore};
+    use crate::storage::ConfigStore;
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::HashMap;
@@ -118,30 +120,35 @@ mod tests {
 
         let activities = proxy.activity_log().get_recent();
         assert_eq!(activities.len(), 4);
-        assert!(activities.iter().any(|item| {
-            item.kind == "http"
-                && item.operation == "health_check"
-                && item.request_path == "/health"
-                && item.response_summary.as_deref() == Some("status=ok")
-        }));
-        assert!(activities.iter().any(|item| {
-            item.kind == "http" && item.operation == "list_models" && item.status_code == 401
-        }));
-        assert!(activities.iter().any(|item| {
-            item.kind == "http"
-                && item.operation == "list_models"
-                && item.status_code == 200
-                && item.response_summary.as_deref() == Some("models=1")
-        }));
-        assert!(activities.iter().any(|item| {
-            item.kind == "http"
-                && item.operation == "fetch_available_models"
-                && item.request_path == "/v1internal:fetchAvailableModels"
-                && item
-                    .response_summary
-                    .as_deref()
-                    .is_some_and(|summary| summary.starts_with("catalog_models=1;"))
-        }));
+        assert!(activities
+            .iter()
+            .any(|activity| activity.as_http().is_some_and(|item| {
+                item.operation == ActivityOperation::HealthCheck
+                    && item.request_path == "/health"
+                    && item.response_summary.as_deref() == Some("status=ok")
+            })));
+        assert!(activities
+            .iter()
+            .any(|activity| activity.as_http().is_some_and(|item| {
+                item.operation == ActivityOperation::ListModels && item.common.status_code == 401
+            })));
+        assert!(activities
+            .iter()
+            .any(|activity| activity.as_http().is_some_and(|item| {
+                item.operation == ActivityOperation::ListModels
+                    && item.common.status_code == 200
+                    && item.response_summary.as_deref() == Some("models=1")
+            })));
+        assert!(activities
+            .iter()
+            .any(|activity| activity.as_http().is_some_and(|item| {
+                item.operation == ActivityOperation::FetchAvailableModels
+                    && item.request_path == "/v1internal:fetchAvailableModels"
+                    && item
+                        .response_summary
+                        .as_deref()
+                        .is_some_and(|summary| summary.starts_with("catalog_models=1;"))
+            })));
 
         drop(client);
         handle.shutdown().await.unwrap();
@@ -476,14 +483,12 @@ mod tests {
         assert_eq!(response.text().await.unwrap(), official_response);
         let activities = proxy.activity_log().get_recent();
         assert_eq!(activities.len(), 1);
-        assert_eq!(activities[0].virtual_model_id, "MODEL_NATIVE");
-        assert_eq!(
-            activities[0].upstream_model_id.as_deref(),
-            Some("MODEL_NATIVE")
-        );
-        assert_eq!(activities[0].provider_id, "antigravity-official");
-        assert_eq!(activities[0].provider_protocol.as_deref(), Some("native"));
-        assert_eq!(activities[0].status_code, 200);
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.virtual_model_id, "MODEL_NATIVE");
+        assert_eq!(activity.upstream_model_id.as_deref(), Some("MODEL_NATIVE"));
+        assert_eq!(activity.provider_id, "antigravity-official");
+        assert_eq!(activity.provider_protocol, Some(ActivityProtocol::Native));
+        assert_eq!(activity.common.status_code, 200);
 
         drop(client);
         handle.shutdown().await.unwrap();
@@ -561,6 +566,10 @@ mod tests {
         let official_response = json!({ "project": "native-project" }).to_string();
         let (official_url, _official_handle, recorded_request) =
             MockProviderServer::start_recording(200, &official_response).await;
+        let official_host = official_url
+            .strip_prefix("http://")
+            .expect("mock endpoint uses HTTP")
+            .to_string();
         let (proxy, local_token) = create_proxy(AppConfig::default(), 0).await;
         let mut options = test_options();
         options.official_cloud_code_endpoint = Some(official_url);
@@ -587,6 +596,7 @@ mod tests {
             recorded.path_and_query,
             "/v1internal:loadCodeAssist?alt=json"
         );
+        assert_eq!(recorded.host.as_deref(), Some(official_host.as_str()));
         assert_eq!(
             recorded.authorization.as_deref(),
             Some("Bearer vendor-token")

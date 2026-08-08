@@ -6,10 +6,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub(super) struct IdeSettingOwnership {
     pub(super) schema_version: u32,
     pub(super) settings_path: PathBuf,
     pub(super) managed_endpoint: String,
+    #[serde(deserialize_with = "crate::serde_helpers::required_nullable")]
     pub(super) previous_value: Option<Value>,
     pub(super) previous_trailing_comma: bool,
 }
@@ -29,6 +31,16 @@ pub(super) fn read_ownership_if_present(
         ));
     }
     Ok(Some(ownership))
+}
+
+pub(super) fn restore_after_failed_enable(
+    ownership_path: &Path,
+    previous: Option<&IdeSettingOwnership>,
+) -> Result<(), HostIntegrationError> {
+    match previous {
+        Some(previous) => atomic_file::write_json_private(ownership_path, previous),
+        None => atomic_file::remove_regular_file(ownership_path),
+    }
 }
 
 fn read_ownership_record_if_present(

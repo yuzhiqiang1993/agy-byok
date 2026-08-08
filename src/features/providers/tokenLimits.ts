@@ -5,17 +5,16 @@ import type {
   OfficialModelSettings,
 } from "../../types/config";
 
-export type TokenLimitPresetId =
+type TokenLimitPresetId =
   | "estimated_default"
   | "chatgpt_default"
   | "chatgpt_thinking"
   | "gpt5_api"
   | "gemini_long"
   | "claude_long"
-  | "compatibility"
   | "custom";
 
-export interface TokenLimitPreset {
+interface TokenLimitPreset {
   id: Exclude<TokenLimitPresetId, "custom">;
   input_token_limit: number;
   output_token_limit: number;
@@ -50,7 +49,7 @@ export const TOKEN_OUTPUT_LIMIT_OPTIONS = [
   128_000,
 ] as const;
 
-export interface CustomModelCheckpointLimits {
+interface CustomModelCheckpointLimits {
   threshold: number;
   max_token_limit: number;
   max_output_tokens: number;
@@ -83,7 +82,7 @@ export function isValidModelCheckpointOverride(
 }
 
 export function customModelCheckpointLimits(
-  settings: Partial<OfficialModelSettings> | undefined,
+  settings: OfficialModelSettings,
   limits: ModelTokenLimits | undefined,
   override: ModelCheckpointOverride | null,
 ): CustomModelCheckpointLimits | null {
@@ -93,7 +92,7 @@ export function customModelCheckpointLimits(
   const inputLimit = limits?.input_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const outputLimit = limits?.output_token_limit ?? DEFAULT_TOKEN_LIMIT;
   const checkpointTokenLimit = Math.min(contextLimit, inputLimit);
-  const profile = settings?.custom_model_compression_profile ?? "balanced";
+  const profile = settings.custom_model.profile;
   const referenceValues = profile === "safe"
     ? { threshold: 430_000, maxTokenLimit: 512_000 }
     : profile === "aggressive"
@@ -102,26 +101,26 @@ export function customModelCheckpointLimits(
   const scaleReferenceValue = (value: number): number => Math.floor(
     checkpointTokenLimit * value / COMPRESSION_PROFILE_REFERENCE_LIMIT,
   );
-  const customPercentThreshold = settings?.custom_model_token_threshold_percent;
-  const customPercentHardLimit = settings?.custom_model_max_token_limit_percent;
-  const customPercentOutputReserve = settings?.custom_model_max_output_tokens_percent;
-  const customProfileIsValid = isValidPercentage(customPercentThreshold ?? 0)
-    && isValidPercentage(customPercentHardLimit ?? 0)
-    && isValidPercentage(customPercentOutputReserve ?? 0);
+  const customPercentThreshold = settings.custom_model.percentages.token_threshold;
+  const customPercentHardLimit = settings.custom_model.percentages.max_token_limit;
+  const customPercentOutputReserve = settings.custom_model.percentages.max_output_tokens;
+  const customProfileIsValid = isValidPercentage(customPercentThreshold)
+    && isValidPercentage(customPercentHardLimit)
+    && isValidPercentage(customPercentOutputReserve);
   if (profile === "custom" && !customProfileIsValid && override?.kind !== "custom") {
     return null;
   }
   const profileValues = profile === "custom"
     ? {
-        threshold: Math.floor(checkpointTokenLimit * (customPercentThreshold ?? 0) / 100),
-        maxTokenLimit: Math.floor(checkpointTokenLimit * (customPercentHardLimit ?? 0) / 100),
+        threshold: Math.floor(checkpointTokenLimit * customPercentThreshold / 100),
+        maxTokenLimit: Math.floor(checkpointTokenLimit * customPercentHardLimit / 100),
       }
     : {
         threshold: scaleReferenceValue(referenceValues.threshold),
         maxTokenLimit: scaleReferenceValue(referenceValues.maxTokenLimit),
       };
   const profileOutputLimit = profile === "custom"
-    ? Math.floor(checkpointTokenLimit * (customPercentOutputReserve ?? 0) / 100)
+    ? Math.floor(checkpointTokenLimit * customPercentOutputReserve / 100)
     : scaleReferenceValue(16_384);
   const requestedThreshold = override?.kind === "custom"
     ? override.token_threshold
@@ -191,11 +190,6 @@ export const TOKEN_LIMIT_PRESETS: readonly TokenLimitPreset[] = [
     input_token_limit: 1_000_000,
     output_token_limit: 128_000,
   },
-  {
-    id: "compatibility",
-    input_token_limit: 128_000,
-    output_token_limit: 8_192,
-  },
 ];
 
 export function tokenLimitsForPreset(id: string): ModelTokenLimits | null {
@@ -203,8 +197,11 @@ export function tokenLimitsForPreset(id: string): ModelTokenLimits | null {
   return preset
     ? {
         context_window: null,
+        context_window_source: "unknown",
         input_token_limit: preset.input_token_limit,
+        input_token_limit_source: "configured",
         output_token_limit: preset.output_token_limit,
+        output_token_limit_source: "configured",
       }
     : null;
 }
@@ -217,12 +214,38 @@ export function resolveCatalogTokenLimits(
   model: ProviderCatalogModel,
   existing?: ModelTokenLimits,
 ): ModelTokenLimits {
+  const contextWindow = catalogContextWindow(model);
   return {
     // 目录是本次同步得到的事实；目录缺失时沿用已保存值，否则使用保守的经验默认值。
-    context_window: catalogContextWindow(model) ?? existing?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    context_window: contextWindow ?? existing?.context_window ?? DEFAULT_CONTEXT_WINDOW,
+    context_window_source: tokenLimitSource(
+      contextWindow,
+      existing?.context_window,
+      existing?.context_window_source,
+    ),
     input_token_limit: model.inputTokenLimit ?? existing?.input_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    input_token_limit_source: tokenLimitSource(
+      model.inputTokenLimit,
+      existing?.input_token_limit,
+      existing?.input_token_limit_source,
+    ),
     output_token_limit: model.outputTokenLimit ?? existing?.output_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    output_token_limit_source: tokenLimitSource(
+      model.outputTokenLimit,
+      existing?.output_token_limit,
+      existing?.output_token_limit_source,
+    ),
   };
+}
+
+function tokenLimitSource(
+  catalogValue: number | undefined,
+  existingValue: number | null | undefined,
+  existingSource: ModelTokenLimits["context_window_source"] | undefined,
+): ModelTokenLimits["context_window_source"] {
+  if (catalogValue !== undefined) return "catalog";
+  if (existingValue !== null && existingValue !== undefined) return existingSource ?? "unknown";
+  return "estimated";
 }
 
 export function presetIdForTokenLimits(limits: ModelTokenLimits): TokenLimitPresetId {

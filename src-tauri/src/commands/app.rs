@@ -1,9 +1,10 @@
+use crate::commands::error::{report, HOST_LAUNCH_FAILED, HOST_MODIFY_FAILED, HOST_STATUS_FAILED};
 use crate::host::app_host::{
-    discover_app_sync, launch_app_app, restart_app_app, stop_app_for_reconfiguration, AppStatus,
-    ANTIGRAVITY_APP_PATH,
+    disable_integration, discover_app_sync, enable_integration, launch_app as launch_host_app,
+    restart_app as restart_host_app, stop_app_for_reconfiguration, AppStatus,
 };
+use crate::host::{ClientConfigurationState, ClientIntegrationState};
 use crate::state::{proxy_runtime_snapshot, DesktopState};
-use std::path::Path;
 use tauri::State;
 
 #[tauri::command]
@@ -11,9 +12,14 @@ pub(crate) async fn discover_app(state: State<'_, DesktopState>) -> Result<AppSt
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    tauri::async_runtime::spawn_blocking(move || discover_app_sync(&endpoint, proxy_running))
-        .await
-        .map_err(|error| format!("App discovery task failed: {error}"))?
+    let paths = state.host_paths.app.clone();
+    let integration_root = state.host_integration_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        discover_app_sync(paths.as_ref(), &integration_root, &endpoint, proxy_running)
+    })
+    .await
+    .map_err(|error| report(HOST_STATUS_FAILED, error))?;
+    result.map_err(|error| report(HOST_STATUS_FAILED, error))
 }
 
 #[tauri::command]
@@ -24,30 +30,35 @@ pub(crate) async fn enable_app_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    tauri::async_runtime::spawn_blocking(move || {
-        let app_path = Path::new(ANTIGRAVITY_APP_PATH);
-        let current = discover_app_sync(&endpoint, proxy_running)?;
-        if current.integration_state == "managed" && current.configuration_state != "needs_update" {
+    let paths = state.host_paths.app.clone();
+    let integration_root = state.host_integration_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths = paths.ok_or_else(|| "当前平台暂不支持 Antigravity App 自动接入".to_string())?;
+        let current = discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)?;
+        if current.integration_state == ClientIntegrationState::Managed
+            && current.configuration_state != ClientConfigurationState::NeedsUpdate
+        {
             return Ok(current);
         }
         if !current.can_enable_integration {
-            return Err(current.integration_message);
+            return Err("当前 App 状态不允许启用代理模式".to_string());
         }
-        let restart_app = stop_app_for_reconfiguration(app_path, "Antigravity")?;
-        if let Err(error) = host_integration::enable_app_integration(app_path, &endpoint) {
-            if restart_app {
-                let _ = launch_app_app(app_path);
+        let should_restart = stop_app_for_reconfiguration(&paths)?;
+        if let Err(error) = enable_integration(&paths, &integration_root, &endpoint) {
+            if should_restart {
+                let _ = launch_host_app(&paths, None);
             }
-            return Err(error.to_string());
+            return Err(error);
         }
-        if restart_app {
-            restart_app_app(app_path)
+        if should_restart {
+            restart_host_app(&paths, Some(&endpoint))
                 .map_err(|error| format!("App 代理模式已启用，但自动重启失败：{error}"))?;
         }
-        discover_app_sync(&endpoint, proxy_running)
+        discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)
     })
     .await
-    .map_err(|error| format!("App integration activation task failed: {error}"))?
+    .map_err(|error| report(HOST_MODIFY_FAILED, error))?;
+    result.map_err(|error| report(HOST_MODIFY_FAILED, error))
 }
 
 #[tauri::command]
@@ -55,16 +66,23 @@ pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), Str
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    tauri::async_runtime::spawn_blocking(move || {
-        let app_path = Path::new(ANTIGRAVITY_APP_PATH);
-        let current = discover_app_sync(&endpoint, proxy_running)?;
+    let paths = state.host_paths.app.clone();
+    let integration_root = state.host_integration_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths = paths.ok_or_else(|| "当前平台无法定位 Antigravity App".to_string())?;
+        let current = discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)?;
         if !current.can_launch_app {
-            return Err(current.integration_message);
+            return Err("当前 App 状态不允许启动".to_string());
         }
-        launch_app_app(app_path)
+        let endpoint = current
+            .integration_state
+            .is_ready()
+            .then_some(endpoint.as_str());
+        launch_host_app(&paths, endpoint)
     })
     .await
-    .map_err(|error| format!("App launch task failed: {error}"))?
+    .map_err(|error| report(HOST_LAUNCH_FAILED, error))?;
+    result.map_err(|error| report(HOST_LAUNCH_FAILED, error))
 }
 
 #[tauri::command]
@@ -75,22 +93,28 @@ pub(crate) async fn disable_app_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    tauri::async_runtime::spawn_blocking(move || {
-        let app_path = Path::new(ANTIGRAVITY_APP_PATH);
-        let _current = discover_app_sync(&endpoint, proxy_running)?;
-        let restart_app = stop_app_for_reconfiguration(app_path, "Antigravity")?;
-        if let Err(error) = host_integration::disable_app_integration(app_path, &endpoint) {
-            if restart_app {
-                let _ = launch_app_app(app_path);
-            }
-            return Err(error.to_string());
+    let paths = state.host_paths.app.clone();
+    let integration_root = state.host_integration_root.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let paths = paths.ok_or_else(|| "当前平台暂不支持 Antigravity App 自动接入".to_string())?;
+        let current = discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)?;
+        if !current.can_disable_integration {
+            return Err("当前 App 没有可恢复的代理配置".to_string());
         }
-        if restart_app {
-            restart_app_app(app_path)
+        let should_restart = stop_app_for_reconfiguration(&paths)?;
+        if let Err(error) = disable_integration(&paths, &integration_root, &endpoint) {
+            if should_restart {
+                let _ = launch_host_app(&paths, Some(&endpoint));
+            }
+            return Err(error);
+        }
+        if should_restart {
+            restart_host_app(&paths, None)
                 .map_err(|error| format!("App 已恢复官方模式，但自动重启失败：{error}"))?;
         }
-        discover_app_sync(&endpoint, proxy_running)
+        discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)
     })
     .await
-    .map_err(|error| format!("App integration deactivation task failed: {error}"))?
+    .map_err(|error| report(HOST_MODIFY_FAILED, error))?;
+    result.map_err(|error| report(HOST_MODIFY_FAILED, error))
 }

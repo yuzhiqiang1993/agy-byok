@@ -11,7 +11,7 @@ export function effectiveHostModelId(model: VirtualModel): string {
   return `MODEL_PLACEHOLDER_M${400 + (hash % 200)}`;
 }
 
-export function virtualModelCatalogKey(model: VirtualModel): string {
+function virtualModelCatalogKey(model: VirtualModel): string {
   return model.id.startsWith("custom-") ? model.id : `custom-${model.id}`;
 }
 

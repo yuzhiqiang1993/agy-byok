@@ -10,10 +10,10 @@ import {
 import { buildProviderSavePlan } from "./providerPlan";
 import type { ProviderCatalogState } from "./providerCatalog";
 import { element } from "../../utils/domUtils";
-import { showNotice } from "../../components/NoticeBar";
 import { customReasoningMapping } from "../../utils/reasoningUtils";
 import { isValidModelCheckpointOverride } from "./tokenLimits";
-import { t } from "../../i18n";
+import { getLanguage, t } from "../../i18n";
+import type { ProviderCatalogModel } from "../../types/catalog";
 
 let pendingProviderSavePlan: ProviderSavePlan | null = null;
 
@@ -35,6 +35,8 @@ export interface ProviderSaveContext {
   setProviderEditorDirty: (dirty: boolean) => void;
   refreshProviderEditorControls: () => void;
   closeProviderEditor: (force?: boolean) => Promise<boolean>;
+  // 通知由 UI 层装配，features 不直接依赖通知组件。
+  notify: (message: string, kind?: "success" | "error") => void;
 }
 
 function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
@@ -58,8 +60,8 @@ function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
       removed: summary.removedVirtualModels.length,
     }),
   ];
-  if (summary.legacyModelIds.length > 0) {
-    lines.push(t("models.legacyChangeSummary", { count: summary.legacyModelIds.length }));
+  if (summary.unavailableModelIds.length > 0) {
+    lines.push(t("models.unavailableChangeSummary", { count: summary.unavailableModelIds.length }));
   }
   for (const blocker of summary.fallbackBlockers) {
     lines.push(t("models.fallbackBlocker", blocker));
@@ -74,7 +76,10 @@ function renderProviderChangeSummary(summary: ProviderChangeSummary): void {
     const removedSummary = document.createElement("summary");
     removedSummary.textContent = t("models.inspectRemovedModels");
     const names = document.createElement("p");
-    names.textContent = summary.removedVirtualModels.map((model) => model.display_name).join("、");
+    names.textContent = new Intl.ListFormat(getLanguage(), {
+      style: "long",
+      type: "conjunction",
+    }).format(summary.removedVirtualModels.map((model) => model.display_name));
     removed.append(removedSummary, names);
     providerChangeSummary.append(title, list, removed);
   } else {
@@ -93,56 +98,47 @@ async function executeProviderSave(
       .filter((upstream) => upstream.provider_id === plan.provider.id)
       .map((upstream) => upstream.id),
   );
-  for (const virtualModel of store.config.virtual_models) {
-    if (currentUpstreamIds.has(virtualModel.upstream_model_id)) {
-      connectionTestResults.delete(virtualModel.id);
-    }
+  const connectionResultIds = store.config.virtual_models
+    .filter((virtualModel) => currentUpstreamIds.has(virtualModel.upstream_model_id))
+    .map((virtualModel) => virtualModel.id);
+  await persistConfig(plan.nextConfig);
+  for (const virtualModelId of connectionResultIds) {
+    connectionTestResults.delete(virtualModelId);
   }
   providerTestSessions.delete(plan.provider.id);
-  await persistConfig(plan.nextConfig);
-  const currentCount = plan.nextConfig.virtual_models.filter((virtualModel) => {
-    const upstream = plan.nextConfig.upstream_models.find(
-      (item) => item.id === virtualModel.upstream_model_id,
-    );
-    return upstream?.provider_id === plan.provider.id;
-  }).length;
+  const providerUpstreamIds = new Set(plan.nextConfig.upstream_models
+    .filter((upstream) => upstream.provider_id === plan.provider.id)
+    .map((upstream) => upstream.id));
+  const currentCount = plan.nextConfig.virtual_models.filter(
+    (virtualModel) => providerUpstreamIds.has(virtualModel.upstream_model_id),
+  ).length;
   context.setProviderEditorDirty(false);
   void context.closeProviderEditor(true);
-  showNotice(t("models.providerSaved", {
+  context.notify(t("models.providerSaved", {
     action: plan.wasEditing ? t("models.updated") : t("models.added"),
     name: plan.provider.name,
     count: currentCount,
   }));
 }
 
-export async function saveProvider(context: ProviderSaveContext): Promise<void> {
-  if (pendingProviderSavePlan) {
-    const plan = pendingProviderSavePlan;
-    pendingProviderSavePlan = null;
-    await executeProviderSave(plan, context);
-    return;
-  }
+function selectedCatalogModels(catalog: ProviderCatalogState): ProviderCatalogModel[] {
+  return catalog.catalogModels.filter((model) => catalog.selectedCatalogModelIds.has(model.id));
+}
 
-  const providerForm = element<HTMLFormElement>("#provider-form");
-  const catalog = context.getCatalogState();
-  if (!providerForm.reportValidity() || catalog.selectedCatalogModelIds.size === 0) return;
-  const provider = context.providerFromForm();
-  const selectedModels = catalog.catalogModels.filter((model) => catalog.selectedCatalogModelIds.has(model.id));
-  if (selectedModels.length === 0) {
-    showNotice(t("models.noValidSelectedModels"), "error");
-    return;
-  }
-
+function providerSelectionError(
+  provider: Provider,
+  catalog: ProviderCatalogState,
+  selectedModels: ProviderCatalogModel[],
+): string | null {
+  if (selectedModels.length === 0) return t("models.noValidSelectedModels");
   const missingReasoningLevels = selectedModels.find(
     (model) => catalog.catalogReasoningEnabledModelIds.has(model.id)
       && (catalog.catalogReasoningLevelsByModel.get(model.id)?.size ?? 0) === 0
       && !catalog.catalogCustomReasoningByModel.has(model.id),
   );
   if (missingReasoningLevels) {
-    showNotice(t("models.reasoningLevelRequired", { name: missingReasoningLevels.displayName }), "error");
-    return;
+    return t("models.reasoningLevelRequired", { name: missingReasoningLevels.displayName });
   }
-
   const invalidCustomReasoning = selectedModels.find((model) => {
     const value = catalog.catalogCustomReasoningByModel.get(model.id);
     return catalog.catalogReasoningEnabledModelIds.has(model.id)
@@ -150,24 +146,22 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
       && customReasoningMapping(provider.protocol, value) === null;
   });
   if (invalidCustomReasoning) {
-    showNotice(t("models.invalidReasoningValue", { name: invalidCustomReasoning.displayName }), "error");
-    return;
+    return t("models.invalidReasoningValue", { name: invalidCustomReasoning.displayName });
   }
-
   const invalidCheckpointOverride = selectedModels.find((model) =>
-    !isValidModelCheckpointOverride(
-      catalog.catalogCheckpointOverridesByModel.get(model.id) ?? null,
-    )
+    !isValidModelCheckpointOverride(catalog.catalogCheckpointOverridesByModel.get(model.id) ?? null)
   );
-  if (invalidCheckpointOverride) {
-    showNotice(
-      t("models.invalidCheckpointOverride", { name: invalidCheckpointOverride.displayName }),
-      "error",
-    );
-    return;
-  }
+  return invalidCheckpointOverride
+    ? t("models.invalidCheckpointOverride", { name: invalidCheckpointOverride.displayName })
+    : null;
+}
 
-  const plan = buildProviderSavePlan({
+function createProviderSavePlan(
+  context: ProviderSaveContext,
+  provider: Provider,
+  catalog: ProviderCatalogState,
+): ProviderSavePlan {
+  return buildProviderSavePlan({
     currentConfig: store.config,
     provider,
     editingProviderId: context.getEditingProviderId(),
@@ -184,12 +178,33 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
     changedCatalogCheckpointOverrideModelIds: catalog.changedCatalogCheckpointOverrideModelIds,
     changedCatalogCapabilityModelIds: catalog.changedCatalogCapabilityModelIds,
     changedCatalogReasoningModelIds: catalog.changedCatalogReasoningModelIds,
-    legacyCatalogModelIds: catalog.legacyCatalogModelIds,
+    unavailableCatalogModelIds: catalog.unavailableCatalogModelIds,
     createId: () => crypto.randomUUID(),
   });
+}
+
+export async function saveProvider(context: ProviderSaveContext): Promise<void> {
+  if (pendingProviderSavePlan) {
+    const plan = pendingProviderSavePlan;
+    pendingProviderSavePlan = null;
+    await executeProviderSave(plan, context);
+    return;
+  }
+
+  const providerForm = element<HTMLFormElement>("#provider-form");
+  const catalog = context.getCatalogState();
+  if (!providerForm.reportValidity() || catalog.selectedCatalogModelIds.size === 0) return;
+  const provider = context.providerFromForm();
+  const validationError = providerSelectionError(provider, catalog, selectedCatalogModels(catalog));
+  if (validationError) {
+    context.notify(validationError, "error");
+    return;
+  }
+
+  const plan = createProviderSavePlan(context, provider, catalog);
   renderProviderChangeSummary(plan.summary);
   if (plan.summary.fallbackBlockers.length > 0) {
-    showNotice(
+    context.notify(
       t("models.cannotSave", {
         reason: t("models.fallbackBlocker", plan.summary.fallbackBlockers[0]),
       }),
@@ -200,7 +215,7 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
   if (plan.summary.removedVirtualModels.length > 0) {
     pendingProviderSavePlan = plan;
     context.refreshProviderEditorControls();
-    showNotice(t("models.confirmRemoval"), "error");
+    context.notify(t("models.confirmRemoval"), "error");
     return;
   }
   await executeProviderSave(plan, context);

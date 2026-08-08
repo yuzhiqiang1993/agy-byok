@@ -15,6 +15,25 @@ pub enum ErrorCategory {
     Internal,
 }
 
+impl ErrorCategory {
+    /// 跨 Rust、Tauri 与前端边界使用的稳定错误代码。
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Authentication => "authentication",
+            Self::InvalidRequest => "invalid_request",
+            Self::ContextLengthExceeded => "context_length_exceeded",
+            Self::RateLimit => "rate_limit",
+            Self::ModelNotFound => "model_not_found",
+            Self::UpstreamServerError => "upstream_server_error",
+            Self::Timeout => "timeout",
+            Self::ConnectionFailed => "connection_failed",
+            Self::StreamInterrupted => "stream_interrupted",
+            Self::UnsupportedFeature => "unsupported_feature",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProxyError {
     pub category: ErrorCategory,

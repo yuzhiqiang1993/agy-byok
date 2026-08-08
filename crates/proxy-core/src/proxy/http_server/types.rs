@@ -1,3 +1,4 @@
+use crate::proxy::activity::ActivityErrorCategory;
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hyper::body::Frame;
@@ -14,7 +15,7 @@ pub(super) type HttpFrame = Result<Frame<Bytes>, Infallible>;
 #[derive(Debug, Clone, Default)]
 pub(super) struct HttpActivityMetadata {
     pub(super) response_summary: Option<String>,
-    pub(super) error_category: Option<String>,
+    pub(super) error_category: Option<ActivityErrorCategory>,
     pub(super) error_detail: Option<String>,
 }
 

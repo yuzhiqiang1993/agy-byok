@@ -1,23 +1,14 @@
-import { clientErrorMessage } from "./displayUtils";
-import { t } from "../i18n";
+import { isTranslationKey, subscribeLanguage, t } from "../i18n";
 import { errorMessage } from "./errorUtils";
 
-export { errorMessage };
+// 通知展示由组件层传入，工具层不持有通知 DOM 或定时器。
+type NoticeHandler = (message: string, kind?: "success" | "error") => void;
+type ButtonLabel = () => string;
 
-let noticeTimer: number | null = null;
-
-export function showNotice(message: string, kind: "success" | "error" = "success"): void {
-  const notice = document.querySelector<HTMLDivElement>("#notice");
-  const noticeText = document.querySelector<HTMLSpanElement>("#notice-text");
-  if (!notice || !noticeText) return;
-  if (noticeTimer !== null) window.clearTimeout(noticeTimer);
-  noticeText.textContent = message;
-  notice.className = `notice ${kind}`;
-  notice.hidden = false;
-  noticeTimer = window.setTimeout(() => {
-    notice.hidden = true;
-    noticeTimer = null;
-  }, kind === "error" ? 8000 : 4000);
+// 处理完成后按当前语言恢复声明式按钮文案，避免回退到切换前的标签。
+function translatedButtonLabel(button: HTMLButtonElement, fallback: string): string {
+  const key = button.dataset.i18n;
+  return key && isTranslationKey(key) ? t(key) : fallback;
 }
 
 export function element<T extends HTMLElement>(selector: string): T {
@@ -26,7 +17,15 @@ export function element<T extends HTMLElement>(selector: string): T {
   return value;
 }
 
-
+export function visibleFocusableElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], summary, [tabindex]:not([tabindex="-1"])',
+  )].filter((item) => (
+    !item.hidden
+    && !item.closest("[inert]")
+    && item.getClientRects().length > 0
+  ));
+}
 
 export function setButtonUnavailable(button: HTMLButtonElement, unavailable: boolean): void {
   button.dataset.unavailable = String(unavailable);
@@ -36,20 +35,21 @@ export function setButtonUnavailable(button: HTMLButtonElement, unavailable: boo
 export async function withBusy(
   button: HTMLButtonElement,
   action: () => Promise<void>,
+  notify: NoticeHandler,
   busyLabel = t("models.processing"),
 ): Promise<void> {
   if (button.dataset.busy === "true") return;
-  const label = button.textContent;
+  const label = button.textContent ?? "";
   button.dataset.busy = "true";
   button.disabled = true;
   button.textContent = busyLabel;
   try {
     await action();
   } catch (error) {
-    showNotice(errorMessage(error), "error");
+    notify(errorMessage(error), "error");
   } finally {
     button.dataset.busy = "false";
-    button.textContent = label;
+    button.textContent = translatedButtonLabel(button, label);
     button.disabled = button.dataset.unavailable === "true"
       || button.dataset.bulkBusy === "true";
   }
@@ -57,30 +57,33 @@ export async function withBusy(
 
 export function armDestructiveButton(
   button: HTMLButtonElement,
-  confirmLabel: string,
+  confirmLabel: ButtonLabel,
   action: () => Promise<void>,
+  notify: NoticeHandler,
   beforeArm?: () => string | null,
-): void {
-  const initialLabel = button.textContent ?? "Delete";
+): () => void {
+  const initialLabel = button.textContent ?? "";
   let armed = false;
   let resetTimer: number | null = null;
   const reset = () => {
     armed = false;
     if (resetTimer !== null) window.clearTimeout(resetTimer);
     resetTimer = null;
-    button.textContent = initialLabel;
+    button.dataset.armed = "false";
+    button.textContent = translatedButtonLabel(button, initialLabel);
     button.classList.remove("danger-confirm");
   };
 
-  button.addEventListener("click", () => {
+  const handleClick = () => {
     if (!armed) {
       const blocker = beforeArm?.();
       if (blocker) {
-        showNotice(blocker, "error");
+        notify(blocker, "error");
         return;
       }
       armed = true;
-      button.textContent = confirmLabel;
+      button.dataset.armed = "true";
+      button.textContent = confirmLabel();
       button.classList.add("danger-confirm");
       resetTimer = window.setTimeout(reset, 4000);
       return;
@@ -89,14 +92,23 @@ export function armDestructiveButton(
     const blocker = beforeArm?.();
     if (blocker) {
       reset();
-      showNotice(blocker, "error");
+      notify(blocker, "error");
       return;
     }
     void action().finally(reset);
+  };
+  button.addEventListener("click", handleClick);
+  const unsubscribeLanguage = subscribeLanguage(() => {
+    if (armed && button.dataset.busy !== "true") button.textContent = confirmLabel();
   });
+  return () => {
+    button.removeEventListener("click", handleClick);
+    unsubscribeLanguage();
+    reset();
+  };
 }
 
-export function clientActionButtons(client: "ide" | "app" | "cli"): HTMLButtonElement[] {
+function clientActionButtons(client: "ide" | "app" | "cli"): HTMLButtonElement[] {
   return Array.from(document.querySelectorAll<HTMLButtonElement>(`#${client}-actions button`));
 }
 
@@ -104,6 +116,7 @@ export async function withClientBusy<T>(
   button: HTMLButtonElement,
   client: "ide" | "app" | "cli",
   action: () => Promise<T>,
+  notify: NoticeHandler,
   busyLabel = t("models.processing"),
 ): Promise<T | undefined> {
   if (button.dataset.busy === "true") return undefined;
@@ -119,11 +132,11 @@ export async function withClientBusy<T>(
   try {
     result = await action();
   } catch (error) {
-    showNotice(clientErrorMessage(error), "error");
+    notify(errorMessage(error), "error");
   } finally {
     buttons.forEach((item) => {
       item.dataset.busy = "false";
-      item.textContent = labels.get(item) ?? item.textContent;
+      item.textContent = translatedButtonLabel(item, labels.get(item) ?? "");
       item.disabled = item.dataset.unavailable === "true";
     });
   }

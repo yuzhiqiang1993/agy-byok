@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::antigravity::AntigravityRequestParser;
+    use crate::domain::AppConfig;
     use crate::domain::*;
     use crate::providers::*;
     use crate::routing::{ResolvedRoute, RouteTable};
-    use crate::storage::AppConfig;
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
 

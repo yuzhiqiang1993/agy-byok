@@ -1,3 +1,4 @@
+import { subscribeLanguage, t } from "../i18n";
 import {
   checkForUpdate,
   downloadAndInstallUpdate,
@@ -7,183 +8,154 @@ import {
   type DownloadEvent,
   type Update,
 } from "../services/updateService";
-import { errorMessage, element } from "../utils/domUtils";
-import { subscribeLanguage, t } from "../i18n";
+import { errorMessage } from "../utils/errorUtils";
 import { showNotice } from "./NoticeBar";
+import {
+  createUpdateView,
+  renderUpdateView,
+  type UpdateManagerState,
+  type UpdateView,
+} from "./settings/UpdateView";
 
-type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "error";
+async function clearPendingUpdate(state: UpdateManagerState): Promise<void> {
+  const update = state.pendingUpdate;
+  state.pendingUpdate = null;
+  if (!update) return;
+  try {
+    await update.close();
+  } catch (error) {
+    console.error("Unable to release updater resource", error);
+  }
+}
+
+function handleDownloadEvent(
+  state: UpdateManagerState,
+  view: UpdateView,
+  event: DownloadEvent,
+): void {
+  if (event.event === "Started") {
+    state.contentLength = event.data.contentLength;
+    state.downloadedBytes = 0;
+  } else if (event.event === "Progress") {
+    state.downloadedBytes += event.data.chunkLength;
+  } else if (state.contentLength) {
+    state.downloadedBytes = state.contentLength;
+  }
+  renderUpdateView(view, state);
+}
+
+async function loadVersion(state: UpdateManagerState, view: UpdateView): Promise<void> {
+  try {
+    state.currentVersion = await getApplicationVersion();
+    renderUpdateView(view, state);
+  } catch {
+    // 版本元数据读取失败不影响用户手动检查更新。
+  }
+}
+
+async function checkUpdate(
+  state: UpdateManagerState,
+  view: UpdateView,
+  manual: boolean,
+): Promise<void> {
+  if (state.phase === "checking" || state.phase === "downloading") return;
+  state.phase = "checking";
+  state.hasChecked = false;
+  renderUpdateView(view, state);
+  await clearPendingUpdate(state);
+
+  try {
+    state.pendingUpdate = await checkForUpdate();
+    state.hasChecked = true;
+    state.phase = state.pendingUpdate ? "available" : "idle";
+    renderUpdateView(view, state);
+    if (state.pendingUpdate) {
+      showNotice(t("settings.updateAvailable", { version: state.pendingUpdate.version }));
+    } else if (manual) {
+      showNotice(t("settings.latestVersion"));
+    }
+  } catch (error) {
+    state.hasChecked = true;
+    state.phase = "error";
+    renderUpdateView(view, state);
+    if (manual) {
+      showNotice(t("settings.updateCheckFailed", { message: errorMessage(error) }), "error");
+    }
+  }
+}
+
+async function refreshPendingUpdate(
+  state: UpdateManagerState,
+  view: UpdateView,
+): Promise<Update | null | undefined> {
+  state.phase = "checking";
+  state.hasChecked = false;
+  renderUpdateView(view, state);
+  await clearPendingUpdate(state);
+  try {
+    const update = await checkForUpdate();
+    state.hasChecked = true;
+    return update;
+  } catch (error) {
+    state.hasChecked = true;
+    state.phase = "error";
+    renderUpdateView(view, state);
+    showNotice(t("settings.updateCheckFailed", { message: errorMessage(error) }), "error");
+    return undefined;
+  }
+}
+
+async function installUpdate(state: UpdateManagerState, view: UpdateView): Promise<void> {
+  if (!state.pendingUpdate || state.phase !== "available") return;
+  const update = await refreshPendingUpdate(state, view);
+  if (update === undefined) return;
+  if (update === null) {
+    state.phase = "idle";
+    renderUpdateView(view, state);
+    showNotice(t("settings.latestVersion"));
+    return;
+  }
+
+  state.pendingUpdate = update;
+  state.phase = "downloading";
+  state.downloadedBytes = 0;
+  state.contentLength = undefined;
+  renderUpdateView(view, state);
+  try {
+    await downloadAndInstallUpdate(update, (event) => handleDownloadEvent(state, view, event));
+  } catch (error) {
+    state.phase = "available";
+    renderUpdateView(view, state);
+    showNotice(t("settings.updateInstallFailed", { message: errorMessage(error) }), "error");
+    return;
+  }
+
+  await clearPendingUpdate(state);
+  state.phase = "ready";
+  renderUpdateView(view, state);
+  showNotice(t("settings.updateRestarting"));
+  try {
+    await relaunchApplication();
+  } catch (error) {
+    showNotice(t("settings.updateRestartFailed", { message: errorMessage(error) }), "error");
+  }
+}
 
 export function setupUpdateManager(): void {
   if (!isTauriRuntime()) return;
-
-  const versionTag = element<HTMLSpanElement>("#app-version");
-  const status = element<HTMLSpanElement>("#update-status");
-  const notes = element<HTMLParagraphElement>("#update-notes");
-  const checkButton = element<HTMLButtonElement>("#check-for-updates");
-  const installButton = element<HTMLButtonElement>("#install-update");
-  const progress = element<HTMLProgressElement>("#update-progress");
-
-  let state: UpdateState = "idle";
-  let currentVersion = "";
-  let pendingUpdate: Update | null = null;
-  let hasChecked = false;
-  let downloadedBytes = 0;
-  let contentLength: number | undefined;
-
-  function render(): void {
-    versionTag.textContent = currentVersion ? `v${currentVersion}` : "v—";
-
-    switch (state) {
-      case "checking":
-        status.textContent = t("settings.checkingUpdates");
-        break;
-      case "available":
-        status.textContent = pendingUpdate
-          ? t("settings.updateAvailable", { version: pendingUpdate.version })
-          : t("settings.updateIdle");
-        break;
-      case "downloading":
-        status.textContent = t("settings.downloadingUpdate");
-        break;
-      case "ready":
-        status.textContent = t("settings.updateReady");
-        break;
-      case "error":
-        status.textContent = t("settings.updateCheckFailedShort");
-        break;
-      case "idle":
-        status.textContent = hasChecked
-          ? t("settings.latestVersion")
-          : t("settings.updateIdle");
-        break;
-    }
-
-    checkButton.disabled = state === "checking" || state === "downloading";
-    checkButton.textContent = state === "checking"
-      ? t("settings.checkingUpdates")
-      : t("settings.checkUpdates");
-
-    installButton.hidden = state !== "available";
-    installButton.disabled = state !== "available";
-
-    notes.hidden = state !== "available" || !pendingUpdate?.body;
-    notes.textContent = pendingUpdate?.body ?? "";
-
-    progress.hidden = state !== "downloading";
-    if (state === "downloading" && contentLength) {
-      progress.max = contentLength;
-      progress.value = downloadedBytes;
-    } else {
-      progress.removeAttribute("value");
-    }
-  }
-
-  function handleDownloadEvent(event: DownloadEvent): void {
-    switch (event.event) {
-      case "Started":
-        contentLength = event.data.contentLength;
-        downloadedBytes = 0;
-        break;
-      case "Progress":
-        downloadedBytes += event.data.chunkLength;
-        break;
-      case "Finished":
-        if (contentLength) downloadedBytes = contentLength;
-        break;
-    }
-    render();
-  }
-
-  async function loadVersion(): Promise<void> {
-    try {
-      currentVersion = await getApplicationVersion();
-      render();
-    } catch {
-      // The update controls remain usable even if the version metadata cannot be read.
-    }
-  }
-
-  async function checkUpdate(manual: boolean): Promise<void> {
-    if (state === "checking" || state === "downloading") return;
-
-    state = "checking";
-    pendingUpdate = null;
-    notes.textContent = "";
-    hasChecked = false;
-    render();
-
-    try {
-      pendingUpdate = await checkForUpdate();
-      hasChecked = true;
-      state = pendingUpdate ? "available" : "idle";
-      render();
-
-      if (pendingUpdate) {
-        showNotice(t("settings.updateAvailable", { version: pendingUpdate.version }));
-      } else if (manual) {
-        showNotice(t("settings.latestVersion"));
-      }
-    } catch (error) {
-      hasChecked = true;
-      state = "error";
-      render();
-      if (manual) {
-        showNotice(t("settings.updateCheckFailed", { message: errorMessage(error) }), "error");
-      }
-    }
-  }
-
-  async function installUpdate(): Promise<void> {
-    if (!pendingUpdate || state !== "available") return;
-
-    state = "checking";
-    pendingUpdate = null;
-    hasChecked = false;
-    render();
-
-    let freshUpdate: Update | null;
-    try {
-      freshUpdate = await checkForUpdate();
-    } catch (error) {
-      hasChecked = true;
-      state = "error";
-      render();
-      showNotice(t("settings.updateCheckFailed", { message: errorMessage(error) }), "error");
-      return;
-    }
-
-    hasChecked = true;
-    if (!freshUpdate) {
-      state = "idle";
-      render();
-      showNotice(t("settings.latestVersion"));
-      return;
-    }
-
-    pendingUpdate = freshUpdate;
-    state = "downloading";
-    downloadedBytes = 0;
-    contentLength = undefined;
-    render();
-
-    try {
-      await downloadAndInstallUpdate(freshUpdate, handleDownloadEvent);
-      state = "ready";
-      render();
-      showNotice(t("settings.updateRestarting"));
-      await relaunchApplication();
-    } catch (error) {
-      state = "available";
-      render();
-      showNotice(t("settings.updateInstallFailed", { message: errorMessage(error) }), "error");
-    }
-  }
-
-  checkButton.addEventListener("click", () => void checkUpdate(true));
-  installButton.addEventListener("click", () => void installUpdate());
-  subscribeLanguage(() => render());
-
-  void loadVersion();
-  window.setTimeout(() => void checkUpdate(false), 3500);
-
+  const view = createUpdateView();
+  const state: UpdateManagerState = {
+    phase: "idle",
+    currentVersion: "",
+    pendingUpdate: null,
+    hasChecked: false,
+    downloadedBytes: 0,
+    contentLength: undefined,
+  };
+  view.checkButton.addEventListener("click", () => void checkUpdate(state, view, true));
+  view.installButton.addEventListener("click", () => void installUpdate(state, view));
+  subscribeLanguage(() => renderUpdateView(view, state));
+  renderUpdateView(view, state);
+  void loadVersion(state, view);
+  window.setTimeout(() => void checkUpdate(state, view, false), 3500);
 }

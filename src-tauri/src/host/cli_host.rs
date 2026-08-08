@@ -1,3 +1,4 @@
+use crate::host::{ClientConfigurationState, ClientIntegrationState};
 use host_integration::CliIntegrationState;
 use serde::Serialize;
 use std::path::Path;
@@ -7,12 +8,8 @@ use std::path::Path;
 pub struct CliStatus {
     pub installed: bool,
     pub proxy_running: bool,
-    pub cli_path: Option<String>,
-    pub integration_state: &'static str,
-    pub integration_message: String,
-    pub configuration_state: &'static str,
-    pub configuration_message: String,
-    pub configured_endpoint: Option<String>,
+    pub integration_state: ClientIntegrationState,
+    pub configuration_state: ClientConfigurationState,
     pub can_enable_integration: bool,
     pub can_disable_integration: bool,
 }
@@ -26,60 +23,58 @@ pub fn discover_cli_sync(
         .map_err(|e| e.to_string())?;
 
     let integration_state = match status.state {
-        CliIntegrationState::Managed => "managed",
-        CliIntegrationState::External => "external",
-        CliIntegrationState::Mismatch => "mismatch",
-        CliIntegrationState::Disabled => "official",
+        CliIntegrationState::Managed => ClientIntegrationState::Managed,
+        CliIntegrationState::External => ClientIntegrationState::External,
+        CliIntegrationState::Mismatch => ClientIntegrationState::Mismatch,
+        CliIntegrationState::Disabled => ClientIntegrationState::Official,
     };
 
-    let (configuration_state, configuration_message) = match status.state {
-        CliIntegrationState::Managed if !proxy_running => (
-            "service_stopped",
-            "CLI 已配置代理模式，但本地代理未运行，请先启动本地代理".to_string(),
-        ),
-        CliIntegrationState::Managed => (
-            "matched",
-            "CLI 代理配置正常，当前已连接本地代理".to_string(),
-        ),
-        CliIntegrationState::External if !proxy_running => (
-            "service_stopped",
-            "CLI 已配置代理模式，但本地代理未运行，请先启动本地代理".to_string(),
-        ),
-        CliIntegrationState::External => (
-            "external",
-            "CLI 通过外部 CLOUD_CODE_URL 连接代理".to_string(),
-        ),
-        CliIntegrationState::Mismatch => (
-            "needs_update",
-            "CLI 代理配置与当前代理端口不匹配，请重新设置".to_string(),
-        ),
-        CliIntegrationState::Disabled => (
-            "not_enabled",
-            "CLI 当前使用官方配置，可随时启用代理模式".to_string(),
-        ),
-    };
+    let configuration_state = cli_configuration_status(status.state, proxy_running);
 
     let can_enable_integration = status.installed
         && matches!(
             status.state,
             CliIntegrationState::Disabled
                 | CliIntegrationState::Mismatch
+                | CliIntegrationState::External
                 | CliIntegrationState::Managed
         );
-    let can_disable_integration = status.state == CliIntegrationState::Managed
-        || (status.state == CliIntegrationState::Mismatch
-            && (status.has_ownership || !status.shell_configs_updated.is_empty()));
+    let can_disable_integration = status.has_ownership;
 
     Ok(CliStatus {
         installed: status.installed,
         proxy_running,
-        cli_path: status.cli_path.map(|p| p.to_string_lossy().to_string()),
         integration_state,
-        integration_message: status.message,
         configuration_state,
-        configuration_message,
-        configured_endpoint: status.configured_endpoint,
         can_enable_integration,
         can_disable_integration,
     })
+}
+
+fn cli_configuration_status(
+    state: CliIntegrationState,
+    proxy_running: bool,
+) -> ClientConfigurationState {
+    match state {
+        CliIntegrationState::Managed | CliIntegrationState::External if !proxy_running => {
+            ClientConfigurationState::ServiceStopped
+        }
+        CliIntegrationState::Managed | CliIntegrationState::External => {
+            ClientConfigurationState::Matched
+        }
+        CliIntegrationState::Mismatch => ClientConfigurationState::NeedsUpdate,
+        CliIntegrationState::Disabled => ClientConfigurationState::NotEnabled,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_cli_configuration_uses_declared_matched_state() {
+        let state = cli_configuration_status(CliIntegrationState::External, true);
+
+        assert_eq!(state, ClientConfigurationState::Matched);
+    }
 }

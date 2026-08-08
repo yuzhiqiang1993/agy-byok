@@ -14,8 +14,6 @@
       {
         "label": "main",
         "title": "",
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
         "width": 1360,
         "height": 900,
         "minWidth": 1100,
@@ -24,7 +22,26 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": ["'self'"],
+        "connect-src": ["ipc:", "http://ipc.localhost"],
+        "img-src": ["'self'", "data:"],
+        "style-src": ["'self'"],
+        "script-src": ["'self'"],
+        "object-src": ["'none'"],
+        "base-uri": ["'none'"],
+        "frame-ancestors": ["'none'"]
+      },
+      "devCsp": {
+        "default-src": ["'self'"],
+        "connect-src": ["ipc:", "http://ipc.localhost", "http://localhost:1420", "ws://localhost:1420"],
+        "img-src": ["'self'", "data:"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "script-src": ["'self'", "'unsafe-eval'"],
+        "object-src": ["'none'"],
+        "base-uri": ["'none'"],
+        "frame-ancestors": ["'none'"]
+      }
     }
   },
   "bundle": {

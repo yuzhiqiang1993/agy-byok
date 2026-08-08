@@ -1,42 +1,187 @@
-use serde::{Deserialize, Serialize};
+use crate::domain::{ErrorCategory, ProviderProtocol};
+use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
 const MAX_ACTIVITY_ITEMS: usize = 200;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActivityOperation {
+    HealthCheck,
+    ListModels,
+    FetchAvailableModels,
+    Generate,
+    StreamGenerate,
+    Passthrough,
+    CorsPreflight,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActivityProtocol {
+    OpenaiChatCompletions,
+    AnthropicMessages,
+    GeminiGenerateContent,
+    OpenaiResponses,
+    Native,
+}
+
+impl From<&ProviderProtocol> for ActivityProtocol {
+    fn from(protocol: &ProviderProtocol) -> Self {
+        match protocol {
+            ProviderProtocol::OpenaiChatCompletions => Self::OpenaiChatCompletions,
+            ProviderProtocol::AnthropicMessages => Self::AnthropicMessages,
+            ProviderProtocol::GeminiGenerateContent => Self::GeminiGenerateContent,
+            ProviderProtocol::OpenaiResponses => Self::OpenaiResponses,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActivityErrorCategory {
+    Authentication,
+    InvalidRequest,
+    ContextLengthExceeded,
+    RateLimit,
+    ModelNotFound,
+    UpstreamServerError,
+    Timeout,
+    ConnectionFailed,
+    StreamInterrupted,
+    UnsupportedFeature,
+    Internal,
+    OfficialUpstream,
+    MethodNotAllowed,
+    PayloadTooLarge,
+    NativeForwardingUnavailable,
+    NativeForwardingFailed,
+}
+
+impl ActivityErrorCategory {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authentication => "authentication",
+            Self::InvalidRequest => "invalid_request",
+            Self::ContextLengthExceeded => "context_length_exceeded",
+            Self::RateLimit => "rate_limit",
+            Self::ModelNotFound => "model_not_found",
+            Self::UpstreamServerError => "upstream_server_error",
+            Self::Timeout => "timeout",
+            Self::ConnectionFailed => "connection_failed",
+            Self::StreamInterrupted => "stream_interrupted",
+            Self::UnsupportedFeature => "unsupported_feature",
+            Self::Internal => "internal",
+            Self::OfficialUpstream => "official_upstream",
+            Self::MethodNotAllowed => "method_not_allowed",
+            Self::PayloadTooLarge => "payload_too_large",
+            Self::NativeForwardingUnavailable => "native_forwarding_unavailable",
+            Self::NativeForwardingFailed => "native_forwarding_failed",
+        }
+    }
+}
+
+impl From<&ErrorCategory> for ActivityErrorCategory {
+    fn from(category: &ErrorCategory) -> Self {
+        match category {
+            ErrorCategory::Authentication => Self::Authentication,
+            ErrorCategory::InvalidRequest => Self::InvalidRequest,
+            ErrorCategory::ContextLengthExceeded => Self::ContextLengthExceeded,
+            ErrorCategory::RateLimit => Self::RateLimit,
+            ErrorCategory::ModelNotFound => Self::ModelNotFound,
+            ErrorCategory::UpstreamServerError => Self::UpstreamServerError,
+            ErrorCategory::Timeout => Self::Timeout,
+            ErrorCategory::ConnectionFailed => Self::ConnectionFailed,
+            ErrorCategory::StreamInterrupted => Self::StreamInterrupted,
+            ErrorCategory::UnsupportedFeature => Self::UnsupportedFeature,
+            ErrorCategory::Internal => Self::Internal,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivityItem {
-    pub id: String,
-    pub kind: String,
-    pub operation: String,
-    pub request_method: String,
-    pub request_path: String,
-    pub request_body_bytes: Option<u64>,
-    pub response_body_bytes: Option<u64>,
-    pub response_summary: Option<String>,
-    pub timestamp_ms: u64,
-    pub requested_virtual_model_id: String,
-    pub virtual_model_id: String,
-    pub upstream_model_id: Option<String>,
-    pub provider_id: String,
-    pub provider_protocol: Option<String>,
-    pub status_code: u16,
-    pub duration_ms: u64,
-    pub error_category: Option<String>,
-    pub error_detail: Option<String>,
-    pub stream: bool,
-    pub message_count: usize,
-    pub tool_count: usize,
-    pub used_fallback: bool,
-    pub fallback_attempted: bool,
-    pub fallback_succeeded: bool,
-    pub input_tokens: Option<u32>,
-    pub output_tokens: Option<u32>,
-    pub cache_read_tokens: Option<u32>,
-    pub cache_write_tokens: Option<u32>,
-    pub reasoning_tokens: Option<u32>,
-    pub total_tokens: Option<u32>,
+pub(crate) struct ActivityCommon {
+    pub(crate) id: String,
+    pub(crate) timestamp_ms: u64,
+    pub(crate) status_code: u16,
+    pub(crate) duration_ms: u64,
+    pub(crate) error_category: Option<ActivityErrorCategory>,
+    pub(crate) error_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatActivityItem {
+    #[serde(flatten)]
+    pub(crate) common: ActivityCommon,
+    pub(crate) requested_virtual_model_id: String,
+    pub(crate) virtual_model_id: String,
+    pub(crate) upstream_model_id: Option<String>,
+    pub(crate) provider_id: String,
+    pub(crate) provider_protocol: Option<ActivityProtocol>,
+    pub(crate) stream: bool,
+    pub(crate) message_count: usize,
+    pub(crate) tool_count: usize,
+    pub(crate) fallback_attempted: bool,
+    pub(crate) fallback_succeeded: bool,
+    pub(crate) input_tokens: Option<u32>,
+    pub(crate) output_tokens: Option<u32>,
+    pub(crate) cache_read_tokens: Option<u32>,
+    pub(crate) cache_write_tokens: Option<u32>,
+    pub(crate) reasoning_tokens: Option<u32>,
+    pub(crate) total_tokens: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HttpActivityItem {
+    #[serde(flatten)]
+    pub(crate) common: ActivityCommon,
+    pub(crate) operation: ActivityOperation,
+    pub(crate) request_method: String,
+    pub(crate) request_path: String,
+    pub(crate) request_body_bytes: Option<u64>,
+    pub(crate) response_body_bytes: Option<u64>,
+    pub(crate) response_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
+pub struct ActivityItem(ActivityItemKind);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ActivityItemKind {
+    Chat(ChatActivityItem),
+    Http(HttpActivityItem),
+}
+
+impl ActivityItem {
+    pub(crate) fn chat(item: ChatActivityItem) -> Self {
+        Self(ActivityItemKind::Chat(item))
+    }
+
+    pub(crate) fn http(item: HttpActivityItem) -> Self {
+        Self(ActivityItemKind::Http(item))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_chat(&self) -> Option<&ChatActivityItem> {
+        match &self.0 {
+            ActivityItemKind::Chat(item) => Some(item),
+            ActivityItemKind::Http(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_http(&self) -> Option<&HttpActivityItem> {
+        match &self.0 {
+            ActivityItemKind::Chat(_) => None,
+            ActivityItemKind::Http(item) => Some(item),
+        }
+    }
 }
 
 pub struct ActivityLog {
@@ -56,7 +201,7 @@ impl ActivityLog {
         }
     }
 
-    pub fn record(&self, item: ActivityItem) {
+    pub(crate) fn record(&self, item: ActivityItem) {
         let mut guard = self.items.lock().unwrap();
         if guard.len() >= MAX_ACTIVITY_ITEMS {
             guard.pop_front();
@@ -80,30 +225,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn activity_serializes_all_usage_dimensions_for_the_frontend() {
-        let value = serde_json::to_value(ActivityItem {
-            id: "activity-1".to_string(),
-            kind: "chat".to_string(),
-            operation: "generate".to_string(),
-            request_method: "POST".to_string(),
-            request_path: "/generate".to_string(),
-            request_body_bytes: None,
-            response_body_bytes: None,
-            response_summary: None,
-            timestamp_ms: 1,
+    fn chat_activity_serializes_only_chat_fields() {
+        let value = serde_json::to_value(ActivityItem::chat(ChatActivityItem {
+            common: ActivityCommon {
+                id: "activity-1".to_string(),
+                timestamp_ms: 1,
+                status_code: 200,
+                duration_ms: 10,
+                error_category: None,
+                error_detail: None,
+            },
             requested_virtual_model_id: "virtual".to_string(),
             virtual_model_id: "virtual".to_string(),
             upstream_model_id: Some("upstream".to_string()),
             provider_id: "provider".to_string(),
-            provider_protocol: Some("openai".to_string()),
-            status_code: 200,
-            duration_ms: 10,
-            error_category: None,
-            error_detail: None,
+            provider_protocol: Some(ActivityProtocol::OpenaiChatCompletions),
             stream: true,
             message_count: 1,
             tool_count: 0,
-            used_fallback: false,
             fallback_attempted: false,
             fallback_succeeded: false,
             input_tokens: Some(7),
@@ -112,14 +251,39 @@ mod tests {
             cache_write_tokens: Some(2),
             reasoning_tokens: Some(4),
             total_tokens: Some(21),
-        })
+        }))
         .unwrap();
 
-        assert_eq!(value["inputTokens"], 7);
-        assert_eq!(value["outputTokens"], 5);
-        assert_eq!(value["cacheReadTokens"], 3);
-        assert_eq!(value["cacheWriteTokens"], 2);
-        assert_eq!(value["reasoningTokens"], 4);
+        assert_eq!(value["kind"], "chat");
+        assert_eq!(value["providerProtocol"], "openai_chat_completions");
         assert_eq!(value["totalTokens"], 21);
+        assert!(value.get("requestBodyBytes").is_none());
+        assert!(value.get("usedFallback").is_none());
+    }
+
+    #[test]
+    fn http_activity_serializes_only_http_fields() {
+        let value = serde_json::to_value(ActivityItem::http(HttpActivityItem {
+            common: ActivityCommon {
+                id: "activity-2".to_string(),
+                timestamp_ms: 2,
+                status_code: 204,
+                duration_ms: 5,
+                error_category: None,
+                error_detail: None,
+            },
+            operation: ActivityOperation::HealthCheck,
+            request_method: "GET".to_string(),
+            request_path: "/health".to_string(),
+            request_body_bytes: None,
+            response_body_bytes: Some(0),
+            response_summary: None,
+        }))
+        .unwrap();
+
+        assert_eq!(value["kind"], "http");
+        assert_eq!(value["operation"], "health_check");
+        assert!(value.get("virtualModelId").is_none());
+        assert!(value.get("fallbackAttempted").is_none());
     }
 }

@@ -1,5 +1,6 @@
 use super::responses::error_response;
 use super::types::HttpResponse;
+use crate::proxy::activity::ActivityErrorCategory;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Limited};
 use hyper::body::Incoming;
@@ -20,14 +21,14 @@ pub(super) async fn read_request(
                 error_response(
                     StatusCode::BAD_REQUEST,
                     "Invalid Content-Length header",
-                    "invalid_request",
+                    ActivityErrorCategory::InvalidRequest,
                 )
             })?;
         if content_length > max_body_bytes {
             return Err(error_response(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "Request body exceeds the configured limit",
-                "payload_too_large",
+                ActivityErrorCategory::PayloadTooLarge,
             ));
         }
     }
@@ -40,7 +41,7 @@ pub(super) async fn read_request(
             error_response(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "Request body exceeds the configured limit or could not be read",
-                "payload_too_large",
+                ActivityErrorCategory::PayloadTooLarge,
             )
         })?;
     Ok((parts, collected.to_bytes()))

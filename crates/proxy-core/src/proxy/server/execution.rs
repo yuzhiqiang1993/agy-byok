@@ -10,26 +10,9 @@ use reqwest::Response;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub(super) const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS: u64 = 5_000;
-pub(super) const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS: u64 = 60_000;
-
 #[async_trait]
 pub(crate) trait EncodedFrameSink: Send {
     async fn send(&mut self, frame: String) -> Result<(), ProxyError>;
-}
-
-pub(super) struct CallbackFrameSink<F> {
-    pub(super) callback: F,
-}
-
-#[async_trait]
-impl<F> EncodedFrameSink for CallbackFrameSink<F>
-where
-    F: FnMut(String) -> Result<(), ProxyError> + Send,
-{
-    async fn send(&mut self, frame: String) -> Result<(), ProxyError> {
-        (self.callback)(frame)
-    }
 }
 
 pub(super) struct StringFrameSink<'a> {
@@ -180,12 +163,8 @@ impl ProxyServer {
             &route.upstream_model,
             request.stream,
         )?;
-        let request_timeout_ms =
-            effective_provider_request_timeout_ms(route.provider.request_timeout_ms);
-        let connect_timeout_ms = effective_provider_connect_timeout_ms(
-            route.provider.connect_timeout_ms,
-            request_timeout_ms,
-        );
+        let request_timeout_ms = route.provider.request_timeout_ms;
+        let connect_timeout_ms = route.provider.connect_timeout_ms;
         let client = self.provider_http_client(connect_timeout_ms)?;
 
         let mut request_builder = client.post(generate_endpoint).json(&payload);
@@ -215,24 +194,6 @@ impl ProxyServer {
 
         Ok((adapter, response))
     }
-}
-
-pub(super) fn effective_provider_request_timeout_ms(configured_timeout_ms: u64) -> u64 {
-    match configured_timeout_ms {
-        0 => DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS,
-        configured => configured,
-    }
-}
-
-pub(super) fn effective_provider_connect_timeout_ms(
-    configured_timeout_ms: u64,
-    request_timeout_ms: u64,
-) -> u64 {
-    match configured_timeout_ms {
-        0 => DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS,
-        configured => configured,
-    }
-    .min(request_timeout_ms)
 }
 
 fn upstream_body_too_large_error() -> ProxyError {

@@ -4,6 +4,7 @@ import type { ModelConnectionTestResult } from "../../types/proxy";
 import type { ConfigurableReasoningLevel, ReasoningLevel, ReasoningMapping } from "../../types/reasoning";
 import { testProviderModelConnection as testProviderModelConnectionCommand } from "../../controllers/providerController";
 import { catalogReasoningMappingsForModel, reasoningLevelLabel, sortReasoningLevels } from "../../utils/reasoningUtils";
+import { connectionTestErrorMessage } from "../../utils/connectionTestUtils";
 import { t } from "../../i18n";
 
 export async function testProviderModelConnection(
@@ -22,7 +23,7 @@ export async function testProviderModelConnection(
   );
 }
 
-export interface CatalogModelTestContext {
+interface CatalogModelTestContext {
   button: HTMLButtonElement;
   result: HTMLSpanElement;
   modelId: string;
@@ -80,7 +81,10 @@ export function runCatalogModelTests(context: CatalogModelTestContext): void {
       if (!response.success) failedCount += 1;
       results.push(response.success
         ? t("models.testCasePassed", { label: testCase.label, time: response.durationMs })
-        : t("models.testCaseFailed", { label: testCase.label, msg: response.message }));
+        : t("models.testCaseFailed", {
+            label: testCase.label,
+            msg: connectionTestErrorMessage(response),
+          }));
     }
     context.result.className = `catalog-model-test-result ${allSucceeded ? "success" : "error"}`;
     context.result.textContent = allSucceeded

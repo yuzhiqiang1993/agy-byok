@@ -1,4 +1,5 @@
-import { DEFAULT_PROXY_PORT, type AppConfig } from "../types/config";
+import { createDefaultAppConfig } from "../config/defaults";
+import type { AppConfig } from "../types/config";
 import type { ProxyStatus } from "../types/proxy";
 import type { IdeStatus, AppStatus, CliStatus } from "../types/host";
 
@@ -7,26 +8,7 @@ type ConfigLoadState = "loading" | "ready" | "error";
 
 class AppStore {
   // Config
-  private _config: AppConfig = {
-    proxy_port: DEFAULT_PROXY_PORT,
-    providers: [],
-    upstream_models: [],
-    virtual_models: [],
-    official_model_settings: {
-      gemini_compression_profile: "official",
-      gemini_token_threshold_percent: 61,
-      gemini_max_token_limit_percent: 73,
-      gemini_max_output_tokens_percent: 2,
-      claude_compression_profile: "official",
-      claude_token_threshold_percent: 61,
-      claude_max_token_limit_percent: 73,
-      claude_max_output_tokens_percent: 2,
-      custom_model_compression_profile: "balanced",
-      custom_model_token_threshold_percent: 61,
-      custom_model_max_token_limit_percent: 73,
-      custom_model_max_output_tokens_percent: 2,
-    },
-  };
+  private _config: AppConfig = createDefaultAppConfig();
   private _configLoadState: ConfigLoadState = "loading";
   private _configLoadError: string | null = null;
   

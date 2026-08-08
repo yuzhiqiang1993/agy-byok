@@ -1,15 +1,11 @@
-use crate::host::app_host::{client_configuration_status, stop_app_for_reconfiguration};
-use crate::host::process::{is_app_running, wait_for_app_state};
-use host_integration::{
-    discover, inspect_ide_settings, CodeSignatureVerifier, IdeSettingsState, InstallationState,
-    MacOsCodeSignatureVerifier, PatchProfile,
-};
+use crate::host::process::{is_process_running, launch_application, wait_for_process_state};
+use crate::host::{ClientConfigurationState, ClientIntegrationState};
+use crate::platform::IdePaths;
+use host_integration::{inspect_ide_settings, IdeSettingsState};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
-
-pub const ANTIGRAVITY_IDE_PATH: &str = "/Applications/Antigravity IDE.app";
-pub const ANTIGRAVITY_IDE_BUNDLE_ID: &str = "com.google.antigravity-ide";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,225 +14,202 @@ pub struct IdeStatus {
     pub compatible: bool,
     pub ide_running: bool,
     pub proxy_running: bool,
-    pub state: &'static str,
-    pub app_path: String,
-    pub app_version: Option<String>,
-    pub extension_version: Option<String>,
-    pub extension_sha256: Option<String>,
-    pub message: String,
-    pub integration_state: &'static str,
+    pub integration_state: ClientIntegrationState,
     pub settings_path: String,
-    pub integration_message: String,
-    pub configuration_state: &'static str,
-    pub configuration_message: String,
+    pub configuration_state: ClientConfigurationState,
     pub can_enable_integration: bool,
     pub can_launch_ide: bool,
     pub can_disable_integration: bool,
 }
 
 pub fn discover_ide_sync(
-    settings_path: &Path,
+    paths: Option<&IdePaths>,
     integration_root: &Path,
     endpoint: &str,
     proxy_running: bool,
 ) -> Result<IdeStatus, String> {
-    let profile = PatchProfile::antigravity_ide_2_1_1();
-    let (integration_state, integration_message, can_disable_integration, settings_valid) =
-        match inspect_ide_settings(settings_path, integration_root, endpoint) {
-            Ok(status) => match status.state {
-                IdeSettingsState::Disabled => (
-                    "official",
-                    format!("jetski.cloudCodeUrl 尚未指向当前本地代理 {endpoint}"),
-                    false,
-                    true,
-                ),
-                IdeSettingsState::Managed if status.endpoint_matches => (
-                    "managed",
-                    format!("jetski.cloudCodeUrl 已由 AGY BYOK 管理并指向当前本地代理 {endpoint}"),
-                    true,
-                    true,
-                ),
-                IdeSettingsState::Managed => (
-                    "mismatch",
-                    format!(
-                        "jetski.cloudCodeUrl 仍由 AGY BYOK 管理，但尚未指向当前本地代理 {endpoint}；可重新设置或恢复官方模式"
-                    ),
-                    true,
-                    true,
-                ),
-                IdeSettingsState::External if status.endpoint_matches => (
-                    "external",
-                    format!(
-                        "当前相同 Endpoint {endpoint} 来自外部配置；可恢复官方模式"
-                    ),
-                    true,
-                    true,
-                ),
-                IdeSettingsState::External => (
-                    "mismatch",
-                    "检测到 IDE 已配置其他本地代理地址，可重新设置为当前本地代理或恢复官方模式"
-                        .to_string(),
-                    true,
-                    true,
-                ),
-            },
-            Err(error) => ("conflict", error.to_string(), false, false),
-        };
-
-    let app_path = Path::new(ANTIGRAVITY_IDE_PATH);
-    if !app_path.is_dir() {
-        return Ok(IdeStatus {
-            installed: false,
-            compatible: false,
-            ide_running: false,
-            proxy_running,
-            state: "not_installed",
-            app_path: ANTIGRAVITY_IDE_PATH.to_string(),
-            app_version: None,
-            extension_version: None,
-            extension_sha256: None,
-            message: "未在默认位置找到厂商 Antigravity IDE".to_string(),
-            integration_state,
-            settings_path: settings_path.display().to_string(),
-            integration_message,
-            configuration_state: "unavailable",
-            configuration_message: "未找到应用".to_string(),
-            can_enable_integration: false,
-            can_launch_ide: false,
-            can_disable_integration,
-        });
-    }
-
-    let ide_running = is_app_running(app_path, "Antigravity IDE")?;
-    let integration_message = {
-        let message = if ide_running && integration_state == "mismatch" && can_disable_integration {
-            format!("{integration_message}；更新或停用后将自动重启 Antigravity IDE")
-        } else if ide_running && integration_state == "official" {
-            format!("{integration_message}；启用后将自动重启 Antigravity IDE")
-        } else if ide_running && integration_state == "managed" {
-            format!("{integration_message}；停用后将自动重启 Antigravity IDE")
-        } else {
-            integration_message
-        };
-        if integration_state == "managed" && !proxy_running {
-            format!("{message}；当前本地代理未运行")
-        } else {
-            message
-        }
+    let Some(paths) = paths else {
+        return Ok(unavailable_status(proxy_running));
     };
-    let installation = match discover(app_path, &profile.layout) {
-        Ok(installation) => installation,
-        Err(error) => {
-            return Ok(IdeStatus {
-                installed: true,
-                compatible: false,
-                ide_running,
-                proxy_running,
-                state: "incompatible",
-                app_path: ANTIGRAVITY_IDE_PATH.to_string(),
-                app_version: None,
-                extension_version: None,
-                extension_sha256: None,
-                message: format!("无法识别当前 Antigravity IDE 安装：{error}"),
-                integration_state,
-                settings_path: settings_path.display().to_string(),
-                integration_message,
-                configuration_state: "unavailable",
-                configuration_message: "当前版本暂时无法使用".to_string(),
-                can_enable_integration: false,
-                can_launch_ide: false,
-                can_disable_integration,
-            });
-        }
-    };
-    let app_version = Some(installation.app_version.clone());
-    let extension_version = Some(installation.extension_version.clone());
-    let extension_sha256 = Some(installation.extension_sha256.clone());
-    let (compatible, state, message) = match profile.classify(&installation) {
-        Ok(InstallationState::VendorOriginal) => {
-            match MacOsCodeSignatureVerifier
-                .verify_vendor(&installation.app_path, &profile.bundle_id)
-            {
-                Ok(()) => (
-                    true,
-                    "vendor_original",
-                    "厂商原版版本、哈希与 Google 签名匹配；不会被 AGY BYOK 修改".to_string(),
-                ),
-                Err(error) => (
-                    false,
-                    "modified",
-                    format!("目标文件内容原始，但厂商签名不匹配：{error}"),
-                ),
+    let installed = paths.installation.is_dir() && paths.executable.is_file();
+    let executable = executable_path(paths);
+    let ide_running = installed && is_process_running(&executable, "Antigravity IDE")?;
+
+    let (integration_state, endpoint_matches, can_disable, settings_valid) =
+        match paths.settings.as_deref() {
+            Some(settings_path) => {
+                match inspect_ide_settings(settings_path, integration_root, endpoint) {
+                    Ok(status) => match status.state {
+                        IdeSettingsState::Disabled => {
+                            (ClientIntegrationState::Official, false, false, true)
+                        }
+                        IdeSettingsState::Managed => (
+                            if status.endpoint_matches {
+                                ClientIntegrationState::Managed
+                            } else {
+                                ClientIntegrationState::Mismatch
+                            },
+                            status.endpoint_matches,
+                            true,
+                            true,
+                        ),
+                        IdeSettingsState::External => (
+                            if status.endpoint_matches {
+                                ClientIntegrationState::External
+                            } else {
+                                ClientIntegrationState::Mismatch
+                            },
+                            status.endpoint_matches,
+                            false,
+                            true,
+                        ),
+                    },
+                    Err(_) => (ClientIntegrationState::Conflict, false, false, false),
+                }
             }
-        }
-        Ok(InstallationState::PatchedByProfile) => (
-            false,
-            "patched",
-            "厂商安装仍处于历史补丁状态；请重装原版后再启用代理模式".to_string(),
-        ),
-        Ok(InstallationState::Modified) => (
-            false,
-            "modified",
-            "检测到未知修改，已禁止启用 IDE 代理模式".to_string(),
-        ),
-        Err(error) => (false, "incompatible", error.to_string()),
-    };
-    let integration_ready = matches!(integration_state, "managed" | "external");
-    let (configuration_state, configuration_message) = client_configuration_status(
+            None => (ClientIntegrationState::Unavailable, false, false, false),
+        };
+
+    let configuration_state = ide_configuration_status(
         integration_state,
+        endpoint_matches,
         proxy_running,
         ide_running,
-        app_path,
-        endpoint,
     );
-    let can_enable_integration = compatible
+    let integration_ready = integration_state.is_ready();
+    let can_enable_integration = installed
         && settings_valid
-        && (matches!(integration_state, "official" | "mismatch" | "managed")
-            || (integration_state == "external" && configuration_state == "needs_update"));
-    let can_launch_ide = compatible
+        && matches!(
+            integration_state,
+            ClientIntegrationState::Official
+                | ClientIntegrationState::Mismatch
+                | ClientIntegrationState::Managed
+        );
+    let can_launch_ide = installed
         && !ide_running
-        && (integration_state == "official" || (integration_ready && proxy_running));
+        && (integration_state == ClientIntegrationState::Official
+            || (integration_ready && proxy_running));
 
     Ok(IdeStatus {
-        installed: true,
-        compatible,
+        installed,
+        compatible: installed,
         ide_running,
         proxy_running,
-        state,
-        app_path: installation.app_path.display().to_string(),
-        app_version,
-        extension_version,
-        extension_sha256,
-        message,
         integration_state,
-        settings_path: settings_path.display().to_string(),
-        integration_message,
+        settings_path: paths
+            .settings
+            .as_deref()
+            .map(Path::display)
+            .map(|path| path.to_string())
+            .unwrap_or_default(),
         configuration_state,
-        configuration_message,
         can_enable_integration,
         can_launch_ide,
-        can_disable_integration,
+        can_disable_integration: can_disable,
     })
 }
 
-pub fn stop_ide_for_reconfiguration(app_path: &Path, label: &str) -> Result<bool, String> {
-    stop_app_for_reconfiguration(app_path, label)
+pub fn stop_ide_for_reconfiguration(paths: &IdePaths) -> Result<bool, String> {
+    let executable = executable_path(paths);
+    let was_running = is_process_running(&executable, "Antigravity IDE")?;
+    if !was_running {
+        return Ok(false);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("/usr/bin/osascript")
+            .args([
+                "-e",
+                "tell application id \"com.google.antigravity-ide\" to quit",
+            ])
+            .status()
+            .map_err(|error| format!("无法请求 Antigravity IDE 退出：{error}"))?;
+        if !status.success() {
+            return Err(format!("请求 Antigravity IDE 退出失败：{status}"));
+        }
+        if let Err(error) = wait_for_process_state(&executable, "Antigravity IDE", false) {
+            crate::host::process::terminate_process(&executable, "Antigravity IDE").map_err(
+                |force_error| format!("{error}；强制结束 Antigravity IDE 失败：{force_error}"),
+            )?;
+        }
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        crate::host::process::terminate_process(&executable, "Antigravity IDE")?;
+        Ok(true)
+    }
 }
 
-pub fn restart_ide_app(app_path: &Path, label: &str) -> Result<(), String> {
-    launch_ide_app()?;
-    wait_for_app_state(app_path, label, true)
+pub fn restart_ide(paths: &IdePaths) -> Result<(), String> {
+    launch_ide(paths)?;
+    wait_for_process_state(&executable_path(paths), "Antigravity IDE", true)
 }
 
-pub fn launch_ide_app() -> Result<(), String> {
-    let status = Command::new("/usr/bin/open")
-        .env("TMPDIR", "/private/tmp")
-        .arg(ANTIGRAVITY_IDE_PATH)
-        .status()
-        .map_err(|error| format!("无法启动 Antigravity IDE：{error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("启动 Antigravity IDE 失败：{status}"))
+pub fn launch_ide(paths: &IdePaths) -> Result<(), String> {
+    launch_application(
+        &paths.installation,
+        &executable_path(paths),
+        "Antigravity IDE",
+    )
+}
+
+fn executable_path(paths: &IdePaths) -> PathBuf {
+    paths.executable.clone()
+}
+
+fn ide_configuration_status(
+    integration_state: ClientIntegrationState,
+    endpoint_matches: bool,
+    proxy_running: bool,
+    ide_running: bool,
+) -> ClientConfigurationState {
+    match integration_state {
+        ClientIntegrationState::Official => ClientConfigurationState::NotEnabled,
+        ClientIntegrationState::Conflict | ClientIntegrationState::Unavailable => {
+            ClientConfigurationState::Unavailable
+        }
+        _ if !endpoint_matches => ClientConfigurationState::NeedsUpdate,
+        _ if !proxy_running => ClientConfigurationState::ServiceStopped,
+        _ if !ide_running => ClientConfigurationState::NotRunning,
+        _ => ClientConfigurationState::Matched,
+    }
+}
+
+fn unavailable_status(proxy_running: bool) -> IdeStatus {
+    IdeStatus {
+        installed: false,
+        compatible: false,
+        ide_running: false,
+        proxy_running,
+        integration_state: ClientIntegrationState::Unavailable,
+        settings_path: String::new(),
+        configuration_state: ClientConfigurationState::Unavailable,
+        can_enable_integration: false,
+        can_launch_ide: false,
+        can_disable_integration: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configuration_status_uses_the_settings_endpoint_on_every_platform() {
+        assert_eq!(
+            ide_configuration_status(ClientIntegrationState::Managed, true, true, true),
+            ClientConfigurationState::Matched
+        );
+        assert_eq!(
+            ide_configuration_status(ClientIntegrationState::Managed, false, true, true),
+            ClientConfigurationState::NeedsUpdate
+        );
+        assert_eq!(
+            ide_configuration_status(ClientIntegrationState::Managed, true, false, true),
+            ClientConfigurationState::ServiceStopped
+        );
     }
 }

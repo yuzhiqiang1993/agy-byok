@@ -20,14 +20,13 @@ import { setupSettingsView } from "./components/SettingsView";
 import { setupUpdateManager } from "./components/UpdateManager";
 import { isTauriRuntime } from "./services/updateService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { errorMessage } from "./utils/domUtils";
+import { errorMessage } from "./utils/errorUtils";
 import { setupReasoningModal } from "./components/ReasoningModal";
 import { refreshApp, refreshCli, refreshHostStatuses, refreshIde } from "./controllers/hostController";
+import { hostService } from "./services/hostService";
 
-import { updateDOMTranslations, subscribeLanguage, t } from "./i18n";
+import { getLanguage, updateDOMTranslations, subscribeLanguage, t } from "./i18n";
 
-const OVERLAY_TITLEBAR_HEIGHT = 40;
-const WINDOW_INTERACTIVE_SELECTOR = "button, input, select, textarea, a, [data-tauri-drag-region=\"false\"], .no-drag";
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable=\"true\"]";
 
 function runWindowAction(action: Promise<void>, message: string): void {
@@ -39,29 +38,6 @@ function runWindowAction(action: Promise<void>, message: string): void {
 async function toggleFullscreen(appWindow: ReturnType<typeof getCurrentWindow>): Promise<void> {
   const fullscreen = await appWindow.isFullscreen();
   await appWindow.setFullscreen(!fullscreen);
-}
-
-function setupWindowDragging(): void {
-  if (!isTauriRuntime()) return;
-
-  const appWindow = getCurrentWindow();
-  document.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
-
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.closest(WINDOW_INTERACTIVE_SELECTOR)) return;
-
-    const isMarkedDragRegion = target.closest("[data-tauri-drag-region]") !== null;
-    const isOverlayTitlebarRegion = event.clientY <= OVERLAY_TITLEBAR_HEIGHT;
-    if (!isMarkedDragRegion && !isOverlayTitlebarRegion) return;
-
-    event.preventDefault();
-    const windowAction = event.detail === 2
-      ? appWindow.toggleMaximize()
-      : appWindow.startDragging();
-    runWindowAction(windowAction, "Unable to update the window state");
-  });
 }
 
 function setupWindowShortcuts(): void {
@@ -105,7 +81,6 @@ function setupWindowShortcuts(): void {
   });
 }
 
-setupWindowDragging();
 setupWindowShortcuts();
 setupNoticeBar();
 setupProxyCard();
@@ -113,7 +88,10 @@ setupIdeCard();
 setupAppCard();
 setupCliCard();
 setupProviderEditor();
-setupActivityList();
+const disposeActivityList = setupActivityList();
+window.addEventListener("pagehide", (event) => {
+  if (!event.persisted) disposeActivityList();
+});
 initThemeManager();
 setupTabManager();
 setupSettingsView();
@@ -142,7 +120,18 @@ renderProviders();
 subscribeLanguage(() => {
   renderProviders();
   renderRuntimeState();
+  if (isTauriRuntime()) {
+    void hostService.setNativeLocale(getLanguage()).catch((error) => {
+      console.error("Unable to update native UI locale", error);
+    });
+  }
 });
+
+if (isTauriRuntime()) {
+  void hostService.setNativeLocale(getLanguage()).catch((error) => {
+    console.error("Unable to initialize native UI locale", error);
+  });
+}
 
 async function initialize(): Promise<void> {
   const [configResult, proxyResult, ideResult, appResult, cliResult, activityResult] = await Promise.allSettled([

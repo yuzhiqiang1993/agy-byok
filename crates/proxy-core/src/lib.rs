@@ -1,11 +1,11 @@
-pub mod antigravity;
+mod antigravity;
 pub mod domain;
 pub mod providers;
 pub mod proxy;
-pub mod routing;
+mod routing;
 pub mod storage;
 
 mod upstream_body;
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
