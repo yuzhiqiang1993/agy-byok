@@ -51,18 +51,15 @@ export function renderIde(status: IdeStatus): void {
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableIdeIntegrationButton.hidden = !showEnableOrUpdateButton;
   enableIdeIntegrationButton.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
-  launchIdeButton.hidden = !status.canLaunchIde || status.ideRunning;
-  launchIdeButton.textContent = t("overview.launch");
+  launchIdeButton.hidden = !status.canLaunchIde;
+  launchIdeButton.textContent = t(status.ideRunning ? "overview.restart" : "overview.launch");
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
   disableIdeIntegrationButton.textContent = t("overview.disableIntegration");
 
-  const modelCount = store.config.virtual_models.length;
-  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
-  enableIdeIntegrationButton.title = modelCount === 0
-    ? t("overview.hostModelsRequired", { count: 1 })
-    : !status.proxyRunning
-      ? t("overview.hostProxyRequired")
-      : "";
+  const canEnable = status.canEnableIntegration && status.proxyRunning;
+  enableIdeIntegrationButton.title = !status.proxyRunning
+    ? t("overview.hostProxyRequired")
+    : "";
   setButtonUnavailable(enableIdeIntegrationButton, !canEnable);
   setButtonUnavailable(launchIdeButton, !status.canLaunchIde);
   setButtonUnavailable(disableIdeIntegrationButton, !status.canDisableIntegration);

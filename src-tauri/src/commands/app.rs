@@ -63,6 +63,7 @@ pub(crate) async fn enable_app_integration(
 
 #[tauri::command]
 pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
@@ -72,13 +73,18 @@ pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), Str
         let paths = paths.ok_or_else(|| "当前平台无法定位 Antigravity App".to_string())?;
         let current = discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)?;
         if !current.can_launch_app {
-            return Err("当前 App 状态不允许启动".to_string());
+            return Err("当前 App 状态不允许打开或重启".to_string());
         }
-        let endpoint = current
+        let launch_endpoint = current
             .integration_state
             .is_ready()
             .then_some(endpoint.as_str());
-        launch_host_app(&paths, endpoint)
+        if current.app_running {
+            stop_app_for_reconfiguration(&paths)?;
+            restart_host_app(&paths, launch_endpoint)
+        } else {
+            launch_host_app(&paths, launch_endpoint)
+        }
     })
     .await
     .map_err(|error| report(HOST_LAUNCH_FAILED, error))?;

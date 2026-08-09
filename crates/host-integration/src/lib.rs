@@ -11,8 +11,8 @@ mod serde_helpers;
 pub mod windows_environment;
 
 pub use cli_integration::{
-    disable_cli_integration, enable_cli_integration, inspect_cli_integration, CliIntegrationState,
-    CliIntegrationStatus,
+    detect_cli_executable, disable_cli_integration, enable_cli_integration,
+    inspect_cli_integration, CliIntegrationState, CliIntegrationStatus,
 };
 pub use error::HostIntegrationError;
 pub use ide_settings::{

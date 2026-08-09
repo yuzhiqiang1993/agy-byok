@@ -64,7 +64,7 @@ fn classify_state(
     }
 }
 
-fn detect_cli_path() -> Option<PathBuf> {
+pub(super) fn detect_cli_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

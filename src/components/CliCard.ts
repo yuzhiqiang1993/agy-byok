@@ -45,13 +45,10 @@ export function renderCli(status: CliStatus): void {
   disableCliBtn.hidden = !status.canDisableIntegration;
   disableCliBtn.textContent = t("overview.disableIntegration");
 
-  const modelCount = store.config.virtual_models.length;
-  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
-  enableCliBtn.title = modelCount === 0
-    ? t("overview.hostModelsRequired", { count: 1 })
-    : !status.proxyRunning
-      ? t("overview.hostProxyRequired")
-      : "";
+  const canEnable = status.canEnableIntegration && status.proxyRunning;
+  enableCliBtn.title = !status.proxyRunning
+    ? t("overview.hostProxyRequired")
+    : "";
   setButtonUnavailable(enableCliBtn, !canEnable);
   setButtonUnavailable(disableCliBtn, !status.canDisableIntegration);
 }

@@ -3,6 +3,7 @@ import { fetchOfficialModels } from "../controllers/providerController";
 import { t } from "../i18n";
 import { store } from "../store/appStore";
 import type { ProviderCatalogModel } from "../types/catalog";
+import { errorMessage } from "../utils/errorUtils";
 import { reasoningLevelLabel } from "../utils/reasoningUtils";
 import { showNotice } from "./NoticeBar";
 import { getPolicyPillStatus, showPolicyEditorModal } from "./PolicyEditorModal";
@@ -13,15 +14,15 @@ const COPIED_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="
 
 const OFFICIAL_ENDPOINT_URL = "https://daily-cloudcode-pa.googleapis.com";
 
-// 官方 IDE 下拉菜单里 100% 对应的 11 个主力 Agent 模型白名单
+// 官方客户端当前公开的 11 个主力 Agent 模型；保持与 IDE、App、CLI 目录交集一致。
 const MAIN_AGENT_MODEL_IDS = [
   "gemini-3.6-flash-high",
   "gemini-3.6-flash-medium",
   "gemini-3.6-flash-low",
-  "gemini-3-flash-agent",
+  "gemini-3.5-flash-high",
+  "gemini-3.5-flash-medium",
   "gemini-3.5-flash-low",
-  "gemini-3.5-flash-extra-low",
-  "gemini-pro-agent",
+  "gemini-3.1-pro-high",
   "gemini-3.1-pro-low",
   "claude-sonnet-4-6",
   "claude-opus-4-6-thinking",
@@ -174,8 +175,8 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
   testBtn.textContent = t("models.testConnection");
 
   const summary = document.createElement("span");
-  summary.className = "provider-test-summary success";
-  summary.textContent = t("models.officialStatusOk");
+  summary.className = "provider-test-summary";
+  summary.textContent = t("models.fetching");
 
   testBtn.addEventListener("click", () => {
     testBtn.disabled = true;
@@ -189,7 +190,7 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       })
       .catch((err: unknown) => {
         summary.className = "provider-test-summary error";
-        summary.textContent = t("models.testFailed", { msg: String(err) });
+        summary.textContent = t("models.testFailed", { msg: errorMessage(err) });
       })
       .finally(() => {
         testBtn.disabled = false;
@@ -203,7 +204,8 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
   refreshBtn.textContent = t("overview.refresh");
   refreshBtn.addEventListener("click", () => {
     refreshBtn.disabled = true;
-    summary.textContent = "";
+    summary.className = "provider-test-summary";
+    summary.textContent = t("models.fetching");
     loadOfficialModels().finally(() => {
       refreshBtn.disabled = false;
     });
@@ -227,6 +229,7 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
   let isDisposed = false;
 
   const loadOfficialModels = () => {
+    loadingState.textContent = t("models.officialFetching");
     modelsContainer.replaceChildren(loadingState);
     return fetchOfficialModels()
     .then((models) => {
@@ -234,6 +237,8 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       modelsContainer.replaceChildren();
 
       const mainModels = filterMainAgentModels(models);
+      summary.className = "provider-test-summary success";
+      summary.textContent = t("models.officialStatusOk", { count: mainModels.length });
 
       if (!mainModels || mainModels.length === 0) {
         const empty = document.createElement("p");
@@ -357,10 +362,13 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
     })
     .catch((err: unknown) => {
       if (isDisposed) return;
+      const message = errorMessage(err);
+      summary.className = "provider-test-summary error";
+      summary.textContent = t("models.officialStatusFailed");
       modelsContainer.replaceChildren();
       const errorMsg = document.createElement("p");
       errorMsg.className = "provider-model-empty";
-      errorMsg.textContent = `${t("models.officialFetchFailed")}: ${String(err)}`;
+      errorMsg.textContent = t("models.officialFetchFailed", { message });
       modelsContainer.append(errorMsg);
     });
   };

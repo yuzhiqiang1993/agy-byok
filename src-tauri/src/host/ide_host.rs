@@ -86,7 +86,6 @@ pub fn discover_ide_sync(
                 | ClientIntegrationState::Managed
         );
     let can_launch_ide = installed
-        && !ide_running
         && (integration_state == ClientIntegrationState::Official
             || (integration_ready && proxy_running));
 

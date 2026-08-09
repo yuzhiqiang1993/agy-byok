@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI" data-i18n-content="overview.pageDesc" />
+    <meta name="description" content="管理上下文压缩配置、模型与 Antigravity 客户端的代理接入" data-i18n-content="overview.pageDesc" />
     <title data-i18n-static>AGY BYOK</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
@@ -52,7 +52,7 @@
           <header class="topbar" data-tauri-drag-region="deep">
             <div class="page-heading">
               <h1 id="page-title"><span id="page-title-text" data-i18n="overview.pageTitle">运行概览</span></h1>
-              <p id="page-description" data-i18n="overview.pageDesc">按四步配置模型、启动代理，并选择要启用代理模式的 IDE、App 或 CLI。</p>
+              <p id="page-description" data-i18n="overview.pageDesc">管理上下文压缩配置、模型与 Antigravity 客户端的代理接入。</p>
             </div>
             <div class="topbar-actions">
               <!-- 暂时隐藏顶栏 Tab 导航，保留代码以便后续恢复。
@@ -81,8 +81,8 @@
         <section class="panel readiness-panel" aria-labelledby="readiness-title">
           <div class="readiness-copy">
             <div class="readiness-text-group">
-              <h2 id="readiness-title" data-i18n="overview.checkingStatusTitle">正在确认运行状态…</h2>
-              <p id="readiness-detail" class="muted" data-i18n="overview.checkingStatusDetail">正在检查模型和应用状态。</p>
+              <h2 id="readiness-title" data-i18n="overview.configurationEffectTitle">配置生效说明</h2>
+              <p id="readiness-detail" class="muted" data-i18n="overview.configurationRestartNotice">上下文压缩配置和模型注入的变更，需要重启 Antigravity IDE 或 App 后生效。</p>
             </div>
 
             <div class="hero-service-widget">
@@ -111,55 +111,6 @@
             </div>
           </div>
 
-          <div class="hero-bottom-row">
-            <div class="stepper-wrapper">
-              <ol class="readiness-steps" aria-label="四步使用流程" data-i18n-aria-label="overview.usageSteps">
-                <li id="readiness-models" class="step-item" data-state="pending" title="配置或管理模型" data-i18n-title="overview.readinessModelsTooltip">
-                  <div class="step-node">
-                    <span class="step-num">1</span>
-                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  </div>
-                  <div class="step-content">
-                    <span class="step-title" data-i18n="overview.step1Title">配置模型</span>
-                    <strong id="readiness-models-value" class="step-value" data-i18n="overview.checking">检查中</strong>
-                  </div>
-                  <div class="step-connector" aria-hidden="true"></div>
-                </li>
-                <li id="readiness-proxy" class="step-item" data-state="pending" title="启动本地代理" data-i18n-title="overview.readinessProxyTooltip">
-                  <div class="step-node">
-                    <span class="step-num">2</span>
-                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  </div>
-                  <div class="step-content">
-                    <span class="step-title" data-i18n="overview.step2Title">启动代理</span>
-                    <strong id="readiness-proxy-value" class="step-value" data-i18n="overview.checking">检查中</strong>
-                  </div>
-                  <div class="step-connector" aria-hidden="true"></div>
-                </li>
-                <li id="readiness-entry" class="step-item" data-state="pending" title="查看宿主接入状态" data-i18n-title="overview.readinessEntryTooltip">
-                  <div class="step-node">
-                    <span class="step-num">3</span>
-                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  </div>
-                  <div class="step-content">
-                    <span class="step-title" data-i18n="overview.step3Title">接入应用</span>
-                    <strong id="readiness-entry-value" class="step-value" data-i18n="overview.checking">检查中</strong>
-                  </div>
-                  <div class="step-connector" aria-hidden="true"></div>
-                </li>
-                <li id="readiness-restore" class="step-item" data-state="ready">
-                  <div class="step-node">
-                    <span class="step-num">4</span>
-                    <svg class="step-icon-check" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  </div>
-                  <div class="step-content">
-                    <span class="step-title" data-i18n="overview.step4Title">恢复官方</span>
-                    <strong id="readiness-restore-value" class="step-value" data-i18n="overview.step4Value">随时可用</strong>
-                  </div>
-                </li>
-              </ol>
-            </div>
-          </div>
         </section>
 
         <section id="host-cards-section" class="status-grid" aria-label="IDE、App 与 CLI 运行状态" data-i18n-aria-label="overview.hostCards">
@@ -284,7 +235,7 @@
             <form id="provider-form">
               <div class="provider-modal-body">
                 <div id="provider-step-config" class="wizard-step active">
-                  <p id="provider-form-description" class="form-intro" data-i18n="models.step1Intro">第 1 步：添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给后续启用代理模式的 IDE、App 或 CLI。</p>
+                  <p id="provider-form-description" class="form-intro" data-i18n="models.step1Intro">添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给已启用代理模式的 IDE、App 或 CLI。</p>
 
                   <div class="provider-presets-wrapper">
                     <p class="section-label" data-i18n="models.quickPresets">快捷预设</p>

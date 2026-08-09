@@ -9,7 +9,6 @@ import { setupProxyCard, renderProxy, renderProxyLoadFailure } from "./component
 import { setupIdeCard, renderIde, renderIdeLoadFailure } from "./components/IdeCard";
 import { setupAppCard, renderApp, renderAppLoadFailure } from "./components/AppCard";
 import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliCard";
-import { renderReadiness, setupReadinessPanel } from "./components/ReadinessPanel";
 import { renderProviders } from "./components/ProviderList";
 import { setupProviderEditor } from "./components/ProviderEditor";
 import { setActivityItems, setActivityLoadFailed, setupActivityList } from "./components/ActivityList";
@@ -127,7 +126,6 @@ initThemeManager();
 setupTabManager();
 setupSettingsView();
 setupReasoningModal();
-setupReadinessPanel();
 
 updateDOMTranslations();
 setupUpdateManager();
@@ -141,7 +139,6 @@ function renderRuntimeState(): void {
   else if (store.appStatus) renderApp(store.appStatus);
   if (store.cliStatusLoadFailed) renderCliLoadFailure(t("overview.loadFailed"));
   else if (store.cliStatus) renderCli(store.cliStatus);
-  renderReadiness();
 }
 
 store.subscribe(renderRuntimeState);
@@ -218,7 +215,6 @@ async function initialize(): Promise<void> {
     setActivityLoadFailed(errorMessage(activityResult.reason));
   }
 
-  renderReadiness();
   if (failures.length > 0) {
     showNotice(t("overview.statusLoadFailed", { items: failures.join(", ") }), "error");
   }

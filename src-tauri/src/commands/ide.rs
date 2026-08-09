@@ -72,6 +72,7 @@ pub(crate) async fn enable_ide_integration(
 
 #[tauri::command]
 pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let paths = state.host_paths.ide.clone();
     let integration_root = state.host_integration_root.clone();
     let snapshot = proxy_runtime_snapshot(&state).await;
@@ -84,14 +85,17 @@ pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), Str
             return Err("Antigravity IDE 当前不可用".to_string());
         }
         if !current.can_launch_ide {
-            return Err(
-                "Antigravity IDE 当前不可启动，请检查安装状态或退出正在运行的 IDE".to_string(),
-            );
+            return Err("Antigravity IDE 当前不可打开或重启，请检查安装状态".to_string());
         }
         if current.integration_state.is_ready() && !proxy_running {
             return Err("当前 IDE 已启用代理模式，请先启动 AGY BYOK 本地代理".to_string());
         }
-        launch_host_ide(&paths)
+        if current.ide_running {
+            stop_ide_for_reconfiguration(&paths)?;
+            restart_host_ide(&paths)
+        } else {
+            launch_host_ide(&paths)
+        }
     })
     .await
     .map_err(|error| report(HOST_LAUNCH_FAILED, error))?;

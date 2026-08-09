@@ -1,16 +1,30 @@
-use crate::commands::error::PROVIDER_CATALOG_FAILED;
-use crate::state::DesktopState;
+use crate::commands::error::{
+    OFFICIAL_MODELS_FETCH_FAILED, OFFICIAL_MODELS_HOST_NOT_INSTALLED,
+    OFFICIAL_MODELS_HOST_NOT_RUNNING, OFFICIAL_MODELS_PROXY_REQUIRED, PROVIDER_CATALOG_FAILED,
+};
+use crate::host::app_host::discover_app_sync;
+use crate::host::cli_host::discover_cli_sync;
+use crate::host::ide_host::discover_ide_sync;
+use crate::state::{proxy_runtime_snapshot, DesktopState};
 use agy_byok::domain::{
     AppConfig, ModelCapabilities, ModelTokenLimits, ParameterOverrides, Provider, ProviderProtocol,
     ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
     DEFAULT_PROXY_PORT,
 };
-use agy_byok::providers::{fetch_official_models_catalog, fetch_provider_models, ProviderCatalogModel};
+use agy_byok::providers::{
+    fetch_official_models_catalog, fetch_provider_models, OfficialCatalogSource,
+    ProviderCatalogModel,
+};
 use agy_byok::proxy::ProxyServer;
 use agy_byok::storage::ConfigStore;
-use serde::Serialize;
-use std::time::Instant;
+use host_integration::detect_cli_executable;
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tauri::State;
+
+const RUNNING_HOST_RETRY_TIMEOUT: Duration = Duration::from_secs(4);
+const OFFICIAL_MODELS_RETRY_INTERVAL: Duration = Duration::from_millis(400);
+const CLI_MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,12 +58,185 @@ pub(crate) async fn fetch_provider_catalog(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct CliModelsOutput {
+    command: CliModelsCommand,
+}
+
+#[derive(Debug, Deserialize)]
+struct CliModelsCommand {
+    data: CliModelsData,
+}
+
+#[derive(Debug, Deserialize)]
+struct CliModelsData {
+    models: Vec<CliModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CliModel {
+    id: String,
+    label: String,
+}
+
+async fn fetch_desktop_official_models(
+    source: OfficialCatalogSource,
+    retry_timeout: Duration,
+) -> Result<Vec<ProviderCatalogModel>, ProxyError> {
+    let deadline = Instant::now() + retry_timeout;
+    loop {
+        match fetch_official_models_catalog(source).await {
+            Ok(models) => return Ok(models),
+            Err(error) if matches!(error.status_code, 404 | 502) && Instant::now() < deadline => {
+                tokio::time::sleep(OFFICIAL_MODELS_RETRY_INTERVAL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn parse_cli_models_output(stdout: &str) -> Result<Vec<ProviderCatalogModel>, String> {
+    let json_line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .ok_or_else(|| "CLI 未返回模型目录 JSON".to_string())?;
+    let output: CliModelsOutput = serde_json::from_str(json_line)
+        .map_err(|error| format!("解析 CLI 模型目录失败：{error}"))?;
+    let mut models = Vec::new();
+    for model in output.command.data.models {
+        let id = model.id.trim();
+        if id.is_empty()
+            || models
+                .iter()
+                .any(|existing: &ProviderCatalogModel| existing.id == id)
+        {
+            continue;
+        }
+        models.push(ProviderCatalogModel {
+            id: id.to_string(),
+            display_name: model.label.trim().to_string(),
+            ..ProviderCatalogModel::default()
+        });
+    }
+    (!models.is_empty())
+        .then_some(models)
+        .ok_or_else(|| "CLI 返回的模型目录为空".to_string())
+}
+
+async fn fetch_cli_official_models() -> Result<Vec<ProviderCatalogModel>, String> {
+    let executable =
+        detect_cli_executable().ok_or_else(|| "无法定位 CLI 可执行文件".to_string())?;
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(["--output-format", "json", "models"])
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(CLI_MODELS_TIMEOUT, command.output())
+        .await
+        .map_err(|_| "CLI 获取模型目录超时".to_string())?
+        .map_err(|error| format!("启动 CLI 获取模型目录失败：{error}"))?;
+    if !output.status.success() {
+        return Err(format!("CLI 获取模型目录失败：{}", output.status));
+    }
+    parse_cli_models_output(&String::from_utf8_lossy(&output.stdout))
+}
+
 #[tauri::command]
-pub(crate) async fn fetch_official_models() -> Result<Vec<ProviderCatalogModel>, String> {
-    fetch_official_models_catalog().await.map_err(|error| {
-        tracing::warn!(error = %error, "从语言服务端点连线抓取官方模型目录失败");
-        error.to_string()
+pub(crate) async fn fetch_official_models(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<ProviderCatalogModel>, String> {
+    let snapshot = proxy_runtime_snapshot(&state).await;
+    let endpoint = snapshot.endpoint;
+    let proxy_running = snapshot.running;
+    let ide_paths = state.host_paths.ide.clone();
+    let app_paths = state.host_paths.app.clone();
+    let integration_root = state.host_integration_root.clone();
+    let status_endpoint = endpoint.clone();
+    let statuses = tauri::async_runtime::spawn_blocking(move || {
+        Ok::<_, String>((
+            discover_ide_sync(
+                ide_paths.as_ref(),
+                &integration_root,
+                &status_endpoint,
+                proxy_running,
+            )?,
+            discover_app_sync(
+                app_paths.as_ref(),
+                &integration_root,
+                &status_endpoint,
+                proxy_running,
+            )?,
+            discover_cli_sync(&integration_root, &status_endpoint, proxy_running)?,
+        ))
     })
+    .await
+    .map_err(|error| {
+        tracing::warn!(%error, "检测官方模型来源失败");
+        OFFICIAL_MODELS_FETCH_FAILED.to_string()
+    })?
+    .map_err(|error| {
+        tracing::warn!(%error, "检测官方模型来源失败");
+        OFFICIAL_MODELS_FETCH_FAILED.to_string()
+    })?;
+    let (ide_status, app_status, cli_status) = statuses;
+    if !ide_status.installed && !app_status.installed && !cli_status.installed {
+        return Err(OFFICIAL_MODELS_HOST_NOT_INSTALLED.to_string());
+    }
+
+    let mut found_stopped_host = false;
+    let mut proxy_required = false;
+
+    if ide_status.installed {
+        if !ide_status.ide_running {
+            found_stopped_host = true;
+        } else {
+            match fetch_desktop_official_models(
+                OfficialCatalogSource::Ide,
+                RUNNING_HOST_RETRY_TIMEOUT,
+            )
+            .await
+            {
+                Ok(models) => return Ok(models),
+                Err(error) => tracing::warn!(%error, "通过 IDE 获取官方模型失败，尝试下一来源"),
+            }
+        }
+    }
+
+    if app_status.installed {
+        if !app_status.app_running {
+            found_stopped_host = true;
+        } else {
+            match fetch_desktop_official_models(
+                OfficialCatalogSource::App,
+                RUNNING_HOST_RETRY_TIMEOUT,
+            )
+            .await
+            {
+                Ok(models) => return Ok(models),
+                Err(error) => tracing::warn!(%error, "通过 App 获取官方模型失败，尝试下一来源"),
+            }
+        }
+    }
+
+    if cli_status.installed {
+        match fetch_cli_official_models().await {
+            Ok(models) => return Ok(models),
+            Err(error) => {
+                if cli_status.integration_state.is_ready() && !proxy_running {
+                    proxy_required = true;
+                }
+                tracing::warn!(%error, "通过 CLI 获取官方模型失败");
+            }
+        }
+    }
+
+    if proxy_required {
+        return Err(OFFICIAL_MODELS_PROXY_REQUIRED.to_string());
+    }
+    if found_stopped_host {
+        return Err(OFFICIAL_MODELS_HOST_NOT_RUNNING.to_string());
+    }
+    Err(OFFICIAL_MODELS_FETCH_FAILED.to_string())
 }
 
 #[tauri::command]
@@ -239,5 +426,17 @@ mod tests {
         provider.request_timeout_ms = 0;
 
         assert!(preview_model_config(provider, "model".to_string(), None, None, None).is_err());
+    }
+
+    #[test]
+    fn cli_model_output_is_parsed_and_deduplicated() {
+        let output = r#"{"command":{"data":{"models":[{"id":"gemini-3.6-flash-high","label":"Gemini 3.6 Flash High"},{"id":"gemini-3.6-flash-high","label":"Duplicate"},{"id":"claude-sonnet-4-6","label":"Claude Sonnet 4.6"}]}}}"#;
+
+        let models = parse_cli_models_output(output).unwrap();
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gemini-3.6-flash-high");
+        assert_eq!(models[0].display_name, "Gemini 3.6 Flash High");
+        assert_eq!(models[1].id, "claude-sonnet-4-6");
     }
 }

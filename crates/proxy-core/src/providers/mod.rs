@@ -7,7 +7,10 @@ pub(crate) mod openai_responses;
 pub(crate) mod traits;
 
 pub(crate) use anthropic::AnthropicAdapter;
-pub use catalog::{fetch_official_models_catalog, fetch_provider_models, ProviderCatalogModel};
+pub use catalog::{
+    fetch_official_models_catalog, fetch_provider_models, OfficialCatalogSource,
+    ProviderCatalogModel,
+};
 pub(crate) use gemini::GeminiAdapter;
 pub(crate) use openai::OpenAIAdapter;
 pub(crate) use openai_responses::OpenAIResponsesAdapter;

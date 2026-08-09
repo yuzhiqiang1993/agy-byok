@@ -25,6 +25,46 @@ fn catalog_provider(models_endpoint: String) -> Provider {
 }
 
 #[test]
+fn parses_macos_and_windows_language_server_commands() {
+    let listing = r#"
+101 /Applications/Antigravity.app/Contents/Resources/bin/language_server --subclient_type hub --https_server_port 0 --csrf_token mac-token --enable_sidecars
+202 "C:\Users\Demo\AppData\Local\Programs\Antigravity\resources\bin\language_server.exe" --subclient_type=hub --https_server_port=61234 --csrf_token=windows-token
+303 /Applications/Antigravity IDE.app/language_server --csrf_token ide-token --extension_server_port 60000 --subclient_type ide
+"#;
+
+    assert_eq!(
+        parse_language_server_processes(listing),
+        vec![
+            LanguageServerProcess {
+                pid: 101,
+                source: OfficialCatalogSource::App,
+                csrf: "mac-token".to_string(),
+                configured_port: None,
+            },
+            LanguageServerProcess {
+                pid: 202,
+                source: OfficialCatalogSource::App,
+                csrf: "windows-token".to_string(),
+                configured_port: Some(61234),
+            },
+            LanguageServerProcess {
+                pid: 303,
+                source: OfficialCatalogSource::Ide,
+                csrf: "ide-token".to_string(),
+                configured_port: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn parses_and_deduplicates_listening_ports() {
+    let listing = "n127.0.0.1:59240\nn[::1]:59241\n59240\ninvalid";
+
+    assert_eq!(parse_listening_ports(listing), vec![59240, 59241]);
+}
+
+#[test]
 fn adds_cpa_catalog_version_only_for_cpa_endpoint() {
     let provider = catalog_provider("http://127.0.0.1:8317/v1/models?tenant=test".to_string());
     assert_eq!(

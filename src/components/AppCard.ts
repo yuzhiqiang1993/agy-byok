@@ -47,18 +47,15 @@ export function renderApp(status: AppStatus): void {
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableAppBtn.hidden = !showEnableOrUpdateButton;
   enableAppBtn.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
-  launchAppBtn.hidden = !status.canLaunchApp || status.appRunning;
+  launchAppBtn.hidden = !status.canLaunchApp;
   disableAppBtn.hidden = !status.canDisableIntegration;
-  launchAppBtn.textContent = t("overview.launch");
+  launchAppBtn.textContent = t(status.appRunning ? "overview.restart" : "overview.launch");
   disableAppBtn.textContent = t("overview.disableIntegration");
 
-  const modelCount = store.config.virtual_models.length;
-  const canEnable = status.canEnableIntegration && modelCount > 0 && status.proxyRunning;
-  enableAppBtn.title = modelCount === 0
-    ? t("overview.hostModelsRequired", { count: 1 })
-    : !status.proxyRunning
-      ? t("overview.hostProxyRequired")
-      : "";
+  const canEnable = status.canEnableIntegration && status.proxyRunning;
+  enableAppBtn.title = !status.proxyRunning
+    ? t("overview.hostProxyRequired")
+    : "";
   setButtonUnavailable(enableAppBtn, !canEnable);
   setButtonUnavailable(launchAppBtn, !status.canLaunchApp);
   setButtonUnavailable(disableAppBtn, !status.canDisableIntegration);

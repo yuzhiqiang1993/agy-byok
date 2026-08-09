@@ -1,6 +1,10 @@
 use super::{CliIntegrationState, CliIntegrationStatus};
 use crate::error::HostIntegrationError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub(super) fn detect_cli_path() -> Option<PathBuf> {
+    None
+}
 
 pub(super) fn inspect_cli_integration(
     _integration_root: impl AsRef<Path>,

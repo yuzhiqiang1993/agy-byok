@@ -1,5 +1,4 @@
 import { t } from "../../i18n";
-import { store } from "../../store/appStore";
 import type {
   ClientConfigurationState,
   ClientIntegrationState,
@@ -7,7 +6,6 @@ import type {
 import { element, withBusy, withClientBusy } from "../../utils/domUtils";
 import { confirmHostAction } from "../ConfirmModal";
 import { showNotice } from "../NoticeBar";
-import { switchTab } from "../TabManager";
 
 type HostClient = "ide" | "app" | "cli";
 type ActionMessages = "desktop" | "cli";
@@ -108,11 +106,6 @@ function bindEnableAction<S extends IntegrationStatus>(
 ): void {
   button.addEventListener("click", () => {
     void (async () => {
-      if (store.config.virtual_models.length === 0) {
-        showNotice(t("overview.hostModelsRequired", { count: 1 }), "error");
-        void switchTab("tab-models");
-        return;
-      }
       const current = spec.getCurrentStatus();
       const context: EnableContext = {
         clientLabel: clientLabel(spec.client),
@@ -200,11 +193,13 @@ function bindLaunchAction<S extends IntegrationStatus>(
 ): void {
   if (!spec.launch) return;
   button.addEventListener("click", () => {
+    const restarting = spec.isRunning(spec.getCurrentStatus());
+    const label = clientLabel(spec.client);
     void withClientBusy(button, spec.client, async () => {
       await spec.launch?.();
-      showNotice(t("overview.hostLaunched", { client: clientLabel(spec.client) }));
+      showNotice(t(restarting ? "overview.hostRestarted" : "overview.hostLaunched", { client: label }));
       window.setTimeout(() => void spec.refresh().catch(() => undefined), 700);
-    }, showNotice, t("overview.hostLaunching", { client: clientLabel(spec.client) }));
+    }, showNotice, t(restarting ? "overview.hostRestarting" : "overview.hostLaunching", { client: label }));
   });
 }
 

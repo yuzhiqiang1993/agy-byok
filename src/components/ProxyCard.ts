@@ -4,7 +4,6 @@ import { errorMessage } from "../utils/errorUtils";
 import { store } from "../store/appStore";
 import { startProxy as startProxyCommand, stopProxy as stopProxyCommand } from "../controllers/proxyController";
 import { refreshIde, refreshApp, refreshCli } from "../controllers/hostController";
-import { switchTab } from "./TabManager";
 import { t } from "../i18n";
 import { showNotice } from "./NoticeBar";
 
@@ -38,21 +37,14 @@ export function renderProxy(status: ProxyStatus): void {
   }
 
   const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
-  const modelCount = store.config.virtual_models.length;
   stopProxyButton.textContent = running ? t("overview.stopProxy") : t("overview.startProxy");
   stopProxyButton.className = running ? "secondary compact-button" : "primary compact-button";
-  stopProxyButton.title = !running && modelCount === 0 ? t("overview.proxyModelsRequired", { count: 1 }) : "";
+  stopProxyButton.title = "";
   stopProxyButton.hidden = false;
   setButtonUnavailable(stopProxyButton, false);
 }
 
 async function startProxy(): Promise<void> {
-  const modelCount = store.config.virtual_models.length;
-  if (modelCount === 0) {
-    showNotice(t("overview.proxyModelsRequired", { count: 1 }), "error");
-    void switchTab("tab-models");
-    return;
-  }
   const status = await startProxyCommand();
   renderProxy(status);
   await Promise.all([refreshIde(), refreshApp(), refreshCli()]);

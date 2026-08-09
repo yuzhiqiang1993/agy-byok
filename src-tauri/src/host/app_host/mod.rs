@@ -84,9 +84,8 @@ pub fn discover_app_sync(
         integration_state: integration.state,
         configuration_state,
         can_enable_integration: integration.can_enable,
-        can_launch_app: !app_running
-            && (integration.state == ClientIntegrationState::Official
-                || (integration_ready && proxy_running)),
+        can_launch_app: integration.state == ClientIntegrationState::Official
+            || (integration_ready && proxy_running),
         can_disable_integration: integration.can_disable,
     })
 }
