@@ -37,6 +37,7 @@ interface CompressionControls {
   scope: "gemini" | "claude" | "custom_model";
   enabled: HTMLInputElement;
   mode: HTMLSelectElement;
+  visualizer: HTMLElement | null;
   percentageSection: HTMLElement;
   absoluteSection: HTMLElement;
   percentageInputs: Record<CompressionPercentField, HTMLInputElement>;
@@ -109,6 +110,7 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 function createControls(scope: CompressionControls["scope"], prefix: string): CompressionControls | null {
   const enabled = document.querySelector<HTMLInputElement>(`#settings-${prefix}-enabled`);
   const mode = document.querySelector<HTMLSelectElement>(`#settings-${prefix}-mode`);
+  const visualizer = document.querySelector<HTMLElement>(`#settings-${prefix}-visualizer`);
   const percentageSection = document.querySelector<HTMLElement>(`#settings-${prefix}-percentage-fields`);
   const absoluteSection = document.querySelector<HTMLElement>(`#settings-${prefix}-absolute-fields`);
   const percentageInputs = {
@@ -130,6 +132,7 @@ function createControls(scope: CompressionControls["scope"], prefix: string): Co
     scope,
     enabled,
     mode,
+    visualizer,
     percentageSection,
     absoluteSection,
     percentageInputs: percentageInputs as Record<CompressionPercentField, HTMLInputElement>,
@@ -598,6 +601,82 @@ function parseCompressionDocument(
   return { settings, drafts };
 }
 
+function getScopeCapacity(scope: CompressionControls["scope"]): number {
+  switch (scope) {
+    case "gemini":
+      return 1_048_576;
+    case "claude":
+      return 200_000;
+    case "custom_model":
+      return 128_000;
+  }
+}
+
+function renderControlVisualizer(control: CompressionControls, settings: CompressionLimitsPolicy): void {
+  if (!control.visualizer) return;
+  const capacity = getScopeCapacity(control.scope);
+  let triggerPct = 0;
+  let hardLimitPct = 0;
+  let reservePct = 0;
+
+  if (settings.mode === "percentage") {
+    triggerPct = Math.min(100, Math.max(0, settings.token_threshold_percent));
+    hardLimitPct = Math.min(100, Math.max(0, settings.max_token_limit_percent));
+    reservePct = Math.min(100, Math.max(0, settings.max_output_tokens_percent));
+  } else {
+    triggerPct = Math.min(100, Math.round((settings.token_threshold / capacity) * 100));
+    hardLimitPct = Math.min(100, Math.round((settings.max_token_limit / capacity) * 100));
+    reservePct = Math.min(100, Math.round((settings.max_output_tokens / capacity) * 100));
+  }
+
+  const activeWidth = Math.min(100, triggerPct);
+  const bufferWidth = Math.max(0, Math.min(100 - activeWidth, hardLimitPct - triggerPct));
+  const reserveWidth = Math.max(0, Math.min(100 - activeWidth - bufferWidth, 100 - hardLimitPct));
+
+  control.visualizer.replaceChildren();
+
+  const bar = document.createElement("div");
+  bar.className = "context-stack-bar";
+
+  const segActive = document.createElement("div");
+  segActive.className = "bar-segment segment-active";
+  segActive.style.width = `${activeWidth}%`;
+
+  const segBuffer = document.createElement("div");
+  segBuffer.className = "bar-segment segment-buffer";
+  segBuffer.style.width = `${bufferWidth}%`;
+
+  const segReserve = document.createElement("div");
+  segReserve.className = "bar-segment segment-reserve";
+  segReserve.style.width = `${reserveWidth}%`;
+
+  bar.append(segActive, segBuffer, segReserve);
+
+  const legend = document.createElement("div");
+  legend.className = "context-legend";
+
+  const item1 = document.createElement("span");
+  item1.className = "context-legend-item";
+  const dot1 = document.createElement("span");
+  dot1.className = "context-legend-dot dot-active";
+  item1.append(dot1, document.createTextNode(`${t("settings.contextVisualizerTrigger")}: ${triggerPct}%`));
+
+  const item2 = document.createElement("span");
+  item2.className = "context-legend-item";
+  const dot2 = document.createElement("span");
+  dot2.className = "context-legend-dot dot-buffer";
+  item2.append(dot2, document.createTextNode(`${t("settings.contextVisualizerHardLimit")}: ${hardLimitPct}%`));
+
+  const item3 = document.createElement("span");
+  item3.className = "context-legend-item";
+  const dot3 = document.createElement("span");
+  dot3.className = "context-legend-dot dot-reserve";
+  item3.append(dot3, document.createTextNode(`${t("settings.contextVisualizerReserve")}: ${reservePct}%`));
+
+  legend.append(item1, item2, item3);
+  control.visualizer.append(bar, legend);
+}
+
 class CompressionSettingsController {
   private savedSettings = cloneCompressionSettings(store.config.official_model_settings);
   private draftSettings = cloneCompressionSettings(this.savedSettings);
@@ -627,7 +706,7 @@ class CompressionSettingsController {
   start(): void {
     for (const control of this.controls) {
       control.enabled.addEventListener("change", () => this.changeLimits(control));
-      control.mode.addEventListener("change", () => this.changeLimits(control));
+      control.mode.addEventListener("change", () => this.changeLimits(control, true));
       for (const input of Object.values(control.percentageInputs)) {
         input.addEventListener("input", () => this.changeLimits(control));
       }
@@ -683,6 +762,7 @@ class CompressionSettingsController {
         control.enabled.checked = control.scope === "custom_model" ? true : settings.enabled;
         control.mode.value = settings.mode;
       }
+      renderControlVisualizer(control, settings);
     }
 
     this.source.textContent = t("settings.compressionStrategyStatus");
@@ -698,14 +778,37 @@ class CompressionSettingsController {
     this.policySaveButton.disabled = this.saveButton.disabled;
   }
 
-  private changeLimits(control: CompressionControls): void {
+  private changeLimits(control: CompressionControls, isModeChange = false): void {
     const parseField = (input: HTMLInputElement): number => {
       const value = Number(input.value);
       return Number.isInteger(value) && value >= 0 ? value : 0;
     };
+    const capacity = getScopeCapacity(control.scope);
+    const newMode = control.mode.value === "absolute" ? "absolute" : "percentage";
+
+    if (isModeChange) {
+      if (newMode === "absolute") {
+        const thresholdPct = parseField(control.percentageInputs.token_threshold_percent);
+        const limitPct = parseField(control.percentageInputs.max_token_limit_percent);
+        const reservePct = parseField(control.percentageInputs.max_output_tokens_percent);
+        control.absoluteInputs.token_threshold.value = String(Math.round((capacity * thresholdPct) / 100));
+        control.absoluteInputs.max_token_limit.value = String(Math.round((capacity * limitPct) / 100));
+        control.absoluteInputs.max_output_tokens.value = String(Math.round((capacity * reservePct) / 100));
+      } else {
+        const thresholdToken = parseField(control.absoluteInputs.token_threshold);
+        const limitToken = parseField(control.absoluteInputs.max_token_limit);
+        const reserveToken = parseField(control.absoluteInputs.max_output_tokens);
+        if (thresholdToken > 0 && limitToken > 0) {
+          control.percentageInputs.token_threshold_percent.value = String(Math.min(100, Math.round((thresholdToken / capacity) * 100)));
+          control.percentageInputs.max_token_limit_percent.value = String(Math.min(100, Math.round((limitToken / capacity) * 100)));
+          control.percentageInputs.max_output_tokens_percent.value = String(Math.min(100, Math.round((reserveToken / capacity) * 100)));
+        }
+      }
+    }
+
     const patch: Partial<CompressionLimitsPolicy> = {
       enabled: control.scope === "custom_model" ? true : control.enabled.checked,
-      mode: control.mode.value === "absolute" ? "absolute" : "percentage",
+      mode: newMode,
     };
     for (const field of COMPRESSION_PERCENT_FIELDS) patch[field] = parseField(control.percentageInputs[field]);
     for (const field of COMPRESSION_ABSOLUTE_FIELDS) patch[field] = parseField(control.absoluteInputs[field]);

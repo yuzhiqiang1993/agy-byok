@@ -5,7 +5,7 @@ use agy_byok::domain::{
     ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
     DEFAULT_PROXY_PORT,
 };
-use agy_byok::providers::{fetch_provider_models, ProviderCatalogModel};
+use agy_byok::providers::{fetch_official_models_catalog, fetch_provider_models, ProviderCatalogModel};
 use agy_byok::proxy::ProxyServer;
 use agy_byok::storage::ConfigStore;
 use serde::Serialize;
@@ -41,6 +41,14 @@ pub(crate) async fn fetch_provider_catalog(
     fetch_provider_models(&provider).await.map_err(|error| {
         tracing::warn!(error = %error, "获取供应商模型目录失败");
         PROVIDER_CATALOG_FAILED.to_string()
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_official_models() -> Result<Vec<ProviderCatalogModel>, String> {
+    fetch_official_models_catalog().await.map_err(|error| {
+        tracing::warn!(error = %error, "从语言服务端点连线抓取官方模型目录失败");
+        error.to_string()
     })
 }
 

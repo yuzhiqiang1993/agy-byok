@@ -500,6 +500,7 @@
                   </label>
                 </div>
               </div>
+              <div id="settings-gemini-visualizer" class="compression-context-visualizer"></div>
               <div id="settings-gemini-percentage-fields" class="compression-parameters">
                 <div class="compression-section-heading">
                   <h4 data-i18n="settings.percentageLimits">比例限额</h4>
@@ -545,6 +546,7 @@
                   </label>
                 </div>
               </div>
+              <div id="settings-claude-visualizer" class="compression-context-visualizer"></div>
               <div id="settings-claude-percentage-fields" class="compression-parameters">
                 <div class="compression-section-heading"><h4 data-i18n="settings.percentageLimits">比例限额</h4><p data-i18n="settings.percentageLimitsDesc">按模型有效上下文上限计算。</p></div>
                 <div class="compression-metric-grid">
@@ -566,7 +568,10 @@
             <article class="compression-model-card">
               <div class="compression-model-card-head">
                 <div class="compression-model-copy">
-                  <span class="compression-model-badge" data-i18n="settings.customModelPolicyBadge">Custom</span>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <span class="compression-model-badge" data-i18n="settings.customModelPolicyBadge">Custom</span>
+                    <span class="compression-model-badge badge-preserve" data-i18n="settings.customModelPreserveBadge">仅保留配置</span>
+                  </div>
                   <strong data-i18n="settings.customModelPolicyTitle">自定义模型</strong>
                   <p id="custom-model-policy-desc" data-i18n="settings.customModelPolicyDesc">自定义模型的压缩策略始终启用；每个模型可单独覆盖执行策略和限额。</p>
                 </div>
@@ -584,6 +589,7 @@
                   </label>
                 </div>
               </div>
+              <div id="settings-custom-model-visualizer" class="compression-context-visualizer"></div>
               <div id="settings-custom-model-percentage-fields" class="compression-parameters">
                 <div class="compression-section-heading"><h4 data-i18n="settings.percentageLimits">比例限额</h4><p data-i18n="settings.percentageLimitsDesc">按模型有效上下文上限计算。</p></div>
                 <div class="compression-metric-grid">

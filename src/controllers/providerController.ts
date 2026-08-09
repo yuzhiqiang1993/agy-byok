@@ -51,6 +51,10 @@ export function fetchProviderCatalog(provider: Provider): Promise<ProviderCatalo
   return providerService.fetchCatalog(provider);
 }
 
+export function fetchOfficialModels(): Promise<ProviderCatalogModel[]> {
+  return providerService.fetchOfficialModels();
+}
+
 export async function testVirtualModelConnection(virtualModelId: string): Promise<ModelConnectionTestResult> {
   return providerService.testModelConnection(virtualModelId);
 }

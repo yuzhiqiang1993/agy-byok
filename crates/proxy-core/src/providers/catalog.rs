@@ -17,7 +17,7 @@ const CATALOG_TIMEOUT_MS: u64 = 15_000;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProviderCatalogReasoning {
+pub struct ProviderCatalogReasoning {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) supported: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -29,30 +29,30 @@ pub(crate) struct ProviderCatalogReasoning {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCatalogModel {
-    pub(crate) id: String,
-    pub(crate) display_name: String,
+    pub id: String,
+    pub display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) context_window: Option<u32>,
+    pub context_window: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) max_context_window: Option<u32>,
+    pub max_context_window: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) context_length: Option<u32>,
+    pub context_length: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) auto_compact_token_limit: Option<u32>,
+    pub auto_compact_token_limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) input_token_limit: Option<u32>,
+    pub input_token_limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) output_token_limit: Option<u32>,
+    pub output_token_limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) max_tokens: Option<u32>,
+    pub max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) token_budget: Option<u32>,
+    pub token_budget: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) capabilities: Option<Value>,
+    pub capabilities: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) thinking: Option<Value>,
+    pub thinking: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) reasoning: Option<ProviderCatalogReasoning>,
+    pub reasoning: Option<ProviderCatalogReasoning>,
 }
 
 /// 使用供应商草稿直接拉取模型目录，允许用户在保存配置前验证连接。
@@ -195,6 +195,104 @@ fn catalog_error_category(status: u16) -> ErrorCategory {
         500..=599 => ErrorCategory::UpstreamServerError,
         _ => ErrorCategory::InvalidRequest,
     }
+}
+
+pub async fn fetch_official_models_catalog() -> Result<Vec<ProviderCatalogModel>, ProxyError> {
+    use std::process::Command;
+    let output = Command::new("ps")
+        .args(["aux"])
+        .output()
+        .map_err(|e| ProxyError::new(ErrorCategory::Internal, format!("执行 ps 探针失败: {e}"), 500))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut target_port: Option<u16> = None;
+    let mut target_csrf: Option<String> = None;
+
+    for line in stdout.lines() {
+        if line.contains("language_server") && line.contains("--csrf_token") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for (idx, part) in parts.iter().enumerate() {
+                if *part == "--https_server_port" && idx + 1 < parts.len() {
+                    if let Ok(port) = parts[idx + 1].parse::<u16>() {
+                        if port > 0 {
+                            target_port = Some(port);
+                        }
+                    }
+                }
+                if *part == "--csrf_token" && idx + 1 < parts.len() {
+                    target_csrf = Some(parts[idx + 1].to_string());
+                }
+            }
+            if target_port.is_some() && target_csrf.is_some() {
+                break;
+            }
+        }
+    }
+
+    let (port, csrf) = match (target_port, target_csrf) {
+        (Some(p), Some(c)) => (p, c),
+        _ => return Err(ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            "未找到直连后台运行的 Antigravity 语言服务，请确保应用正处于开启状态。",
+            404,
+        )),
+    };
+
+    let url = format!("https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetAvailableModels");
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| ProxyError::new(ErrorCategory::Internal, format!("创建探针客户端失败: {e}"), 500))?;
+
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("X-Codeium-Csrf-Token", csrf)
+        .body("{}")
+        .send()
+        .await
+        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("连线语言服务失败: {e}"), 502))?;
+
+    let json_text = response
+        .text()
+        .await
+        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("读取响应内容失败: {e}"), 502))?;
+
+    let parsed: Value = serde_json::from_str(&json_text)
+        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("解析 JSON 响应失败: {e}"), 502))?;
+
+    let models_obj = parsed
+        .get("response")
+        .and_then(|r| r.get("models"))
+        .or_else(|| parsed.get("models"))
+        .and_then(|m| m.as_object())
+        .ok_or_else(|| ProxyError::new(ErrorCategory::UpstreamServerError, "未从直连响应中找到有效的 models 节点", 502))?;
+
+    let mut result = Vec::new();
+    for (model_id, m) in models_obj {
+        let display_name = m.get("displayName")
+            .and_then(|v| v.as_str())
+            .unwrap_or(model_id)
+            .to_string();
+
+        let supports_vision = m.get("supportsVision").and_then(|v| v.as_bool()).unwrap_or(true);
+        let supports_tools = m.get("supportsTools").and_then(|v| v.as_bool()).unwrap_or(true);
+        let supports_reasoning = m.get("supportsThinking").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        result.push(ProviderCatalogModel {
+            id: model_id.clone(),
+            display_name,
+            capabilities: Some(serde_json::json!({
+                "vision": supports_vision,
+                "tools": supports_tools,
+                "reasoning": supports_reasoning
+            })),
+            ..ProviderCatalogModel::default()
+        });
+    }
+
+    result.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(result)
 }
 
 #[cfg(test)]

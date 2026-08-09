@@ -7,6 +7,8 @@ import type { ModelConnectionTestResult } from "../types/proxy";
 export const providerService = {
   fetchCatalog: (provider: Provider) =>
     invoke<ProviderCatalogModel[]>("fetch_provider_catalog", { provider }),
+  fetchOfficialModels: () =>
+    invoke<ProviderCatalogModel[]>("fetch_official_models"),
   testModelConnection: (virtualModelId: string) =>
     invoke<ModelConnectionTestResult>("test_model_connection", { virtualModelId }),
   testProviderModelConnection: (

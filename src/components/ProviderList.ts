@@ -6,9 +6,14 @@ import {
   getActiveProviderTabId,
   setActiveProviderTabId,
 } from "../features/providers/providerState";
+import {
+  OFFICIAL_PROVIDER,
+  OFFICIAL_PROVIDER_ID,
+} from "../features/providers/officialProvider";
 import { t } from "../i18n";
 import { showNotice } from "./NoticeBar";
 import { renderSingleProviderCard } from "./ProviderCard";
+import { renderOfficialProviderCard } from "./OfficialProviderCard";
 import { openProviderEditor } from "./ProviderEditor";
 
 let disposeActiveProviderCard: (() => void) | null = null;
@@ -41,10 +46,10 @@ function renderConfigUnavailable(container: HTMLDivElement): void {
 function activeProviderId(): string {
   const providers = store.config.providers;
   const activeId = getActiveProviderTabId();
+  if (activeId === OFFICIAL_PROVIDER_ID) return OFFICIAL_PROVIDER_ID;
   if (activeId && providers.some((provider) => provider.id === activeId)) return activeId;
-  const firstId = providers[0].id;
-  setActiveProviderTabId(firstId);
-  return firstId;
+  setActiveProviderTabId(OFFICIAL_PROVIDER_ID);
+  return OFFICIAL_PROVIDER_ID;
 }
 
 function providerVirtualModelCounts(): Map<string, number> {
@@ -63,19 +68,32 @@ function createProviderTabs(activeId: string): HTMLDivElement {
   const tabs = document.createElement("div");
   tabs.className = "provider-tabs-bar";
   const modelCounts = providerVirtualModelCounts();
-  for (const provider of store.config.providers) {
+  const allProviders = [OFFICIAL_PROVIDER, ...store.config.providers];
+
+  for (const provider of allProviders) {
+    const isOfficial = provider.id === OFFICIAL_PROVIDER_ID;
     const tab = document.createElement("button");
     tab.type = "button";
-    tab.className = `provider-tab-card${provider.id === activeId ? " active" : ""}`;
+    tab.className = `provider-tab-card${provider.id === activeId ? " active" : ""}${
+      isOfficial ? " official-tab" : ""
+    }`;
+
     const icon = document.createElement("span");
     icon.className = "provider-tab-icon";
-    icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>`;
+    if (isOfficial) {
+      icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`;
+    } else {
+      icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>`;
+    }
+
     const title = document.createElement("span");
     title.className = "provider-tab-title";
-    title.textContent = provider.name;
+    title.textContent = isOfficial ? t("models.officialTabName") : provider.name;
+
     const badge = document.createElement("span");
     badge.className = "provider-tab-badge";
-    badge.textContent = String(modelCounts.get(provider.id) ?? 0);
+    badge.textContent = isOfficial ? "11" : String(modelCounts.get(provider.id) ?? 0);
+
     tab.append(icon, title, badge);
     tab.addEventListener("click", () => {
       if (getActiveProviderTabId() === provider.id) return;
@@ -87,14 +105,6 @@ function createProviderTabs(activeId: string): HTMLDivElement {
   return tabs;
 }
 
-function renderEmptyProviders(container: HTMLDivElement): void {
-  setActiveProviderTabId(null);
-  const empty = document.createElement("p");
-  empty.className = "empty-state";
-  empty.textContent = t("models.emptyDesc");
-  container.append(empty);
-}
-
 export function renderProviders(): void {
   const providerCount = element<HTMLSpanElement>("#provider-count");
   const providerList = element<HTMLDivElement>("#provider-list");
@@ -102,6 +112,7 @@ export function renderProviders(): void {
   disposeActiveProviderCard?.();
   disposeActiveProviderCard = null;
   providerList.replaceChildren();
+
   if (!store.configLoaded) {
     providerCount.textContent = "—";
     renderConfigUnavailable(providerList);
@@ -110,13 +121,23 @@ export function renderProviders(): void {
 
   const providers = store.config.providers;
   providerCount.textContent = String(providers.length);
-  if (providers.length === 0) {
+  const activeId = activeProviderId();
+  providerList.append(createProviderTabs(activeId));
+
+  if (activeId === OFFICIAL_PROVIDER_ID) {
+    const activeCard = renderOfficialProviderCard();
+    disposeActiveProviderCard = activeCard.dispose;
+    providerList.append(activeCard.element);
+    return;
+  }
+
+  const activeProvider =
+    providers.find((provider) => provider.id === activeId) ?? providers[0];
+  if (!activeProvider) {
     renderEmptyProviders(providerList);
     return;
   }
-  const activeId = activeProviderId();
-  providerList.append(createProviderTabs(activeId));
-  const activeProvider = providers.find((provider) => provider.id === activeId) ?? providers[0];
+
   const activeCard = renderSingleProviderCard(activeProvider, {
     onEdit: () => void openProviderEditor(activeProvider.id),
     onChanged: renderProviders,
@@ -124,3 +145,12 @@ export function renderProviders(): void {
   disposeActiveProviderCard = activeCard.dispose;
   providerList.append(activeCard.element);
 }
+
+function renderEmptyProviders(container: HTMLDivElement): void {
+  setActiveProviderTabId(OFFICIAL_PROVIDER_ID);
+  const empty = document.createElement("p");
+  empty.className = "empty-state";
+  empty.textContent = t("models.emptyDesc");
+  container.append(empty);
+}
+
