@@ -20,4 +20,13 @@ export interface ProviderCatalogModel {
   capabilities?: Record<string, unknown> | unknown[];
   thinking?: unknown;
   reasoning?: ProviderCatalogReasoning;
+  upstreamCompression?: UpstreamCompressionPolicy;
+}
+
+export interface UpstreamCompressionPolicy {
+  enabled: boolean;
+  tokenThreshold: number;
+  maxTokenLimit: number;
+  maxOutputTokens?: number;
+  checkpointModel?: string;
 }

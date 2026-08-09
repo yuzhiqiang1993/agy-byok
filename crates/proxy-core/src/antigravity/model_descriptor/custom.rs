@@ -1,6 +1,6 @@
-use super::checkpoint::apply_custom_checkpoint_policy;
+use super::checkpoint::apply_model_compression_policy;
 use super::AntigravityModelDescriptor;
-use crate::domain::{OfficialModelSettings, ReasoningMapping, UpstreamModel, VirtualModel};
+use crate::domain::{ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
@@ -80,25 +80,10 @@ impl AntigravityModelDescriptor {
         descriptor
     }
 
-    #[cfg(test)]
     pub fn inject_into_model_list(
         models_json: &mut Value,
         virtual_models: &[VirtualModel],
         upstream_models: &[UpstreamModel],
-    ) {
-        Self::inject_into_model_list_with_settings(
-            models_json,
-            virtual_models,
-            upstream_models,
-            &OfficialModelSettings::default(),
-        );
-    }
-
-    pub fn inject_into_model_list_with_settings(
-        models_json: &mut Value,
-        virtual_models: &[VirtualModel],
-        upstream_models: &[UpstreamModel],
-        settings: &OfficialModelSettings,
     ) {
         let models = virtual_models
             .iter()
@@ -122,7 +107,7 @@ impl AntigravityModelDescriptor {
                         .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
                         .collect::<Vec<_>>()
                 });
-                inject_models(target, models, settings);
+                inject_models(target, models);
                 if let Some(catalog_keys) = catalog_keys {
                     append_catalog_keys_to_model_sorts(
                         catalog.get_mut("agentModelSorts"),
@@ -133,7 +118,7 @@ impl AntigravityModelDescriptor {
             }
         }
 
-        inject_models(models_json, models, settings);
+        inject_models(models_json, models);
     }
 }
 
@@ -193,69 +178,48 @@ fn apply_reasoning_metadata(
     }
 }
 
-fn apply_custom_model_checkpoint_override(
-    descriptor: &mut Value,
-    upstream_model: &UpstreamModel,
-    settings: &OfficialModelSettings,
-) {
-    let policy = settings.custom_model_checkpoint_policy(&upstream_model.upstream_model_id);
-    let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
-    let checkpoint_token_limit = context_window.min(input_token_limit);
-    let Some(limits) = settings.custom_model_checkpoint_limits_with_override(
-        upstream_model.checkpoint_override.as_ref(),
-        checkpoint_token_limit,
-        output_token_limit,
-    ) else {
+fn apply_custom_model_compression_policy(descriptor: &mut Value, upstream_model: &UpstreamModel) {
+    let Some(policy) = upstream_model.compression_policy.as_ref() else {
         return;
     };
-    apply_custom_checkpoint_policy(
+    let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
+    apply_model_compression_policy(
         descriptor,
         policy,
-        &policy.checkpoint_model,
-        limits.token_threshold,
-        limits.max_token_limit,
-        limits.max_output_tokens,
+        context_window.min(input_token_limit),
+        output_token_limit,
     );
 }
 
-fn custom_model_object(
-    virtual_model: &VirtualModel,
-    upstream_model: &UpstreamModel,
-    settings: &OfficialModelSettings,
-) -> Value {
+fn custom_model_object(virtual_model: &VirtualModel, upstream_model: &UpstreamModel) -> Value {
     let mut descriptor =
         AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model);
-    apply_custom_model_checkpoint_override(&mut descriptor, upstream_model, settings);
+    apply_custom_model_compression_policy(&mut descriptor, upstream_model);
     descriptor
 }
 
 fn custom_cloud_code_catalog_entry(
     virtual_model: &VirtualModel,
     upstream_model: &UpstreamModel,
-    settings: &OfficialModelSettings,
 ) -> Value {
     let mut descriptor =
         AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model);
-    apply_custom_model_checkpoint_override(&mut descriptor, upstream_model, settings);
+    apply_custom_model_compression_policy(&mut descriptor, upstream_model);
     descriptor
 }
 
-fn inject_models(
-    target: &mut Value,
-    models: Vec<(&VirtualModel, &UpstreamModel)>,
-    settings: &OfficialModelSettings,
-) {
+fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)>) {
     match target {
         Value::Array(entries) => {
             entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
-                custom_model_object(virtual_model, upstream_model, settings)
+                custom_model_object(virtual_model, upstream_model)
             }));
         }
         Value::Object(entries) => {
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
                 );
             }
         }
@@ -264,7 +228,7 @@ fn inject_models(
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model, settings),
+                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
                 );
             }
             *target = Value::Object(entries);

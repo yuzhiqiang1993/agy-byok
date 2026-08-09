@@ -20,7 +20,7 @@ import type {
   ProviderCatalogContext,
   ProviderCatalogState,
 } from "./providerCatalogTypes";
-import { resolveCatalogTokenLimits } from "./tokenLimits";
+import { resolveCatalogTokenLimits } from "./modelTokenLimits";
 
 export type { ProviderCatalogContext, ProviderCatalogState } from "./providerCatalogTypes";
 

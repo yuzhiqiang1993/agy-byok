@@ -214,7 +214,7 @@ function buildUpstream(
     display_name: model.displayName,
     capabilities,
     token_limits: tokenLimits,
-    checkpoint_override: null,
+    compression_policy: null,
     tokenizer: null,
     parameter_overrides: emptyParameters(),
     enabled: true,

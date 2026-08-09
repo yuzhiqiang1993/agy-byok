@@ -1,10 +1,12 @@
+import { updateConfig } from "../controllers/configController";
 import { fetchOfficialModels } from "../controllers/providerController";
-import type { ProviderCatalogModel } from "../types/catalog";
 import { t } from "../i18n";
-
-import { showNotice } from "./NoticeBar";
 import { store } from "../store/appStore";
+import type { ProviderCatalogModel } from "../types/catalog";
 import { reasoningLevelLabel } from "../utils/reasoningUtils";
+import { showNotice } from "./NoticeBar";
+import { getPolicyPillStatus, showPolicyEditorModal } from "./PolicyEditorModal";
+import { showRawConfigModal } from "./RawConfigModal";
 
 const COPY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 const COPIED_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
@@ -69,33 +71,11 @@ function createReasoningVariantPills(item: ProviderCatalogModel): HTMLElement {
   return container;
 }
 
-function getOfficialModelManagedStatus(modelId: string): { label: string; isManaged: boolean } {
-  const settings = store.config.official_model_settings;
-  if (!settings) {
-    return { label: t("models.officialStatusDirect"), isManaged: false };
-  }
-
-  const overridePolicy = settings.model_checkpoint_policies?.[modelId];
-  if (overridePolicy && overridePolicy.enabled) {
-    return { label: t("models.officialStatusManaged", { percent: "100" }), isManaged: true };
-  }
-
-  let activePolicy = null;
-  const idLower = modelId.toLowerCase();
-  if (idLower.includes("gemini")) {
-    activePolicy = settings.gemini;
-  } else if (idLower.includes("claude")) {
-    activePolicy = settings.claude;
-  }
-
-  if (activePolicy && activePolicy.enabled) {
-    const percent = activePolicy.mode === "percentage"
-      ? activePolicy.token_threshold_percent
-      : Math.round((activePolicy.token_threshold / 1000000) * 100);
-    return { label: t("models.officialStatusManaged", { percent: String(percent) }), isManaged: true };
-  }
-
-  return { label: t("models.officialStatusDirect"), isManaged: false };
+function positiveMinimum(...values: Array<number | undefined>): number | null {
+  const positiveValues = values.filter(
+    (value): value is number => value !== undefined && Number.isFinite(value) && value > 0,
+  );
+  return positiveValues.length > 0 ? Math.min(...positiveValues) : null;
 }
 
 function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElement {
@@ -217,7 +197,19 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       });
   });
 
-  testActions.append(testBtn, summary);
+  const refreshBtn = document.createElement("button");
+  refreshBtn.type = "button";
+  refreshBtn.className = "secondary compact-button";
+  refreshBtn.textContent = t("overview.refresh");
+  refreshBtn.addEventListener("click", () => {
+    refreshBtn.disabled = true;
+    summary.textContent = "";
+    loadOfficialModels().finally(() => {
+      refreshBtn.disabled = false;
+    });
+  });
+
+  testActions.append(testBtn, refreshBtn, summary);
   actions.append(testActions);
   card.append(actions);
 
@@ -234,11 +226,9 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
 
   let isDisposed = false;
 
-  const unsubscribeStore = store.subscribeConfig(() => {
-    // 监听 Config，原先用来更新 Header Pill，现 Pill 已被移除
-  });
-
-  void fetchOfficialModels()
+  const loadOfficialModels = () => {
+    modelsContainer.replaceChildren(loadingState);
+    return fetchOfficialModels()
     .then((models) => {
       if (isDisposed) return;
       modelsContainer.replaceChildren();
@@ -280,13 +270,34 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
         name.textContent = item.displayName || item.id;
         main.append(name);
 
+        const capObj = item.capabilities as Record<string, unknown> | undefined;
+        if (capObj?.raw_config) {
+          const rawButton = document.createElement("button");
+          rawButton.type = "button";
+          rawButton.className = "raw-config-button";
+          rawButton.textContent = "{…}";
+          rawButton.title = t("models.viewRawConfig");
+          rawButton.setAttribute("aria-label", t("models.viewRawConfigForModel", {
+            model: item.displayName || item.id,
+          }));
+          rawButton.addEventListener("click", () => {
+            showRawConfigModal(item.displayName || item.id, capObj.raw_config);
+          });
+
+          const titleWrapper = document.createElement("div");
+          titleWrapper.className = "provider-model-title-row";
+          name.remove();
+          titleWrapper.append(name, rawButton);
+          main.append(titleWrapper);
+        }
+
         // 第二列：能力 Badge
         const capabilities = document.createElement("div");
         capabilities.className = "capability-list";
-        const capObj = item.capabilities as Record<string, boolean> | undefined;
-        if (capObj?.vision) capabilities.append(capabilityBadge("vision"));
-        if (capObj?.tools) capabilities.append(capabilityBadge("tools"));
-        if (capObj?.reasoning) capabilities.append(capabilityBadge("reasoning"));
+        const caps = capObj as Record<string, boolean> | undefined;
+        if (caps?.vision) capabilities.append(capabilityBadge("vision"));
+        if (caps?.tools) capabilities.append(capabilityBadge("tools"));
+        if (caps?.reasoning) capabilities.append(capabilityBadge("reasoning"));
 
         // 第三列：推理档位 (基于模型数据或默认)
         const variants = createReasoningVariantPills(item);
@@ -294,11 +305,51 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
         // 第四列：压缩策略 (根据当前模型动态获取)
         const policyCol = document.createElement("div");
         policyCol.className = "provider-model-variants-inline";
-        const curStatus = getOfficialModelManagedStatus(item.id);
-        const policyPill = document.createElement("span");
-        policyPill.className = curStatus.isManaged ? "status-pill active" : "status-pill neutral";
-        policyPill.textContent = curStatus.label;
-        policyCol.append(policyPill);
+        const capacity = positiveMinimum(item.inputTokenLimit, item.maxTokens, item.contextWindow);
+        const outputTokenLimit = positiveMinimum(item.outputTokenLimit);
+        const currentPolicy = store.config.model_compression_policies[item.id] ?? null;
+        const status = getPolicyPillStatus(
+          currentPolicy,
+          capacity,
+          outputTokenLimit,
+          t("models.presetOfficialDefault"),
+        );
+
+        const policyButton = document.createElement("button");
+        policyButton.type = "button";
+        policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
+        policyButton.dataset.policyFocusKey = `official:${item.id}`;
+        policyButton.title = t("models.editPolicyTitle");
+        policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
+          model: item.displayName || item.id,
+          status: status.label,
+        }));
+        const policyLabel = document.createElement("span");
+        policyLabel.textContent = status.label;
+        policyButton.append(policyLabel);
+        policyButton.insertAdjacentHTML("beforeend", `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`);
+        policyButton.addEventListener("click", () => {
+          showPolicyEditorModal({
+            modelName: item.displayName || item.id,
+            currentPolicy,
+            capacity,
+            outputTokenLimit,
+            defaultLabel: t("models.presetOfficialDefault"),
+            defaultHelp: t("models.policyOfficialDefaultHelp"),
+            emptyNotice: t("models.policyEmptyNotice"),
+            upstreamCompression: item.upstreamCompression,
+            focusKey: `official:${item.id}`,
+            onSave: async (policy) => {
+              await updateConfig((current) => {
+                const policies = { ...current.model_compression_policies };
+                if (policy) policies[item.id] = policy;
+                else delete policies[item.id];
+                return { ...current, model_compression_policies: policies };
+              });
+            },
+          });
+        });
+        policyCol.append(policyButton);
 
         row.append(main, capabilities, variants, policyCol);
         modelsContainer.append(row);
@@ -312,12 +363,14 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       errorMsg.textContent = `${t("models.officialFetchFailed")}: ${String(err)}`;
       modelsContainer.append(errorMsg);
     });
+  };
+
+  void loadOfficialModels();
 
   return {
     element: card,
     dispose: () => {
       isDisposed = true;
-      unsubscribeStore();
     },
   };
 }

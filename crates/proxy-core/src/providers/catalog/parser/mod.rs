@@ -1,6 +1,6 @@
 mod reasoning;
 
-use super::ProviderCatalogModel;
+use super::{ProviderCatalogModel, UpstreamCompressionPolicy};
 use crate::domain::ProviderProtocol;
 use reasoning::parse_reasoning_metadata;
 use serde_json::{Map, Value};
@@ -114,6 +114,7 @@ pub(super) fn parse_catalog_models_with_context(
                 capabilities: extract_capabilities(item),
                 thinking: item.get("thinking").cloned(),
                 reasoning: parse_reasoning_metadata(item, protocol),
+                upstream_compression: extract_upstream_compression(item),
             })
         })
         .collect()
@@ -148,6 +149,102 @@ fn catalog_items(payload: &Value) -> Vec<(&Value, Option<&str>)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[derive(serde::Deserialize)]
+struct CheckpointerPayload {
+    enabled: Option<bool>,
+    token_threshold: Option<Value>,
+    max_token_limit: Option<Value>,
+    max_output_tokens: Option<Value>,
+    checkpoint_model: Option<String>,
+}
+
+pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompressionPolicy> {
+    let string_value = item
+        .get("modelExperiments")?
+        .get("experiments")?
+        .get("CASCADE_USE_EXPERIMENT_CHECKPOINTER")?
+        .get("stringValue")?
+        .as_str()?;
+    let payload: CheckpointerPayload = serde_json::from_str(string_value).ok()?;
+    let enabled = payload.enabled?;
+    let token_threshold = parse_positive_u32(payload.token_threshold.as_ref()?)?;
+    let max_token_limit = parse_positive_u32(payload.max_token_limit.as_ref()?)?;
+    let max_output_tokens = match payload.max_output_tokens.as_ref() {
+        Some(value) => Some(parse_positive_u32(value)?),
+        None => None,
+    };
+
+    Some(UpstreamCompressionPolicy {
+        enabled,
+        token_threshold,
+        max_token_limit,
+        max_output_tokens,
+        checkpoint_model: payload.checkpoint_model,
+    })
+}
+
+pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCatalogModel> {
+    let Some(models) = payload
+        .get("response")
+        .and_then(|response| response.get("models"))
+        .or_else(|| payload.get("models"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+
+    let mut result = models
+        .iter()
+        .map(|(model_id, item)| {
+            let max_tokens = item.get("maxTokens").and_then(parse_positive_u32);
+            let context_window = item.get("contextWindow").and_then(parse_positive_u32);
+            let input_token_limit = item
+                .get("inputTokenLimit")
+                .and_then(parse_positive_u32)
+                .or(max_tokens);
+            let output_token_limit = ["maxOutputTokens", "outputTokenLimit"]
+                .iter()
+                .filter_map(|field| item.get(*field).and_then(parse_positive_u32))
+                .min();
+            let supports_vision = item
+                .get("supportsVision")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let supports_tools = item
+                .get("supportsTools")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let supports_reasoning = item
+                .get("supportsThinking")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+
+            ProviderCatalogModel {
+                id: model_id.clone(),
+                display_name: item
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(model_id)
+                    .to_string(),
+                context_window,
+                input_token_limit,
+                output_token_limit,
+                max_tokens,
+                capabilities: Some(serde_json::json!({
+                    "vision": supports_vision,
+                    "tools": supports_tools,
+                    "reasoning": supports_reasoning,
+                    "raw_config": item,
+                })),
+                upstream_compression: extract_upstream_compression(item),
+                ..ProviderCatalogModel::default()
+            }
+        })
+        .collect::<Vec<_>>();
+    result.sort_by(|left, right| left.id.cmp(&right.id));
+    result
 }
 
 fn extract_capabilities(item: &Value) -> Option<Value> {

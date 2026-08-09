@@ -17,10 +17,6 @@ const tabKeys: Record<string, { titleKey: TranslationKey; descKey: TranslationKe
     titleKey: "activity.title",
     descKey: "activity.subtitle",
   },
-  "tab-compression": {
-    titleKey: "settings.antigravityHeader",
-    descKey: "settings.antigravitySubtitle",
-  },
   "tab-settings": {
     titleKey: "settings.title",
     descKey: "settings.subtitle",

@@ -38,7 +38,7 @@ mod tests {
                 display_name: "Connection Model".to_string(),
                 capabilities: ModelCapabilities::default(),
                 token_limits: ModelTokenLimits::default(),
-                checkpoint_override: None,
+                compression_policy: None,
                 tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
@@ -53,7 +53,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         }
     }
 
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn model_catalog_applies_custom_checkpoint_settings() {
+    fn model_catalog_applies_custom_model_compression_policy() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].token_limits = ModelTokenLimits {
             context_window: Some(372_000),
@@ -148,16 +148,12 @@ mod tests {
             output_token_limit: Some(128_000),
             ..ModelTokenLimits::default()
         };
-        config.official_model_settings.custom_model = CompressionLimitsPolicy {
-            enabled: true,
-            mode: CheckpointLimitMode::Percentage,
-            token_threshold_percent: 70,
-            max_token_limit_percent: 90,
-            max_output_tokens_percent: 5,
-            token_threshold: 0,
-            max_token_limit: 0,
-            max_output_tokens: 0,
-        };
+        config.upstream_models[0].compression_policy = Some(ModelCompressionPolicy {
+            token_threshold: 260_400,
+            max_token_limit: 334_800,
+            max_output_tokens: 18_600,
+            ..ModelCompressionPolicy::default()
+        });
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
@@ -175,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn model_custom_checkpoint_override_does_not_change_official_gemini() {
+    fn custom_and_official_model_compression_policies_are_independent() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].token_limits = ModelTokenLimits {
             context_window: Some(372_000),
@@ -183,21 +179,21 @@ mod tests {
             output_token_limit: Some(128_000),
             ..ModelTokenLimits::default()
         };
-        config.upstream_models[0].checkpoint_override = Some(ModelCheckpointOverride::Custom {
+        config.upstream_models[0].compression_policy = Some(ModelCompressionPolicy {
             token_threshold: 250_000,
             max_token_limit: 300_000,
             max_output_tokens: 20_000,
+            ..ModelCompressionPolicy::default()
         });
-        config.official_model_settings.gemini = CompressionLimitsPolicy {
-            enabled: true,
-            mode: CheckpointLimitMode::Absolute,
-            token_threshold_percent: 61,
-            max_token_limit_percent: 73,
-            max_output_tokens_percent: 2,
-            token_threshold: 430_000,
-            max_token_limit: 512_000,
-            max_output_tokens: 16_384,
-        };
+        config.model_compression_policies.insert(
+            "gemini-pro".to_string(),
+            ModelCompressionPolicy {
+                token_threshold: 430_000,
+                max_token_limit: 512_000,
+                max_output_tokens: 16_384,
+                ..ModelCompressionPolicy::default()
+            },
+        );
         let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
@@ -205,7 +201,9 @@ mod tests {
             "models": {
                 "gemini-pro": {
                     "model": "MODEL_GEMINI_2_5_PRO",
-                    "displayName": "Gemini Pro"
+                    "displayName": "Gemini Pro",
+                    "maxTokens": 1_048_576,
+                    "maxOutputTokens": 65_536
                 }
             }
         }));
@@ -217,16 +215,12 @@ mod tests {
         let official_raw = catalog["models"]["gemini-pro"]["modelExperiments"]["experiments"]
             ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
             .as_str()
-            .expect("official Gemini model must contain checkpoint settings");
+            .expect("official model must contain checkpoint settings");
         let official_checkpoint: serde_json::Value = serde_json::from_str(official_raw).unwrap();
 
         assert_eq!(custom_checkpoint["token_threshold"], "250000");
         assert_eq!(custom_checkpoint["max_token_limit"], "300000");
         assert_eq!(custom_checkpoint["max_output_tokens"], "20000");
-        assert_eq!(
-            custom_checkpoint["checkpoint_model"],
-            "MODEL_PLACEHOLDER_M71"
-        );
         assert_eq!(official_checkpoint["token_threshold"], "430000");
         assert_eq!(official_checkpoint["max_token_limit"], "512000");
         assert_eq!(official_checkpoint["max_output_tokens"], "16384");
@@ -673,7 +667,7 @@ mod tests {
             display_name: "GPT-4o".to_string(),
             capabilities: ModelCapabilities::default(),
             token_limits: ModelTokenLimits::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
@@ -695,7 +689,7 @@ mod tests {
             providers: vec![provider],
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);
@@ -823,7 +817,7 @@ mod tests {
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),
-                checkpoint_override: None,
+                compression_policy: None,
                 tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
@@ -838,7 +832,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
         let request = NeutralChatRequest {
@@ -921,7 +915,7 @@ mod tests {
                     },
                 },
                 token_limits: ModelTokenLimits::default(),
-                checkpoint_override: None,
+                compression_policy: None,
                 tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
@@ -936,7 +930,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);
@@ -973,7 +967,7 @@ mod tests {
             display_name: "GPT Test".to_string(),
             capabilities: ModelCapabilities::default(),
             token_limits: ModelTokenLimits::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,

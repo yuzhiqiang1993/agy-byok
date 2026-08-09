@@ -1,8 +1,9 @@
-import { connectionTestResults } from "../../features/providers/providerState";
+import { updateConfig } from "../../controllers/configController";
 import { renderConnectionTestState } from "../../features/providers/providerConnectionTests";
+import { connectionTestResults } from "../../features/providers/providerState";
 import { t } from "../../i18n";
-import { store } from "../../store/appStore";
 import type { UpstreamModel, VirtualModel } from "../../types/config";
+import { getPolicyPillStatus, showPolicyEditorModal } from "../PolicyEditorModal";
 import {
   reasoningLevelLabel,
   sortVirtualModelsByReasoningLevel,
@@ -31,24 +32,11 @@ function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElemen
   return badge;
 }
 
-function getCustomModelManagedStatus(upstreamId: string): { label: string; isManaged: boolean } {
-  const settings = store.config.official_model_settings;
-  if (!settings) return { label: t("models.officialStatusDirect"), isManaged: false };
-
-  const override = settings.model_checkpoint_policies?.[upstreamId];
-  if (override && override.enabled) {
-    return { label: t("models.officialStatusManaged", { percent: "100" }), isManaged: true };
-  }
-
-  const custom = settings.custom_model;
-  if (custom && custom.enabled) {
-    const percent = custom.mode === "percentage"
-      ? custom.token_threshold_percent
-      : Math.round((custom.token_threshold / 1000000) * 100);
-    return { label: t("models.officialStatusManaged", { percent: String(percent) }), isManaged: true };
-  }
-
-  return { label: t("models.officialStatusDirect"), isManaged: false };
+function positiveMinimum(...values: Array<number | null>): number | null {
+  const positiveValues = values.filter(
+    (value): value is number => value !== null && Number.isFinite(value) && value > 0,
+  );
+  return positiveValues.length > 0 ? Math.min(...positiveValues) : null;
 }
 
 function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]): HTMLElement {
@@ -105,11 +93,54 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
   }
 
   // 渲染压缩策略 (模型维度，仅需渲染一个)
-  const policyPill = document.createElement("span");
-  const status = getCustomModelManagedStatus(upstream.id);
-  policyPill.className = status.isManaged ? "status-pill active" : "status-pill neutral";
-  policyPill.textContent = status.label;
-  policyCol.append(policyPill);
+  const capacity = positiveMinimum(
+    upstream.token_limits.context_window,
+    upstream.token_limits.input_token_limit,
+  );
+  const outputTokenLimit = upstream.token_limits.output_token_limit_source === "estimated"
+    ? null
+    : positiveMinimum(upstream.token_limits.output_token_limit);
+  const status = getPolicyPillStatus(
+    upstream.compression_policy,
+    capacity,
+    outputTokenLimit,
+    t("models.presetUpstreamDefault"),
+  );
+  const policyButton = document.createElement("button");
+  policyButton.type = "button";
+  policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
+  policyButton.dataset.policyFocusKey = `upstream:${upstream.id}`;
+  policyButton.title = t("models.editPolicyTitle");
+  policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
+    model: upstream.display_name || upstream.upstream_model_id,
+    status: status.label,
+  }));
+  const policyLabel = document.createElement("span");
+  policyLabel.textContent = status.label;
+  policyButton.append(policyLabel);
+  policyButton.insertAdjacentHTML("beforeend", `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`);
+  policyButton.addEventListener("click", () => {
+    showPolicyEditorModal({
+      modelName: upstream.display_name || upstream.upstream_model_id,
+      currentPolicy: upstream.compression_policy,
+      capacity,
+      outputTokenLimit,
+      defaultLabel: t("models.presetUpstreamDefault"),
+      defaultHelp: t("models.policyCustomUnconfiguredHelp"),
+      emptyNotice: t("models.policyEmptyNoticeCustom"),
+      focusKey: `upstream:${upstream.id}`,
+      onSave: async (policy) => {
+        await updateConfig((current) => ({
+          ...current,
+          upstream_models: current.upstream_models.map((item) => (
+            item.id === upstream.id ? { ...item, compression_policy: policy } : item
+          )),
+        }));
+      },
+    });
+  });
+
+  policyCol.append(policyButton);
 
   item.append(main, capabilities, reasoningCol, policyCol);
   return item;

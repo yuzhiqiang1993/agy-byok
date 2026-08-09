@@ -214,13 +214,6 @@ html[data-theme="dark"] .settings-row-icon.icon-rose {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-@media (max-width: 1180px) {
-  .compression-model-card-head {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-}
-
 @media (max-width: 860px) {
   .settings-workspace {
     grid-template-columns: 1fr;
@@ -230,37 +223,4 @@ html[data-theme="dark"] .settings-row-icon.icon-rose {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .compression-metric-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 560px) {
-  .official-compression-card {
-    padding: 18px;
-  }
-
-  .compression-model-card {
-    padding: 14px;
-  }
-
-  .compression-parameters {
-    padding: 12px;
-  }
-
-  .compression-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .compression-footer-actions {
-    width: 100%;
-  }
-
-  .compression-footer-actions .primary,
-  .compression-footer-actions .secondary {
-    flex: 1 1 auto;
-  }
-
 }

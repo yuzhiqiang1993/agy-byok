@@ -1,6 +1,5 @@
 import { setupAboutSettings } from "./settings/AboutSettings";
 import { setupAppearanceSettings } from "./settings/AppearanceSettings";
-import { setupCompressionSettings } from "./settings/CompressionSettings";
 import { setupDataSettings } from "./settings/DataSettings";
 import { setupProxyPortSettings } from "./settings/ProxyPortSettings";
 import { setupSettingsNavigation } from "./settings/SettingsNavigation";
@@ -8,7 +7,6 @@ import { setupSettingsNavigation } from "./settings/SettingsNavigation";
 export function setupSettingsView(): void {
   setupSettingsNavigation();
   setupAppearanceSettings();
-  setupCompressionSettings();
   setupProxyPortSettings();
   setupDataSettings();
   setupAboutSettings();

@@ -191,7 +191,7 @@ fn preview_model_config(
                 ..ModelCapabilities::default()
             },
             token_limits: ModelTokenLimits::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
@@ -206,7 +206,7 @@ fn preview_model_config(
             fallback_virtual_model_id: None,
             enabled: true,
         }],
-        official_model_settings: Default::default(),
+        model_compression_policies: Default::default(),
     };
     config.validate().map_err(|error| error.to_string())?;
     Ok(config)

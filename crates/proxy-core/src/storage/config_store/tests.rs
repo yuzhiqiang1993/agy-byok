@@ -1,11 +1,19 @@
 use super::*;
 use crate::domain::{
-    AppConfig, CheckpointExecutionPolicy, ModelCapabilities, ModelCheckpointOverride,
-    ModelTokenLimits, OfficialModelSettings, ParameterOverrides, Provider, ProviderProtocol,
-    TiktokenEncoding, TokenLimitSource, TokenizerConfig, UpstreamModel, VirtualModel,
-    DEFAULT_PROXY_PORT, MIN_PROXY_PORT,
+    AppConfig, ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides,
+    Provider, ProviderProtocol, TiktokenEncoding, TokenLimitSource, TokenizerConfig, UpstreamModel,
+    VirtualModel, DEFAULT_PROXY_PORT, MIN_PROXY_PORT,
 };
 use std::collections::HashMap;
+
+fn compression_policy() -> ModelCompressionPolicy {
+    ModelCompressionPolicy {
+        token_threshold: 80_000,
+        max_token_limit: 100_000,
+        max_output_tokens: 20_000,
+        ..ModelCompressionPolicy::default()
+    }
+}
 
 fn sample_config() -> AppConfig {
     AppConfig {
@@ -31,7 +39,7 @@ fn sample_config() -> AppConfig {
             display_name: "GPT Test".to_string(),
             capabilities: ModelCapabilities::default(),
             token_limits: ModelTokenLimits::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
@@ -46,7 +54,7 @@ fn sample_config() -> AppConfig {
             fallback_virtual_model_id: None,
             enabled: true,
         }],
-        official_model_settings: OfficialModelSettings::default(),
+        model_compression_policies: Default::default(),
     }
 }
 
@@ -59,9 +67,7 @@ fn config_store_persists_and_reloads_valid_config() {
     assert!(store.get_config().providers.is_empty());
 
     let mut config = sample_config();
-    config.upstream_models[0].checkpoint_override = Some(ModelCheckpointOverride::Percentage {
-        threshold_percent: 80,
-    });
+    config.upstream_models[0].compression_policy = Some(compression_policy());
     store.update_config(config).unwrap();
     store
         .update_config_with(|config| config.providers[0].name = "Updated Provider".to_string())
@@ -72,10 +78,8 @@ fn config_store_persists_and_reloads_valid_config() {
     assert_eq!(reloaded.get_config().providers[0].name, "Updated Provider");
     assert_eq!(reloaded.get_config().providers[0].api_key, "sk-test");
     assert_eq!(
-        reloaded.get_config().upstream_models[0].checkpoint_override,
-        Some(ModelCheckpointOverride::Percentage {
-            threshold_percent: 80,
-        })
+        reloaded.get_config().upstream_models[0].compression_policy,
+        Some(compression_policy())
     );
     assert!(!path.with_extension("tmp").exists());
     #[cfg(unix)]
@@ -206,80 +210,44 @@ fn config_rejects_missing_provider_api_key() {
 }
 
 #[test]
-fn checkpoint_override_variants_round_trip() {
-    for (checkpoint_override, serialized) in [
-        (
-            ModelCheckpointOverride::Percentage {
-                threshold_percent: 80,
-            },
-            serde_json::json!({
-                "kind": "percentage",
-                "threshold_percent": 80
-            }),
-        ),
-        (
-            ModelCheckpointOverride::Custom {
-                token_threshold: 250_000,
-                max_token_limit: 300_000,
-                max_output_tokens: 20_000,
-            },
-            serde_json::json!({
-                "kind": "custom",
-                "token_threshold": 250_000,
-                "max_token_limit": 300_000,
-                "max_output_tokens": 20_000
-            }),
-        ),
-    ] {
-        let mut config = sample_config();
-        config.upstream_models[0].checkpoint_override = Some(checkpoint_override);
+fn model_compression_policy_round_trips_in_upstream_and_official_map() {
+    let policy = compression_policy();
+    let mut config = sample_config();
+    config.upstream_models[0].compression_policy = Some(policy.clone());
+    config
+        .model_compression_policies
+        .insert("official-model".to_string(), policy.clone());
 
-        let value = serde_json::to_value(&config).unwrap();
-        assert_eq!(
-            value["upstream_models"][0]["checkpoint_override"],
-            serialized
-        );
+    let value = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        value["upstream_models"][0]["compression_policy"],
+        serde_json::to_value(&policy).unwrap()
+    );
+    assert_eq!(
+        value["model_compression_policies"]["official-model"],
+        serde_json::to_value(&policy).unwrap()
+    );
 
-        let round_trip: AppConfig = serde_json::from_value(value).unwrap();
-        assert_eq!(
-            round_trip.upstream_models[0].checkpoint_override,
-            Some(checkpoint_override)
-        );
-    }
+    let round_trip: AppConfig = serde_json::from_value(value).unwrap();
+    assert_eq!(
+        round_trip.upstream_models[0].compression_policy,
+        Some(policy.clone())
+    );
+    assert_eq!(
+        round_trip.model_compression_policies.get("official-model"),
+        Some(&policy)
+    );
 }
 
 #[test]
-fn config_validation_rejects_invalid_checkpoint_overrides() {
-    for checkpoint_override in [
-        ModelCheckpointOverride::Percentage {
-            threshold_percent: 0,
-        },
-        ModelCheckpointOverride::Percentage {
-            threshold_percent: 101,
-        },
-        ModelCheckpointOverride::Custom {
-            token_threshold: 0,
-            max_token_limit: 100,
-            max_output_tokens: 20,
-        },
-        ModelCheckpointOverride::Custom {
-            token_threshold: 100,
-            max_token_limit: 100,
-            max_output_tokens: 1,
-        },
-        ModelCheckpointOverride::Custom {
-            token_threshold: 1,
-            max_token_limit: 100,
-            max_output_tokens: 100,
-        },
-        ModelCheckpointOverride::Custom {
-            token_threshold: 80,
-            max_token_limit: 100,
-            max_output_tokens: 30,
-        },
-    ] {
+fn config_validation_rejects_invalid_model_compression_policies() {
+    for (threshold, limit, output) in [(0, 100, 20), (100, 100, 1), (1, 100, 100), (80, 100, 30)] {
+        let mut policy = compression_policy();
+        policy.token_threshold = threshold;
+        policy.max_token_limit = limit;
+        policy.max_output_tokens = output;
         let mut config = sample_config();
-        config.upstream_models[0].checkpoint_override = Some(checkpoint_override);
+        config.upstream_models[0].compression_policy = Some(policy);
 
         let error = config.validate().unwrap_err();
 
@@ -312,7 +280,7 @@ fn config_rejects_missing_nullable_fields() {
         ("/upstream_models/0/token_limits", "context_window"),
         ("/upstream_models/0/token_limits", "input_token_limit"),
         ("/upstream_models/0/token_limits", "output_token_limit"),
-        ("/upstream_models/0", "checkpoint_override"),
+        ("/upstream_models/0", "compression_policy"),
         ("/upstream_models/0", "tokenizer"),
         ("/virtual_models/0", "host_model_id"),
         ("/virtual_models/0", "default_reasoning_level"),
@@ -334,13 +302,14 @@ fn config_rejects_missing_nullable_fields() {
 }
 
 #[test]
-fn config_rejects_unknown_fields_inside_tagged_values() {
+fn config_rejects_unknown_fields_inside_nested_values() {
     let mut value = serde_json::to_value(sample_config()).unwrap();
-    value["upstream_models"][0]["checkpoint_override"] = serde_json::json!({
-        "kind": "percentage",
-        "threshold_percent": 80,
-        "unexpected": true
-    });
+    let mut policy = serde_json::to_value(compression_policy()).unwrap();
+    policy
+        .as_object_mut()
+        .unwrap()
+        .insert("unexpected".to_string(), serde_json::json!(true));
+    value["upstream_models"][0]["compression_policy"] = policy;
     assert!(serde_json::from_value::<AppConfig>(value).is_err());
 
     let mut value = serde_json::to_value(sample_config()).unwrap();
@@ -438,20 +407,21 @@ fn config_validation_rejects_zero_model_token_limits() {
 }
 
 #[test]
-fn config_validation_rejects_orphan_model_policies() {
-    let mut orphan_policy = sample_config();
-    orphan_policy
-        .official_model_settings
-        .model_checkpoint_policies
-        .insert(
-            "missing-model".to_string(),
-            CheckpointExecutionPolicy::default(),
-        );
-    assert!(orphan_policy
+fn config_validation_accepts_official_catalog_ids_and_rejects_empty_policy_keys() {
+    let mut config = sample_config();
+    config
+        .model_compression_policies
+        .insert("official-model".to_string(), compression_policy());
+    assert!(config.validate().is_ok());
+
+    config
+        .model_compression_policies
+        .insert(String::new(), compression_policy());
+    assert!(config
         .validate()
         .unwrap_err()
         .to_string()
-        .contains("references missing upstream model ID"));
+        .contains("empty model ID"));
 }
 
 #[test]

@@ -47,7 +47,7 @@ mod tests {
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),
-                checkpoint_override: None,
+                compression_policy: None,
                 tokenizer: None,
                 parameter_overrides: ParameterOverrides::default(),
                 enabled: true,
@@ -62,7 +62,7 @@ mod tests {
                 fallback_virtual_model_id: None,
                 enabled: true,
             }],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         }
     }
 
@@ -539,7 +539,7 @@ mod tests {
             .unwrap();
         let client = reqwest::Client::new();
 
-        for model_id in ["virtual-1", "custom-stale-model", "MODEL_PLACEHOLDER_M499"] {
+        for model_id in ["virtual-1", "custom-stale-model"] {
             let response = client
                 .post(format!(
                     "http://{}/v1internal:generateContent",
@@ -653,6 +653,18 @@ mod tests {
 
         drop(client);
         handle.shutdown().await.unwrap();
+    }
+
+    #[test]
+    fn only_configured_placeholder_ids_are_classified_as_custom_models() {
+        let unconfigured_proxy = ProxyServer::new(ConfigStore::in_memory(AppConfig::default()), 0);
+        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
+        assert!(unconfigured_proxy.is_custom_model_id("custom-missing"));
+
+        let mut config = model_config("http://127.0.0.1/generate".to_string());
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        let configured_proxy = ProxyServer::new(ConfigStore::in_memory(config), 0);
+        assert!(configured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
     }
 
     #[tokio::test]

@@ -10,10 +10,6 @@ impl ProxyServer {
             .iter()
             .any(|model| model.matches_id(model_id))
             || model_id.starts_with("custom-")
-            || model_id
-                .strip_prefix("MODEL_PLACEHOLDER_M")
-                .and_then(|value| value.parse::<u16>().ok())
-                .is_some_and(|value| (400..600).contains(&value))
     }
 
     /// 注入并融合包含自定义虚拟模型的模型列表描述 JSON
@@ -63,13 +59,12 @@ impl ProxyServer {
             .collect::<Vec<_>>();
         AntigravityModelDescriptor::apply_official_model_overrides(
             &mut base_json,
-            &config.official_model_settings,
+            &config.model_compression_policies,
         );
-        AntigravityModelDescriptor::inject_into_model_list_with_settings(
+        AntigravityModelDescriptor::inject_into_model_list(
             &mut base_json,
             &catalog_virtual_models,
             &config.upstream_models,
-            &config.official_model_settings,
         );
         base_json
     }

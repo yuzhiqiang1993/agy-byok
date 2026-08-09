@@ -1,4 +1,4 @@
-use super::checkpoint::ModelCheckpointOverride;
+use super::checkpoint::ModelCompressionPolicy;
 use super::reasoning::{ReasoningCapability, ReasoningLevel};
 use super::token_limits::ModelTokenLimits;
 use super::tokenizer::TokenizerConfig;
@@ -25,7 +25,7 @@ pub struct UpstreamModel {
     pub capabilities: ModelCapabilities,
     pub token_limits: ModelTokenLimits,
     #[serde(deserialize_with = "required_nullable")]
-    pub checkpoint_override: Option<ModelCheckpointOverride>,
+    pub compression_policy: Option<ModelCompressionPolicy>,
     #[serde(deserialize_with = "required_nullable")]
     pub tokenizer: Option<TokenizerConfig>,
     pub parameter_overrides: ParameterOverrides,

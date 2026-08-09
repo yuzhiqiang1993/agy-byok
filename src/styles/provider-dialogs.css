@@ -98,3 +98,202 @@
   background: #fff7df;
   color: #75550f;
 }
+
+.policy-editor-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+.policy-editor-heading,
+.raw-config-heading {
+  min-width: 0;
+}
+.policy-editor-heading p,
+.raw-config-heading p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.policy-editor-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.policy-editor-title-row > strong,
+.raw-config-heading > strong {
+  color: var(--text-main);
+  font-size: 16px;
+}
+.policy-model-badge,
+.policy-capacity-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: 7px;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+.policy-capacity-badge {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: rgba(16, 185, 129, 0.08);
+  color: #047857;
+}
+.policy-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+}
+.policy-preset-field,
+.policy-custom-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 650;
+}
+.policy-help,
+.policy-worker-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.policy-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.policy-metric-grid,
+.policy-custom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.policy-metric {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+}
+.policy-metric > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.policy-metric > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.policy-metric strong {
+  color: var(--text-main);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.policy-metric small {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+}
+.policy-worker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.policy-worker-row strong {
+  color: var(--text-main);
+}
+.policy-empty-state {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.policy-editor-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.policy-editor-error[hidden] { display: none; }
+.policy-editor-error:focus { outline: none; }
+
+html[data-theme="dark"] .policy-capacity-badge {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+}
+html[data-theme="dark"] .policy-editor-error {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.2);
+  color: #fca5a5;
+}
+
+.raw-config-dialog {
+  width: min(820px, calc(100vw - 32px));
+}
+.raw-config-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 24px;
+}
+.raw-config-section-title {
+  color: var(--text-main);
+  font-size: 12px;
+}
+.raw-config-json {
+  min-height: 240px;
+  max-height: 60vh;
+  margin: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+  color: var(--text-code);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.raw-config-json:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+@media (max-width: 680px) {
+  .policy-metric-grid,
+  .policy-custom-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,189 +1,90 @@
 use super::*;
 
-fn percentage_policy(
-    enabled: bool,
-    token_threshold_percent: u8,
-    max_token_limit_percent: u8,
-    max_output_tokens_percent: u8,
-) -> CompressionLimitsPolicy {
-    CompressionLimitsPolicy {
-        enabled,
-        mode: CheckpointLimitMode::Percentage,
-        token_threshold_percent,
-        max_token_limit_percent,
-        max_output_tokens_percent,
-        token_threshold: 0,
-        max_token_limit: 0,
-        max_output_tokens: 0,
-    }
-}
-
-fn absolute_policy(
-    enabled: bool,
-    token_threshold: u32,
-    max_token_limit: u32,
-    max_output_tokens: u32,
-) -> CompressionLimitsPolicy {
-    CompressionLimitsPolicy {
-        enabled,
-        mode: CheckpointLimitMode::Absolute,
-        token_threshold_percent: 61,
-        max_token_limit_percent: 73,
-        max_output_tokens_percent: 2,
-        token_threshold,
-        max_token_limit,
-        max_output_tokens,
+fn policy() -> ModelCompressionPolicy {
+    ModelCompressionPolicy {
+        token_threshold: 80_000,
+        max_token_limit: 100_000,
+        max_output_tokens: 20_000,
+        ..ModelCompressionPolicy::default()
     }
 }
 
 #[test]
-fn new_schema_defaults_enable_custom_checkpoint_with_m71() {
-    let settings = OfficialModelSettings::default();
-
-    assert!(!settings.gemini.enabled);
-    assert!(!settings.claude.enabled);
-    assert!(settings.custom_model.enabled);
-    assert!(settings.custom_model_checkpoint.enabled);
-    assert_eq!(
-        settings.custom_model_checkpoint.checkpoint_model,
-        "MODEL_PLACEHOLDER_M71"
-    );
-    assert!(settings.model_checkpoint_policies.is_empty());
-}
-
-#[test]
-fn new_schema_requires_all_fields_and_rejects_unknown_fields() {
-    let value = serde_json::to_value(OfficialModelSettings::default()).unwrap();
-
-    let mut missing = value.clone();
-    missing
-        .as_object_mut()
-        .unwrap()
-        .remove("custom_model_checkpoint");
-    assert!(serde_json::from_value::<OfficialModelSettings>(missing).is_err());
-
-    let mut unknown = value;
-    unknown
-        .as_object_mut()
-        .unwrap()
-        .insert("unexpected_field".to_string(), serde_json::json!("value"));
-    assert!(serde_json::from_value::<OfficialModelSettings>(unknown).is_err());
-}
-
-#[test]
-fn execution_policy_defaults_round_trip_without_implicit_defaults() {
-    let policy = CheckpointExecutionPolicy::default();
+fn model_compression_policy_round_trips_with_complete_required_fields() {
+    let policy = policy();
     let value = serde_json::to_value(&policy).unwrap();
 
     assert_eq!(value["checkpoint_model"], "MODEL_PLACEHOLDER_M71");
+    assert_eq!(value["token_threshold"], 80_000);
+    assert_eq!(value["max_token_limit"], 100_000);
+    assert_eq!(value["max_output_tokens"], 20_000);
     assert_eq!(value["retry_config"]["max_retries"], 0);
     assert_eq!(
-        serde_json::from_value::<CheckpointExecutionPolicy>(value).unwrap(),
+        serde_json::from_value::<ModelCompressionPolicy>(value).unwrap(),
         policy
     );
 }
 
 #[test]
-fn compression_limit_validation_enforces_mode_specific_fields() {
-    assert!(percentage_policy(true, 61, 73, 2)
-        .validate("custom")
-        .is_ok());
-    assert!(absolute_policy(true, 100, 200, 20)
-        .validate("custom")
-        .is_ok());
-    assert!(percentage_policy(true, 73, 73, 2)
-        .validate("custom")
-        .is_err());
-    assert!(absolute_policy(true, 200, 200, 20)
-        .validate("custom")
-        .is_err());
-    assert!(absolute_policy(true, 100, 200, 110)
-        .validate("custom")
-        .is_err());
+fn model_compression_policy_requires_every_field_and_rejects_unknown_fields() {
+    let value = serde_json::to_value(policy()).unwrap();
+
+    let mut missing = value.clone();
+    missing.as_object_mut().unwrap().remove("token_threshold");
+    assert!(serde_json::from_value::<ModelCompressionPolicy>(missing).is_err());
+
+    let mut unknown = value;
+    unknown
+        .as_object_mut()
+        .unwrap()
+        .insert("unexpected".to_string(), serde_json::json!(true));
+    assert!(serde_json::from_value::<ModelCompressionPolicy>(unknown).is_err());
 }
 
 #[test]
-fn custom_percentage_limits_scale_and_clip_to_model_capabilities() {
-    let settings = OfficialModelSettings {
-        custom_model: percentage_policy(true, 60, 80, 5),
-        ..OfficialModelSettings::default()
-    };
-
-    assert_eq!(
-        settings.custom_model_checkpoint_limits_with_override(None, 372_000, 128_000),
-        Some(EffectiveCheckpointLimits::new(223_200, 297_600, 18_600))
-    );
-
-    assert_eq!(
-        settings.custom_model_checkpoint_limits_with_override(
-            Some(&ModelCheckpointOverride::Custom {
-                token_threshold: 250_000,
-                max_token_limit: 300_000,
-                max_output_tokens: 20_000,
-            }),
-            200_000,
-            10_000,
-        ),
-        Some(EffectiveCheckpointLimits::new(190_000, 200_000, 10_000))
-    );
+fn model_compression_policy_validation_accepts_complete_valid_policy() {
+    assert!(policy().validate("policy").is_ok());
 }
 
 #[test]
-fn tiny_valid_capacity_still_produces_checkpoint_limits() {
-    let settings = OfficialModelSettings::default();
+fn model_compression_policy_validation_rejects_unsupported_worker_models() {
+    let mut policy = policy();
+    policy.checkpoint_model = "MODEL_PLACEHOLDER_M400".to_string();
 
-    assert_eq!(
-        settings.custom_model_checkpoint_limits_with_override(None, 2, 1),
-        Some(EffectiveCheckpointLimits::new(1, 2, 1))
-    );
+    assert!(policy.validate("policy").is_err());
 }
 
 #[test]
-fn absolute_limits_are_used_without_percentage_fallback() {
-    let settings = OfficialModelSettings {
-        custom_model: absolute_policy(true, 100_000, 150_000, 12_000),
-        ..OfficialModelSettings::default()
-    };
+fn model_compression_policy_validation_rejects_invalid_strategy_numbers() {
+    for (max_overhead_ratio, moving_window_size) in [
+        ("not-a-number", "1"),
+        ("-0.1", "1"),
+        ("0.3", "NaN"),
+        ("0.3", "-1"),
+    ] {
+        let mut policy = policy();
+        policy.max_overhead_ratio = max_overhead_ratio.to_string();
+        policy.moving_window_size = moving_window_size.to_string();
 
-    assert_eq!(
-        settings.custom_model_checkpoint_limits_with_override(None, 200_000, 32_000),
-        Some(EffectiveCheckpointLimits::new(100_000, 150_000, 12_000))
-    );
+        assert!(policy.validate("policy").is_err());
+    }
 }
 
 #[test]
-fn model_checkpoint_policy_overrides_global_execution_policy() {
-    let mut settings = OfficialModelSettings::default();
-    settings.custom_model_checkpoint.checkpoint_model = "MODEL_PLACEHOLDER_M50".to_string();
-    let mut model_policy = CheckpointExecutionPolicy::default();
-    model_policy.checkpoint_model = "MODEL_PLACEHOLDER_M72".to_string();
-    settings
-        .model_checkpoint_policies
-        .insert("provider-model".to_string(), model_policy.clone());
+fn model_compression_policy_validation_rejects_invalid_token_limits() {
+    for (threshold, limit, output) in [
+        (0, 100, 10),
+        (80, 0, 10),
+        (80, 100, 0),
+        (100, 100, 1),
+        (1, 100, 100),
+        (80, 100, 21),
+    ] {
+        let mut policy = policy();
+        policy.token_threshold = threshold;
+        policy.max_token_limit = limit;
+        policy.max_output_tokens = output;
 
-    assert_eq!(
-        settings.custom_model_checkpoint_policy("provider-model"),
-        &model_policy
-    );
-    assert_eq!(
-        settings
-            .custom_model_checkpoint_policy("other-model")
-            .checkpoint_model,
-        "MODEL_PLACEHOLDER_M50"
-    );
-}
-
-#[test]
-fn app_settings_validation_covers_execution_policies() {
-    let mut settings = OfficialModelSettings::default();
-    assert!(settings.validate().is_ok());
-
-    settings.custom_model_checkpoint.checkpoint_model = "MODEL_UNSUPPORTED".to_string();
-    assert!(settings.validate().is_err());
-
-    let mut settings = OfficialModelSettings::default();
-    settings
-        .model_checkpoint_policies
-        .insert(String::new(), CheckpointExecutionPolicy::default());
-    assert!(settings.validate().is_err());
+        assert!(policy.validate("policy").is_err());
+    }
 }

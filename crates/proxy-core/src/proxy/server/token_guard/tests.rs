@@ -31,7 +31,7 @@ fn route(source: TokenLimitSource, input_limit: u32) -> ResolvedRoute {
                 output_token_limit: None,
                 output_token_limit_source: TokenLimitSource::Unknown,
             },
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: Some(TokenizerConfig::Tiktoken {
                 encoding: TiktokenEncoding::O200kBase,
             }),

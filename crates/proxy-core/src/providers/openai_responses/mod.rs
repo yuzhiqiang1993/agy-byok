@@ -113,7 +113,7 @@ mod tests {
             display_name: "GPT-5".to_string(),
             capabilities: Default::default(),
             token_limits: Default::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: Default::default(),
             enabled: true,

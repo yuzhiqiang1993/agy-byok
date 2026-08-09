@@ -5,7 +5,7 @@ use crate::domain::{
 };
 use crate::providers::get_adapter;
 use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
-use parser::parse_catalog_models_with_context;
+use parser::{parse_catalog_models_with_context, parse_official_catalog_models};
 use reqwest::{Client, Url};
 use serde::Serialize;
 use serde_json::Value;
@@ -53,6 +53,20 @@ pub struct ProviderCatalogModel {
     pub thinking: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ProviderCatalogReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_compression: Option<UpstreamCompressionPolicy>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpstreamCompressionPolicy {
+    pub enabled: bool,
+    pub token_threshold: u32,
+    pub max_token_limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_model: Option<String>,
 }
 
 /// 使用供应商草稿直接拉取模型目录，允许用户在保存配置前验证连接。
@@ -199,10 +213,13 @@ fn catalog_error_category(status: u16) -> ErrorCategory {
 
 pub async fn fetch_official_models_catalog() -> Result<Vec<ProviderCatalogModel>, ProxyError> {
     use std::process::Command;
-    let output = Command::new("ps")
-        .args(["aux"])
-        .output()
-        .map_err(|e| ProxyError::new(ErrorCategory::Internal, format!("执行 ps 探针失败: {e}"), 500))?;
+    let output = Command::new("ps").args(["aux"]).output().map_err(|e| {
+        ProxyError::new(
+            ErrorCategory::Internal,
+            format!("执行 ps 探针失败: {e}"),
+            500,
+        )
+    })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut target_port: Option<u16> = None;
@@ -231,18 +248,28 @@ pub async fn fetch_official_models_catalog() -> Result<Vec<ProviderCatalogModel>
 
     let (port, csrf) = match (target_port, target_csrf) {
         (Some(p), Some(c)) => (p, c),
-        _ => return Err(ProxyError::new(
-            ErrorCategory::InvalidRequest,
-            "未找到直连后台运行的 Antigravity 语言服务，请确保应用正处于开启状态。",
-            404,
-        )),
+        _ => {
+            return Err(ProxyError::new(
+                ErrorCategory::InvalidRequest,
+                "未找到直连后台运行的 Antigravity 语言服务，请确保应用正处于开启状态。",
+                404,
+            ))
+        }
     };
 
-    let url = format!("https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetAvailableModels");
+    let url = format!(
+        "https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetAvailableModels"
+    );
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()
-        .map_err(|e| ProxyError::new(ErrorCategory::Internal, format!("创建探针客户端失败: {e}"), 500))?;
+        .map_err(|e| {
+            ProxyError::new(
+                ErrorCategory::Internal,
+                format!("创建探针客户端失败: {e}"),
+                500,
+            )
+        })?;
 
     let response = client
         .post(&url)
@@ -251,47 +278,38 @@ pub async fn fetch_official_models_catalog() -> Result<Vec<ProviderCatalogModel>
         .body("{}")
         .send()
         .await
-        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("连线语言服务失败: {e}"), 502))?;
+        .map_err(|e| {
+            ProxyError::new(
+                ErrorCategory::UpstreamServerError,
+                format!("连线语言服务失败: {e}"),
+                502,
+            )
+        })?;
 
-    let json_text = response
-        .text()
-        .await
-        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("读取响应内容失败: {e}"), 502))?;
+    let json_text = response.text().await.map_err(|e| {
+        ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            format!("读取响应内容失败: {e}"),
+            502,
+        )
+    })?;
 
-    let parsed: Value = serde_json::from_str(&json_text)
-        .map_err(|e| ProxyError::new(ErrorCategory::UpstreamServerError, format!("解析 JSON 响应失败: {e}"), 502))?;
+    let parsed: Value = serde_json::from_str(&json_text).map_err(|e| {
+        ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            format!("解析 JSON 响应失败: {e}"),
+            502,
+        )
+    })?;
 
-    let models_obj = parsed
-        .get("response")
-        .and_then(|r| r.get("models"))
-        .or_else(|| parsed.get("models"))
-        .and_then(|m| m.as_object())
-        .ok_or_else(|| ProxyError::new(ErrorCategory::UpstreamServerError, "未从直连响应中找到有效的 models 节点", 502))?;
-
-    let mut result = Vec::new();
-    for (model_id, m) in models_obj {
-        let display_name = m.get("displayName")
-            .and_then(|v| v.as_str())
-            .unwrap_or(model_id)
-            .to_string();
-
-        let supports_vision = m.get("supportsVision").and_then(|v| v.as_bool()).unwrap_or(true);
-        let supports_tools = m.get("supportsTools").and_then(|v| v.as_bool()).unwrap_or(true);
-        let supports_reasoning = m.get("supportsThinking").and_then(|v| v.as_bool()).unwrap_or(true);
-
-        result.push(ProviderCatalogModel {
-            id: model_id.clone(),
-            display_name,
-            capabilities: Some(serde_json::json!({
-                "vision": supports_vision,
-                "tools": supports_tools,
-                "reasoning": supports_reasoning
-            })),
-            ..ProviderCatalogModel::default()
-        });
+    let result = parse_official_catalog_models(&parsed);
+    if result.is_empty() {
+        return Err(ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            "未从直连响应中找到有效的 models 节点",
+            502,
+        ));
     }
-
-    result.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(result)
 }
 

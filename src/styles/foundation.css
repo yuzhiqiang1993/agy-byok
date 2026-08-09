@@ -220,7 +220,7 @@ body {
   border: 0;
   border-radius: 10px;
   background: transparent;
-  color: #5d6a80;
+  color: #475569;
   font-size: 13px;
   font-weight: 650;
   text-align: left;
@@ -398,7 +398,7 @@ code {
   letter-spacing: -0.035em;
   font-weight: 720;
 }
-.page-heading > p:last-child { margin: 7px 0 0; color: #78869b; font-size: 12px; }
+.page-heading > p:last-child { margin: 7px 0 0; color: #475569; font-size: 12px; }
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -421,7 +421,7 @@ code {
   border-radius: 12px;
   padding: 8px 17px;
   background: transparent;
-  color: #647187;
+  color: #475569;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -481,7 +481,7 @@ code {
   font-weight: 850;
   letter-spacing: 0.17em;
 }
-.muted { color: #66716c; }
+.muted { color: #4b5563; }
 .compact { margin: 4px 0 0; font-size: 12px; line-height: 1.45; }
 
 .count-badge {
@@ -495,4 +495,4 @@ code {
 .count-badge { min-width: 32px; padding: 5px 10px; text-align: center; }
 
 
-footer { padding: 8px 4px 0; color: #7a847f; font-size: 11px; text-align: center; }
+footer { padding: 8px 4px 0; color: #475569; font-size: 11px; text-align: center; }

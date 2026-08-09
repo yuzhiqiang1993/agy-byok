@@ -1,6 +1,6 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type { ModelTokenLimits } from "../../types/config";
-import { resolveCatalogTokenLimits } from "./tokenLimits";
+import { resolveCatalogTokenLimits } from "./modelTokenLimits";
 
 export function tokenLimitsFromCatalog(
   model: ProviderCatalogModel,

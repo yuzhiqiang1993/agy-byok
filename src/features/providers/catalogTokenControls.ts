@@ -14,7 +14,7 @@ import {
   TOKEN_LIMIT_PRESETS,
   TOKEN_OUTPUT_LIMIT_OPTIONS,
   tokenLimitsForPreset,
-} from "./tokenLimits";
+} from "./modelTokenLimits";
 
 type TokenLimitField = "context_window" | "input_token_limit" | "output_token_limit";
 type EditableTokenLimitField = Exclude<TokenLimitField, "context_window">;

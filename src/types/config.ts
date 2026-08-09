@@ -28,36 +28,11 @@ export interface ModelTokenLimits {
   output_token_limit_source: TokenLimitSource;
 }
 
-export type ModelCheckpointOverride =
-  | {
-      kind: "percentage";
-      threshold_percent: number;
-    }
-  | {
-      kind: "custom";
-      token_threshold: number;
-      max_token_limit: number;
-      max_output_tokens: number;
-    };
-
 type TiktokenEncoding = "cl100k_base" | "o200k_base";
 
 interface TokenizerConfig {
   kind: "tiktoken";
   encoding: TiktokenEncoding;
-}
-
-export type CheckpointLimitMode = "percentage" | "absolute";
-
-export interface CompressionLimitsPolicy {
-  enabled: boolean;
-  mode: CheckpointLimitMode;
-  token_threshold_percent: number;
-  max_token_limit_percent: number;
-  max_output_tokens_percent: number;
-  token_threshold: number;
-  max_token_limit: number;
-  max_output_tokens: number;
 }
 
 export interface CustomModelCheckpointRetryConfig {
@@ -67,7 +42,7 @@ export interface CustomModelCheckpointRetryConfig {
   include_error_feedback: boolean;
 }
 
-export interface CheckpointExecutionPolicy {
+export interface ModelCompressionPolicy {
   enabled: boolean;
   checkpoint_model: string;
   strategy: string;
@@ -82,14 +57,9 @@ export interface CheckpointExecutionPolicy {
   include_subagent_snapshots: boolean;
   include_artifact_snapshots: boolean;
   retry_config: CustomModelCheckpointRetryConfig;
-}
-
-export interface OfficialModelSettings {
-  gemini: CompressionLimitsPolicy;
-  claude: CompressionLimitsPolicy;
-  custom_model: CompressionLimitsPolicy;
-  custom_model_checkpoint: CheckpointExecutionPolicy;
-  model_checkpoint_policies: Record<string, CheckpointExecutionPolicy>;
+  token_threshold: number;
+  max_token_limit: number;
+  max_output_tokens: number;
 }
 
 export interface Provider {
@@ -118,7 +88,7 @@ export interface UpstreamModel {
     reasoning: { levels: Partial<Record<ReasoningLevel, ReasoningMapping>> };
   };
   token_limits: ModelTokenLimits;
-  checkpoint_override: ModelCheckpointOverride | null;
+  compression_policy: ModelCompressionPolicy | null;
   tokenizer: TokenizerConfig | null;
   parameter_overrides: ParameterOverrides;
   enabled: boolean;
@@ -140,5 +110,5 @@ export interface AppConfig {
   providers: Provider[];
   upstream_models: UpstreamModel[];
   virtual_models: VirtualModel[];
-  official_model_settings: OfficialModelSettings;
+  model_compression_policies: Record<string, ModelCompressionPolicy>;
 }

@@ -45,7 +45,7 @@ mod tests {
                 reasoning,
             },
             token_limits: ModelTokenLimits::default(),
-            checkpoint_override: None,
+            compression_policy: None,
             tokenizer: None,
             parameter_overrides: ParameterOverrides::default(),
             enabled: true,
@@ -204,7 +204,7 @@ mod tests {
             providers: vec![provider],
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
         let request = basic_request();
 
@@ -250,7 +250,7 @@ mod tests {
                 ),
             ]))],
             virtual_models: vec![create_virtual_model(Some(ReasoningLevel::High))],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
         let mut request = basic_request();
         request.reasoning_level = Some(ReasoningLevel::Low);
@@ -270,7 +270,7 @@ mod tests {
                 ReasoningMapping::Effort("high".to_string()),
             )]))],
             virtual_models: vec![create_virtual_model(None)],
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: Default::default(),
         };
         let mut request = basic_request();
         request.reasoning_level = Some(ReasoningLevel::Max);

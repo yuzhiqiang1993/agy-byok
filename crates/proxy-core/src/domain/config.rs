@@ -1,7 +1,7 @@
-use super::{OfficialModelSettings, ParameterOverrides, Provider, UpstreamModel, VirtualModel};
+use super::{ModelCompressionPolicy, ParameterOverrides, Provider, UpstreamModel, VirtualModel};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::net::IpAddr;
 
@@ -71,7 +71,7 @@ pub struct AppConfig {
     pub providers: Vec<Provider>,
     pub upstream_models: Vec<UpstreamModel>,
     pub virtual_models: Vec<VirtualModel>,
-    pub official_model_settings: OfficialModelSettings,
+    pub model_compression_policies: BTreeMap<String, ModelCompressionPolicy>,
 }
 
 impl Default for AppConfig {
@@ -81,7 +81,7 @@ impl Default for AppConfig {
             providers: Vec::new(),
             upstream_models: Vec::new(),
             virtual_models: Vec::new(),
-            official_model_settings: OfficialModelSettings::default(),
+            model_compression_policies: BTreeMap::new(),
         }
     }
 }
@@ -93,9 +93,16 @@ impl AppConfig {
                 "Proxy port must be between {MIN_PROXY_PORT} and 65535"
             )));
         }
-        self.official_model_settings
-            .validate()
-            .map_err(ConfigError::InvalidValue)?;
+        for (model_id, policy) in &self.model_compression_policies {
+            if model_id.trim().is_empty() {
+                return Err(ConfigError::InvalidValue(
+                    "model_compression_policies cannot contain an empty model ID".to_string(),
+                ));
+            }
+            policy
+                .validate(&format!("model_compression_policies[{model_id}]"))
+                .map_err(ConfigError::InvalidValue)?;
+        }
 
         let mut provider_ids = HashSet::new();
         for provider in &self.providers {
@@ -176,10 +183,10 @@ impl AppConfig {
             model.token_limits.validate().map_err(|error| {
                 ConfigError::InvalidValue(format!("UpstreamModel {}: {error}", model.id))
             })?;
-            if let Some(checkpoint_override) = &model.checkpoint_override {
-                checkpoint_override.validate().map_err(|error| {
-                    ConfigError::InvalidValue(format!("UpstreamModel {}: {error}", model.id))
-                })?;
+            if let Some(compression_policy) = &model.compression_policy {
+                compression_policy
+                    .validate(&format!("UpstreamModel {} compression_policy", model.id))
+                    .map_err(ConfigError::InvalidValue)?;
             }
             validate_parameters(
                 &format!("UpstreamModel {} parameter overrides", model.id),
@@ -189,22 +196,6 @@ impl AppConfig {
 
         let mut virtual_ids = HashSet::new();
         let mut accepted_virtual_ids: HashMap<String, &str> = HashMap::new();
-        let configured_upstream_model_ids = self
-            .upstream_models
-            .iter()
-            .map(|model| model.upstream_model_id.as_str())
-            .collect::<HashSet<_>>();
-        for model_id in self
-            .official_model_settings
-            .model_checkpoint_policies
-            .keys()
-        {
-            if !configured_upstream_model_ids.contains(model_id.as_str()) {
-                return Err(ConfigError::InvalidValue(format!(
-                    "model_checkpoint_policies[{model_id}] references missing upstream model ID"
-                )));
-            }
-        }
 
         for model in &self.virtual_models {
             validate_id("VirtualModel", &model.id)?;

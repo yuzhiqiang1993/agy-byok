@@ -65,20 +65,12 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
         display_name: stripConfiguredModelSuffix(virtualModel.display_name, previousProvider.name),
       }))
     : modelPlan.virtuals;
-  const nextUpstreamModels = [...remainingUpstreams, ...modelPlan.upstreams];
-  const nextUpstreamModelIds = new Set(nextUpstreamModels.map((model) => model.upstream_model_id));
   const nextConfig: AppConfig = {
     proxy_port: currentConfig.proxy_port,
     providers,
-    upstream_models: nextUpstreamModels,
+    upstream_models: [...remainingUpstreams, ...modelPlan.upstreams],
     virtual_models: [...remainingVirtuals, ...providerVirtuals],
-    official_model_settings: {
-      ...currentConfig.official_model_settings,
-      model_checkpoint_policies: Object.fromEntries(
-        Object.entries(currentConfig.official_model_settings.model_checkpoint_policies)
-          .filter(([modelId]) => nextUpstreamModelIds.has(modelId)),
-      ),
-    },
+    model_compression_policies: currentConfig.model_compression_policies,
   };
   const summary = summarizeProviderChanges(
     currentConfig,

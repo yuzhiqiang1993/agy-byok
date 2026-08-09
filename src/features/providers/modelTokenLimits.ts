@@ -1,9 +1,5 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type {
-  ModelCheckpointOverride,
-  ModelTokenLimits,
-  OfficialModelSettings,
-} from "../../types/config";
+import type { ModelTokenLimits } from "../../types/config";
 
 type TokenLimitPresetId =
   | "estimated_default"
@@ -48,101 +44,6 @@ export const TOKEN_OUTPUT_LIMIT_OPTIONS = [
   65_536,
   128_000,
 ] as const;
-
-interface CustomModelCheckpointLimits {
-  threshold: number;
-  max_token_limit: number;
-  max_output_tokens: number;
-  threshold_percent: string;
-  clipped: boolean;
-}
-
-const MAX_U32 = 0xffffffff;
-
-function isPositiveInteger(value: number): boolean {
-  return Number.isInteger(value) && value > 0 && value <= MAX_U32;
-}
-
-function isValidPercentage(value: number): boolean {
-  return Number.isInteger(value) && value >= 1 && value <= 100;
-}
-
-export function isValidModelCheckpointOverride(
-  override: ModelCheckpointOverride | null,
-): boolean {
-  if (override === null) return true;
-  if (override.kind === "percentage") {
-    return isValidPercentage(override.threshold_percent);
-  }
-  return isPositiveInteger(override.token_threshold)
-    && isPositiveInteger(override.max_token_limit)
-    && isPositiveInteger(override.max_output_tokens)
-    && override.token_threshold + override.max_output_tokens <= override.max_token_limit;
-}
-
-export function customModelCheckpointLimits(
-  settings: OfficialModelSettings,
-  limits: ModelTokenLimits | undefined,
-  override: ModelCheckpointOverride | null,
-): CustomModelCheckpointLimits | null {
-  if (!settings.custom_model.enabled || !isValidModelCheckpointOverride(override)) return null;
-
-  const contextLimit = limits?.context_window ?? DEFAULT_CONTEXT_WINDOW;
-  const inputLimit = limits?.input_token_limit ?? DEFAULT_TOKEN_LIMIT;
-  const outputLimit = limits?.output_token_limit ?? DEFAULT_TOKEN_LIMIT;
-  const checkpointTokenLimit = Math.min(contextLimit, inputLimit);
-  const limitsPolicy = settings.custom_model;
-  const customPercentThreshold = limitsPolicy.token_threshold_percent;
-  const customPercentHardLimit = limitsPolicy.max_token_limit_percent;
-  const customPercentOutputReserve = limitsPolicy.max_output_tokens_percent;
-  const percentageValues = {
-    threshold: Math.ceil(checkpointTokenLimit * customPercentThreshold / 100),
-    maxTokenLimit: Math.ceil(checkpointTokenLimit * customPercentHardLimit / 100),
-  };
-  const absoluteValues = {
-    threshold: limitsPolicy.token_threshold,
-    maxTokenLimit: limitsPolicy.max_token_limit,
-  };
-  const requestedValues = limitsPolicy.mode === "absolute" ? absoluteValues : percentageValues;
-  const requestedOutputLimit = limitsPolicy.mode === "absolute"
-    ? limitsPolicy.max_output_tokens
-    : Math.ceil(checkpointTokenLimit * customPercentOutputReserve / 100);
-  const requestedThreshold = override?.kind === "custom"
-    ? override.token_threshold
-    : requestedValues.threshold;
-  const requestedMaxTokenLimit = override?.kind === "custom"
-    ? override.max_token_limit
-    : requestedValues.maxTokenLimit;
-  const requestedMaxOutputTokens = override?.kind === "custom"
-    ? override.max_output_tokens
-    : requestedOutputLimit;
-  const thresholdPercent = override?.kind === "percentage"
-    ? override.threshold_percent
-    : null;
-  const maxTokenLimit = Math.min(Math.max(requestedMaxTokenLimit, 2), checkpointTokenLimit);
-  const maxOutputTokens = Math.min(
-    requestedMaxOutputTokens,
-    outputLimit,
-    Math.max(maxTokenLimit - 1, 0),
-  );
-  const thresholdBeforeReserve = thresholdPercent !== null
-    ? Math.ceil(maxTokenLimit * thresholdPercent / 100)
-    : requestedThreshold;
-  const threshold = Math.min(
-    thresholdBeforeReserve,
-    Math.max(maxTokenLimit - maxOutputTokens, 0),
-  );
-  if (threshold <= 0 || maxOutputTokens <= 0 || threshold >= maxTokenLimit) return null;
-  return {
-    threshold,
-    max_token_limit: maxTokenLimit,
-    max_output_tokens: maxOutputTokens,
-    threshold_percent: `${Math.round((threshold / maxTokenLimit) * 1000) / 10}%`,
-    clipped: maxTokenLimit !== requestedMaxTokenLimit
-      || maxOutputTokens !== requestedMaxOutputTokens
-      || threshold !== thresholdBeforeReserve,
-  };
-}
 
 export const TOKEN_LIMIT_PRESETS: readonly TokenLimitPreset[] = [
   {
@@ -201,7 +102,6 @@ export function resolveCatalogTokenLimits(
 ): ModelTokenLimits {
   const contextWindow = catalogContextWindow(model);
   return {
-    // 目录是本次同步得到的事实；目录缺失时沿用已保存值，否则使用保守的经验默认值。
     context_window: contextWindow ?? existing?.context_window ?? DEFAULT_CONTEXT_WINDOW,
     context_window_source: tokenLimitSource(
       contextWindow,

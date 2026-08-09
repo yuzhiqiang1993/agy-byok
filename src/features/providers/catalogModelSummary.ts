@@ -7,7 +7,7 @@ import {
 } from "../../utils/reasoningUtils";
 import type { CatalogModelRowState } from "./catalogModelRowState";
 import type { CatalogModelListState } from "./providerCatalogTypes";
-import { formatTokenLimit, resolveCatalogTokenLimits } from "./tokenLimits";
+import { formatTokenLimit, resolveCatalogTokenLimits } from "./modelTokenLimits";
 
 export interface CatalogModelSummary {
   element: HTMLSpanElement;

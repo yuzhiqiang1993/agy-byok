@@ -1,4 +1,6 @@
-use super::parser::{parse_catalog_models, parse_catalog_models_with_context};
+use super::parser::{
+    parse_catalog_models, parse_catalog_models_with_context, parse_official_catalog_models,
+};
 use super::*;
 use crate::domain::{ParameterOverrides, ProviderProtocol};
 use crate::tests::mock_provider::MockProviderServer;
@@ -48,6 +50,136 @@ fn adds_cpa_catalog_version_only_for_cpa_endpoint() {
         catalog_models_url(&provider).unwrap().as_str(),
         "http://[::1]:8317/v1/models?client_version=1"
     );
+}
+
+#[test]
+fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_fields() {
+    let models = parse_catalog_models(
+        &json!({
+            "models": [
+                {
+                    "id": "string-policy",
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": r#"{"enabled":true,"token_threshold":"80000","max_token_limit":"100000","max_output_tokens":"20000","checkpoint_model":"MODEL_PLACEHOLDER_M71"}"#
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "number-policy",
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": r#"{"enabled":false,"token_threshold":60000,"max_token_limit":90000,"max_output_tokens":10000}"#
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "missing-enabled",
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": r#"{"token_threshold":"80000","max_token_limit":"100000"}"#
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "missing-limit",
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": r#"{"enabled":true,"token_threshold":"80000"}"#
+                            }
+                        }
+                    }
+                }
+            ]
+        }),
+        &ProviderProtocol::OpenaiChatCompletions,
+    );
+
+    assert_eq!(
+        models[0].upstream_compression,
+        Some(UpstreamCompressionPolicy {
+            enabled: true,
+            token_threshold: 80_000,
+            max_token_limit: 100_000,
+            max_output_tokens: Some(20_000),
+            checkpoint_model: Some("MODEL_PLACEHOLDER_M71".to_string()),
+        })
+    );
+    assert_eq!(
+        models[1].upstream_compression,
+        Some(UpstreamCompressionPolicy {
+            enabled: false,
+            token_threshold: 60_000,
+            max_token_limit: 90_000,
+            max_output_tokens: Some(10_000),
+            checkpoint_model: None,
+        })
+    );
+    assert_eq!(models[2].upstream_compression, None);
+    assert_eq!(models[3].upstream_compression, None);
+}
+
+#[test]
+fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
+    let models = parse_official_catalog_models(&json!({
+        "response": {
+            "models": {
+                "official-model": {
+                    "displayName": "Official Model",
+                    "maxTokens": "200000",
+                    "contextWindow": 180000,
+                    "inputTokenLimit": "150000",
+                    "maxOutputTokens": 32000,
+                    "outputTokenLimit": "16000",
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": r#"{"enabled":true,"token_threshold":"150000","max_token_limit":200000,"max_output_tokens":"32000"}"#
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }));
+
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].id, "official-model");
+    assert_eq!(models[0].max_tokens, Some(200_000));
+    assert_eq!(models[0].context_window, Some(180_000));
+    assert_eq!(models[0].input_token_limit, Some(150_000));
+    assert_eq!(models[0].output_token_limit, Some(16_000));
+    assert_eq!(
+        models[0].upstream_compression,
+        Some(UpstreamCompressionPolicy {
+            enabled: true,
+            token_threshold: 150_000,
+            max_token_limit: 200_000,
+            max_output_tokens: Some(32_000),
+            checkpoint_model: None,
+        })
+    );
+}
+
+#[test]
+fn uses_official_max_tokens_as_input_limit_when_no_explicit_input_limit_exists() {
+    let models = parse_official_catalog_models(&json!({
+        "models": {
+            "official-model": {
+                "maxTokens": 200000
+            }
+        }
+    }));
+
+    assert_eq!(models[0].max_tokens, Some(200_000));
+    assert_eq!(models[0].input_token_limit, Some(200_000));
 }
 
 #[test]
