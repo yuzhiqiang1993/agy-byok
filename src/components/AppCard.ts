@@ -49,7 +49,9 @@ export function renderApp(status: AppStatus): void {
   enableAppBtn.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
   launchAppBtn.hidden = !status.canLaunchApp;
   disableAppBtn.hidden = !status.canDisableIntegration;
-  launchAppBtn.textContent = t(status.appRunning ? "overview.restart" : "overview.launch");
+  const launchLabel = status.appRunning ? "overview.restart" : "overview.launch";
+  launchAppBtn.dataset.i18n = launchLabel;
+  launchAppBtn.textContent = t(launchLabel);
   disableAppBtn.textContent = t("overview.disableIntegration");
 
   const canEnable = status.canEnableIntegration && status.proxyRunning;

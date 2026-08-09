@@ -52,7 +52,9 @@ export function renderIde(status: IdeStatus): void {
   enableIdeIntegrationButton.hidden = !showEnableOrUpdateButton;
   enableIdeIntegrationButton.textContent = needsReconfiguration ? t("overview.mismatch") : t("overview.enableIntegration");
   launchIdeButton.hidden = !status.canLaunchIde;
-  launchIdeButton.textContent = t(status.ideRunning ? "overview.restart" : "overview.launch");
+  const launchLabel = status.ideRunning ? "overview.restart" : "overview.launch";
+  launchIdeButton.dataset.i18n = launchLabel;
+  launchIdeButton.textContent = t(launchLabel);
   disableIdeIntegrationButton.hidden = !status.canDisableIntegration;
   disableIdeIntegrationButton.textContent = t("overview.disableIntegration");
 

@@ -197,6 +197,9 @@ function bindLaunchAction<S extends IntegrationStatus>(
     const label = clientLabel(spec.client);
     void withClientBusy(button, spec.client, async () => {
       await spec.launch?.();
+      // 启动或重启成功后，忙碌态恢复时应继续显示“重启”。
+      button.dataset.i18n = "overview.restart";
+      button.textContent = t("overview.restart");
       showNotice(t(restarting ? "overview.hostRestarted" : "overview.hostLaunched", { client: label }));
       window.setTimeout(() => void spec.refresh().catch(() => undefined), 700);
     }, showNotice, t(restarting ? "overview.hostRestarting" : "overview.hostLaunching", { client: label }));
