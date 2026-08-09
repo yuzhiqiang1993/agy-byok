@@ -222,6 +222,9 @@
 .policy-worker-row strong {
   color: var(--text-main);
 }
+.policy-worker-row select {
+  width: min(320px, 62%);
+}
 .policy-empty-state {
   margin: 0;
   padding: 14px;
@@ -295,5 +298,12 @@ html[data-theme="dark"] .policy-editor-error {
   .policy-metric-grid,
   .policy-custom-grid {
     grid-template-columns: 1fr;
+  }
+  .policy-worker-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .policy-worker-row select {
+    width: 100%;
   }
 }

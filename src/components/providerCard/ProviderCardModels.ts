@@ -128,6 +128,7 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
       defaultLabel: t("models.presetUpstreamDefault"),
       defaultHelp: t("models.policyCustomUnconfiguredHelp"),
       emptyNotice: t("models.policyEmptyNoticeCustom"),
+      preferCurrentWorker: true,
       focusKey: `upstream:${upstream.id}`,
       onSave: async (policy) => {
         await updateConfig((current) => ({

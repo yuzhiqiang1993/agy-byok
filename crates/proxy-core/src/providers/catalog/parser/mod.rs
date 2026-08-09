@@ -158,6 +158,7 @@ struct CheckpointerPayload {
     max_token_limit: Option<Value>,
     max_output_tokens: Option<Value>,
     checkpoint_model: Option<String>,
+    use_last_planner_model: Option<bool>,
 }
 
 pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompressionPolicy> {
@@ -182,6 +183,7 @@ pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompr
         max_token_limit,
         max_output_tokens,
         checkpoint_model: payload.checkpoint_model,
+        use_last_planner_model: payload.use_last_planner_model,
     })
 }
 

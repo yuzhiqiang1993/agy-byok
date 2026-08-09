@@ -343,6 +343,7 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
             defaultHelp: t("models.policyOfficialDefaultHelp"),
             emptyNotice: t("models.policyEmptyNotice"),
             upstreamCompression: item.upstreamCompression,
+            preferCurrentWorker: false,
             focusKey: `official:${item.id}`,
             onSave: async (policy) => {
               await updateConfig((current) => {

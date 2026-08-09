@@ -13,6 +13,16 @@ type CompressionPresetId =
   | "EXTREMELY_AGGRESSIVE";
 
 type PolicyMode = "NONE" | CompressionPresetId | "CUSTOM";
+type CompressionWorkerMode =
+  | "CURRENT_MODEL"
+  | "MODEL_PLACEHOLDER_M50"
+  | "MODEL_PLACEHOLDER_M71"
+  | "MODEL_PLACEHOLDER_M72";
+
+interface CompressionWorkerPolicy {
+  checkpointModel: string;
+  useLastPlannerModel: boolean;
+}
 
 interface PresetRatio {
   threshold: number;
@@ -29,11 +39,18 @@ interface PolicyEditorModalOptions {
   defaultHelp: string;
   emptyNotice: string;
   upstreamCompression?: UpstreamCompressionPolicy;
+  preferCurrentWorker: boolean;
   focusKey: string;
   onSave: (policy: ModelCompressionPolicy | null) => Promise<void>;
 }
 
 const DEFAULT_OUTPUT_RESERVE = 16_384;
+const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M71";
+const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
+  "MODEL_PLACEHOLDER_M71",
+  "MODEL_PLACEHOLDER_M72",
+  "MODEL_PLACEHOLDER_M50",
+];
 const DEFAULT_POLICY_LIMITS = {
   token_threshold: 61_000,
   max_token_limit: 73_000,
@@ -86,14 +103,15 @@ function presetValues(
 
 function createPolicy(
   limits: Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens">,
+  worker: CompressionWorkerPolicy,
 ): ModelCompressionPolicy {
   return {
     enabled: true,
-    checkpoint_model: "MODEL_PLACEHOLDER_M71",
+    checkpoint_model: worker.checkpointModel,
     strategy: "CHECKPOINT_STRATEGY_UNSPECIFIED",
     max_overhead_ratio: "0.30",
     moving_window_size: "1",
-    use_last_planner_model: false,
+    use_last_planner_model: worker.useLastPlannerModel,
     is_sync: false,
     max_user_requests: 10,
     include_last_user_message: false,
@@ -115,8 +133,9 @@ function createPresetPolicy(
   id: CompressionPresetId,
   capacity: number,
   outputTokenLimit: number | null,
+  worker: CompressionWorkerPolicy,
 ): ModelCompressionPolicy {
-  return createPolicy(presetValues(id, capacity, outputTokenLimit));
+  return createPolicy(presetValues(id, capacity, outputTokenLimit), worker);
 }
 
 function matchingPreset(
@@ -147,6 +166,64 @@ function clonePolicy(policy: ModelCompressionPolicy): ModelCompressionPolicy {
     ...policy,
     retry_config: { ...policy.retry_config },
   };
+}
+
+function isFixedWorkerMode(value: string | undefined): value is Exclude<CompressionWorkerMode, "CURRENT_MODEL"> {
+  return value !== undefined && FIXED_WORKER_MODES.includes(
+    value as Exclude<CompressionWorkerMode, "CURRENT_MODEL">,
+  );
+}
+
+function workerPolicyFrom(policy: ModelCompressionPolicy): CompressionWorkerPolicy {
+  return {
+    checkpointModel: isFixedWorkerMode(policy.checkpoint_model)
+      ? policy.checkpoint_model
+      : DEFAULT_CHECKPOINT_MODEL,
+    useLastPlannerModel: policy.use_last_planner_model,
+  };
+}
+
+function defaultWorkerPolicy(options: PolicyEditorModalOptions): CompressionWorkerPolicy {
+  const upstream = options.upstreamCompression;
+  return {
+    checkpointModel: isFixedWorkerMode(upstream?.checkpointModel)
+      ? upstream.checkpointModel
+      : DEFAULT_CHECKPOINT_MODEL,
+    useLastPlannerModel: upstream?.useLastPlannerModel ?? options.preferCurrentWorker,
+  };
+}
+
+function workerMode(policy: ModelCompressionPolicy): CompressionWorkerMode {
+  if (policy.use_last_planner_model) return "CURRENT_MODEL";
+  return isFixedWorkerMode(policy.checkpoint_model)
+    ? policy.checkpoint_model
+    : DEFAULT_CHECKPOINT_MODEL;
+}
+
+function applyWorkerMode(policy: ModelCompressionPolicy, mode: CompressionWorkerMode): void {
+  // “跟随当前模型”由官方字段控制；checkpoint_model 仍保留合法占位模型。
+  if (mode === "CURRENT_MODEL") {
+    policy.use_last_planner_model = true;
+    if (!isFixedWorkerMode(policy.checkpoint_model)) {
+      policy.checkpoint_model = DEFAULT_CHECKPOINT_MODEL;
+    }
+    return;
+  }
+  policy.use_last_planner_model = false;
+  policy.checkpoint_model = mode;
+}
+
+function workerModeLabel(mode: CompressionWorkerMode): string {
+  switch (mode) {
+    case "CURRENT_MODEL":
+      return t("models.policyWorkerCurrentModel");
+    case "MODEL_PLACEHOLDER_M50":
+      return t("models.policyWorkerModelM50");
+    case "MODEL_PLACEHOLDER_M71":
+      return t("models.policyWorkerModelM71");
+    case "MODEL_PLACEHOLDER_M72":
+      return t("models.policyWorkerModelM72");
+  }
 }
 
 function formatTokenCount(value: number): string {
@@ -218,6 +295,34 @@ function renderWorkerModel(container: HTMLElement, modelName: string): void {
 
   worker.append(label, value);
   container.append(worker);
+}
+
+function renderWorkerModelSelect(
+  container: HTMLElement,
+  policy: ModelCompressionPolicy,
+  onChange: () => void,
+): void {
+  const field = document.createElement("label");
+  field.className = "policy-worker-row";
+
+  const label = document.createElement("span");
+  label.textContent = t("models.policyCheckpointModel");
+
+  const select = document.createElement("select");
+  for (const mode of ["CURRENT_MODEL", ...FIXED_WORKER_MODES] as CompressionWorkerMode[]) {
+    const option = document.createElement("option");
+    option.value = mode;
+    option.textContent = workerModeLabel(mode);
+    select.append(option);
+  }
+  select.value = workerMode(policy);
+  select.addEventListener("change", () => {
+    applyWorkerMode(policy, select.value as CompressionWorkerMode);
+    onChange();
+  });
+
+  field.append(label, select);
+  container.append(field);
 }
 
 export function getPolicyPillStatus(
@@ -349,6 +454,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   dialog.append(header, body, footer);
   overlay.append(backdrop, dialog);
 
+  const defaultWorker = defaultWorkerPolicy(options);
   let mode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
   let draft = options.currentPolicy ? clonePolicy(options.currentPolicy) : null;
   let isSaving = false;
@@ -377,7 +483,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         max_output_tokens: upstream.maxOutputTokens && upstream.maxOutputTokens > 0
           ? upstream.maxOutputTokens
           : DEFAULT_OUTPUT_RESERVE,
-      });
+      }, defaultWorker);
       const capacity = options.capacity && options.capacity > 0 ? options.capacity : null;
       const ratios = capacity
         ? {
@@ -387,7 +493,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
           }
         : undefined;
       renderPolicyMetrics(form, policy, ratios);
-      renderWorkerModel(form, upstream.checkpointModel ?? t("models.policyUpstreamWorker"));
+      renderWorkerModel(form, workerModeLabel(workerMode(policy)));
       return;
     }
 
@@ -429,7 +535,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
 
     help.textContent = t("models.policyPresetHelp");
     if (!draft) {
-      draft = createPolicy(DEFAULT_POLICY_LIMITS);
+      draft = createPolicy(DEFAULT_POLICY_LIMITS, defaultWorker);
     }
 
     if (mode === "CUSTOM") {
@@ -444,7 +550,9 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     } else {
       renderPolicyMetrics(form, draft, PRESET_RATIOS[mode]);
     }
-    renderWorkerModel(form, t("models.policyWorkerModelM71"));
+    renderWorkerModelSelect(form, draft, () => {
+      error.hidden = true;
+    });
 
     const workerHelp = document.createElement("p");
     workerHelp.className = "field-hint policy-worker-help";
@@ -457,13 +565,19 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     if (mode !== "NONE" && mode !== "CUSTOM") {
       const capacity = options.capacity;
       if (capacity && capacity > 0) {
-        draft = createPresetPolicy(mode, capacity, options.outputTokenLimit);
+        const worker = draft ? workerPolicyFrom(draft) : defaultWorker;
+        draft = createPresetPolicy(mode, capacity, options.outputTokenLimit, worker);
       }
     } else if (mode === "CUSTOM" && !draft) {
       const capacity = options.capacity;
       draft = capacity && capacity > 0
-        ? createPresetPolicy("SLIGHTLY_CONSERVATIVE", capacity, options.outputTokenLimit)
-        : createPolicy(DEFAULT_POLICY_LIMITS);
+        ? createPresetPolicy(
+            "SLIGHTLY_CONSERVATIVE",
+            capacity,
+            options.outputTokenLimit,
+            defaultWorker,
+          )
+        : createPolicy(DEFAULT_POLICY_LIMITS, defaultWorker);
     }
     render();
   });
@@ -487,11 +601,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     }
 
     setSaving(true);
-    void options.onSave(nextPolicy ? createPolicy({
-      token_threshold: nextPolicy.token_threshold,
-      max_token_limit: nextPolicy.max_token_limit,
-      max_output_tokens: nextPolicy.max_output_tokens,
-    }) : null)
+    void options.onSave(nextPolicy ? clonePolicy(nextPolicy) : null)
       .then(() => {
         isSaving = false;
         close();

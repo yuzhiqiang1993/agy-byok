@@ -102,7 +102,7 @@ fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_f
                     "modelExperiments": {
                         "experiments": {
                             "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
-                                "stringValue": r#"{"enabled":true,"token_threshold":"80000","max_token_limit":"100000","max_output_tokens":"20000","checkpoint_model":"MODEL_PLACEHOLDER_M71"}"#
+                                "stringValue": r#"{"enabled":true,"token_threshold":"80000","max_token_limit":"100000","max_output_tokens":"20000","checkpoint_model":"MODEL_PLACEHOLDER_M71","use_last_planner_model":true}"#
                             }
                         }
                     }
@@ -150,6 +150,7 @@ fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_f
             max_token_limit: 100_000,
             max_output_tokens: Some(20_000),
             checkpoint_model: Some("MODEL_PLACEHOLDER_M71".to_string()),
+            use_last_planner_model: Some(true),
         })
     );
     assert_eq!(
@@ -160,6 +161,7 @@ fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_f
             max_token_limit: 90_000,
             max_output_tokens: Some(10_000),
             checkpoint_model: None,
+            use_last_planner_model: None,
         })
     );
     assert_eq!(models[2].upstream_compression, None);
@@ -181,7 +183,7 @@ fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
                     "modelExperiments": {
                         "experiments": {
                             "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
-                                "stringValue": r#"{"enabled":true,"token_threshold":"150000","max_token_limit":200000,"max_output_tokens":"32000"}"#
+                                "stringValue": r#"{"enabled":true,"token_threshold":"150000","max_token_limit":200000,"max_output_tokens":"32000","use_last_planner_model":false}"#
                             }
                         }
                     }
@@ -204,6 +206,7 @@ fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
             max_token_limit: 200_000,
             max_output_tokens: Some(32_000),
             checkpoint_model: None,
+            use_last_planner_model: Some(false),
         })
     );
 }

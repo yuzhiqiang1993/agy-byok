@@ -68,6 +68,8 @@ pub struct UpstreamCompressionPolicy {
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_last_planner_model: Option<bool>,
 }
 
 /// 使用供应商草稿直接拉取模型目录，允许用户在保存配置前验证连接。

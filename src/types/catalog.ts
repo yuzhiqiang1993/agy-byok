@@ -29,4 +29,5 @@ export interface UpstreamCompressionPolicy {
   maxTokenLimit: number;
   maxOutputTokens?: number;
   checkpointModel?: string;
+  useLastPlannerModel?: boolean;
 }
