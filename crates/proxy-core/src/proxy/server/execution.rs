@@ -84,7 +84,12 @@ impl ProxyServer {
         } else {
             body
         };
-        let neutral_response = adapter.parse_response(status, &body, &route.upstream_model)?;
+        let mut neutral_response = adapter.parse_response(status, &body, &route.upstream_model)?;
+        if neutral_response.model.trim().is_empty() {
+            neutral_response
+                .model
+                .clone_from(&route.upstream_model.upstream_model_id);
+        }
         let usage = neutral_response.usage.clone();
         Ok((
             AntigravityResponseEncoder::encode_response(&neutral_response),
@@ -133,7 +138,8 @@ impl ProxyServer {
         let mut usage = None;
         {
             let mut event_sink = AntigravityEventSink {
-                encoder: AntigravityStreamEncoder::new(),
+                encoder: AntigravityStreamEncoder::new()
+                    .with_model_version(&route.upstream_model.upstream_model_id),
                 frame_sink,
                 emitted_frame,
                 usage: &mut usage,

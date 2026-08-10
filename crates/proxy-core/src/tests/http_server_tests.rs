@@ -245,6 +245,7 @@ mod tests {
             body["response"]["candidates"][0]["content"]["parts"][0]["text"],
             "HTTP response"
         );
+        assert_eq!(body["response"]["modelVersion"], "gpt-test");
 
         drop(client);
         handle.shutdown().await.unwrap();
@@ -319,6 +320,7 @@ mod tests {
         let body = response.text().await.unwrap();
         assert!(body.contains("streamed"));
         assert!(body.contains("\"response\""));
+        assert!(body.contains("\"modelVersion\":\"gpt-test\""));
         assert!(body.contains("\"finishReason\":\"STOP\""));
         assert_eq!(body.matches("\"usageMetadata\"").count(), 1);
         assert!(body.contains("\"promptTokenCount\":11"));

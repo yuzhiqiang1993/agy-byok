@@ -1399,6 +1399,7 @@ mod tests {
         let encoded: serde_json::Value =
             serde_json::from_str(&AntigravityResponseEncoder::encode_response(&response)).unwrap();
 
+        assert_eq!(encoded["modelVersion"], "test-model");
         assert_eq!(encoded["candidates"].as_array().unwrap().len(), 3);
         assert_eq!(encoded["candidates"][0]["index"], 2);
         assert_eq!(encoded["candidates"][0]["finishReason"], "STOP");
@@ -1426,6 +1427,13 @@ mod tests {
     #[test]
     fn antigravity_stream_encoder_emits_thinking_signature() {
         let mut encoder = AntigravityStreamEncoder::new();
+        assert!(encoder
+            .encode_event(&NeutralStreamEvent::ResponseStart {
+                response_id: Some("response-1".to_string()),
+                model: "provider-model".to_string(),
+            })
+            .unwrap()
+            .is_empty());
 
         let frames = encoder
             .encode_event(&NeutralStreamEvent::ThinkingSignature {
@@ -1436,6 +1444,7 @@ mod tests {
 
         assert_eq!(frames.len(), 1);
         assert!(frames[0].contains("\"thoughtSignature\":\"signed-thinking\""));
+        assert!(frames[0].contains("\"modelVersion\":\"provider-model\""));
     }
 
     #[test]

@@ -87,7 +87,10 @@ impl AntigravityResponseEncoder {
             })
             .collect();
 
-        let mut payload = json!({ "candidates": candidates });
+        let mut payload = json!({
+            "candidates": candidates,
+            "modelVersion": resp.model,
+        });
         if let Some(ref usage) = resp.usage {
             payload["usageMetadata"] = Self::encode_usage_metadata(usage);
         }
@@ -113,12 +116,20 @@ struct PendingFinish {
 pub struct AntigravityStreamEncoder {
     pending_tool_calls: HashMap<(u32, u32), PendingToolCall>,
     pending_finishes: Vec<PendingFinish>,
+    model_version: Option<String>,
     response_ended: bool,
 }
 
 impl AntigravityStreamEncoder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 先写入配置模型作为兜底；上游开始事件返回非空模型时会自动替换。
+    pub fn with_model_version(mut self, model_version: impl Into<String>) -> Self {
+        let model_version = model_version.into();
+        self.model_version = (!model_version.trim().is_empty()).then_some(model_version);
+        self
     }
 
     pub fn encode_event(&mut self, event: &NeutralStreamEvent) -> Result<Vec<String>, ProxyError> {
@@ -132,8 +143,13 @@ impl AntigravityStreamEncoder {
         }
 
         match event {
-            NeutralStreamEvent::ResponseStart { .. } => Ok(Vec::new()),
-            NeutralStreamEvent::TextDelta { choice_index, text } => Ok(vec![Self::sse(json!({
+            NeutralStreamEvent::ResponseStart { model, .. } => {
+                if !model.trim().is_empty() {
+                    self.model_version = Some(model.clone());
+                }
+                Ok(Vec::new())
+            }
+            NeutralStreamEvent::TextDelta { choice_index, text } => Ok(vec![self.sse(json!({
                 "candidates": [{
                     "index": choice_index,
                     "content": {
@@ -142,21 +158,19 @@ impl AntigravityStreamEncoder {
                     }
                 }]
             }))]),
-            NeutralStreamEvent::ThinkingDelta { choice_index, text } => {
-                Ok(vec![Self::sse(json!({
-                    "candidates": [{
-                        "index": choice_index,
-                        "content": {
-                            "role": "model",
-                            "parts": [{ "thought": true, "text": text }]
-                        }
-                    }]
-                }))])
-            }
+            NeutralStreamEvent::ThinkingDelta { choice_index, text } => Ok(vec![self.sse(json!({
+                "candidates": [{
+                    "index": choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{ "thought": true, "text": text }]
+                    }
+                }]
+            }))]),
             NeutralStreamEvent::ThinkingSignature {
                 choice_index,
                 signature,
-            } => Ok(vec![Self::sse(json!({
+            } => Ok(vec![self.sse(json!({
                 "candidates": [{
                     "index": choice_index,
                     "content": {
@@ -228,7 +242,7 @@ impl AntigravityStreamEncoder {
                         ))
                     })?
                 };
-                Ok(vec![Self::sse(json!({
+                Ok(vec![self.sse(json!({
                     "candidates": [{
                         "index": choice_index,
                         "content": {
@@ -270,7 +284,7 @@ impl AntigravityStreamEncoder {
                 self.response_ended = true;
                 Ok(frames)
             }
-            NeutralStreamEvent::Error { message, code } => Ok(vec![Self::sse(json!({
+            NeutralStreamEvent::Error { message, code } => Ok(vec![self.sse(json!({
                 "error": {
                     "code": code,
                     "message": message
@@ -326,10 +340,13 @@ impl AntigravityStreamEncoder {
         if let Some(usage) = usage {
             payload["usageMetadata"] = AntigravityResponseEncoder::encode_usage_metadata(usage);
         }
-        Some(Self::sse(payload))
+        Some(self.sse(payload))
     }
 
-    fn sse(payload: Value) -> String {
+    fn sse(&self, mut payload: Value) -> String {
+        if let Some(model_version) = &self.model_version {
+            payload["modelVersion"] = json!(model_version);
+        }
         format!("data: {}\n\n", payload)
     }
 
