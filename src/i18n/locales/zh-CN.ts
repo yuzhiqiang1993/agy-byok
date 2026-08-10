@@ -86,13 +86,13 @@ export const zhCN = {
     hostPathOpened: "已在系统默认编辑器中打开配置文件",
     hostPathOpenFailed: "打开配置文件失败：{message}",
     hostPathCopied: "已复制配置文件路径",
-    cliUpdateConfirm: "当前 CLI 的代理配置需要更新，继续后会重新设置用户环境；完全退出并重新打开终端应用后生效，正在运行的 App 会同步重启。是否继续？",
+    cliUpdateConfirm: "当前 CLI 的代理配置需要更新，继续后会重新设置用户环境；完全退出并重新打开终端应用后生效。是否继续？",
     cliAlreadyEnabledConfirm: "当前 CLI 已启用代理模式，无需重复设置。是否继续？",
-    cliEnableConfirm: "启用代理模式后会在用户环境中配置 CLOUD_CODE_URL；正在运行的 App 会同步重启。是否继续？",
+    cliEnableConfirm: "启用代理模式后会在用户环境中配置 CLOUD_CODE_URL；完全退出并重新打开终端应用后生效。是否继续？",
     cliUpdated: "CLI 代理配置已更新；请完全退出并重新打开终端应用",
     cliEnabled: "CLI 已启用代理模式；请完全退出并重新打开终端应用",
     cliAlreadyEnabled: "CLI 当前已经启用代理模式，无需重复设置",
-    cliDisableConfirm: "将停用 CLI 的 AGY BYOK 代理接入。若没有其他入口共享同一环境，将同时恢复官方配置；完全退出并重新打开终端应用后生效，正在运行的 App 会同步重启。是否继续？",
+    cliDisableConfirm: "将停用 CLI 的 AGY BYOK 代理接入。若没有其他入口共享同一环境，将同时恢复官方配置；完全退出并重新打开终端应用后生效。是否继续？",
     cliDisabled: "CLI 代理接入已停用；请完全退出并重新打开终端应用",
 
     // Host Cards

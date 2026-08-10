@@ -86,6 +86,15 @@ Antigravity 只提供了 Gemini 系列的模型以及较低版本的 claude 模�
 
 > ![模型选择器](imgs/zh/model-selector.png)
 
+#### 2.3 模型级上下文压缩
+
+官方模型和自定义模型统一展示在模型管理页面中，每个模型都可以单独查看原始配置并设置上下文压缩策略：
+
+- 提供从“深度压缩”到“极限保真”的多档预设，也可以手动设置压缩触发阈值、Checkpoint 上限和输出预留 Token；
+- 压缩工作模型可以跟随当前模型，也可以固定使用 Gemini Flash 模型，在上下文一致性、速度和成本之间按需取舍；
+- 选择“官方默认”或“上游默认”时，不写入额外的模型级覆盖，保留模型原有的 Checkpointer 与上下文限制；
+- 压缩策略与模型注入配置保存后，需要重启 Antigravity IDE 或 App 才会生效。
+
 ### 3. 本地代理与宿主接入
 
 AGY BYOK 使用一个只监听本机地址的本地代理完成协议转换和请求转发：
@@ -106,7 +115,7 @@ AGY BYOK 使用一个只监听本机地址的本地代理完成协议转换和�
 | macOS · Antigravity CLI | 管理用户会话级 `CLOUD_CODE_URL` | 完全退出并重新打开终端应用后生效，AGY BYOK 启动时恢复已启用状态 |
 | Windows · Antigravity CLI | 管理用户级 `CLOUD_CODE_URL` 环境变量 | 完全退出并重新打开终端应用后生效 |
 
-同一平台上的 App 与 CLI 共享一份环境变量 ownership；只有最后一个入口停用时才恢复接入前的值，避免互相覆盖。macOS 使用当前登录会话环境，Windows 使用用户级环境。通过 CLI 卡片变更共享环境时，正在运行的 App 会同步重启，确保进程实际环境与界面状态一致。
+同一平台上的 App 与 CLI 共享一份环境变量 ownership；只有最后一个入口停用时才恢复接入前的值，避免互相覆盖。macOS 使用当前登录会话环境，Windows 使用用户级环境。通过 CLI 卡片变更共享环境时，不会停止、启动或重启正在运行的 App。
 
 ### 4. 上游协议与模型能力
 
@@ -174,19 +183,26 @@ Antigravity IDE / App / CLI
 
 当前项目面向 macOS 和 Windows，并在 CI 中分别执行 Rust Clippy、测试和完整 Tauri 桌面构建。下面以 macOS 为主要示例；Windows 使用相同的 Tauri / npm 命令构建。
 
+### 1. 下载对应平台的安装包
 
-### 1.直接下载编译好的对应平台的安装包安装使用
+前往 [GitHub Releases](https://github.com/yuzhiqiang1993/agy-byok/releases/latest) 下载最新稳定版本：
+
+| 平台 | 推荐安装包 |
+| :--- | :--- |
+| macOS Apple Silicon | `aarch64.dmg` |
+| macOS Intel | `x64.dmg` |
+| Windows | `x64-setup.exe` 或 `x64_en-US.msi` |
 
 #### macOS 首次打开未签名 App
 
-首次安装 App 后请先执行下面，命令后再打开应用
+首次安装后，如果 macOS 提示应用无法打开，请先执行下面的命令，再重新打开应用：
 
 ```bash
 sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"
 ```
 
 
-### 2.从源码启动
+### 2. 从源码启动
 
 #### 环境要求
 

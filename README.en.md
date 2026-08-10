@@ -79,6 +79,15 @@ After saving models and enabling proxy mode for a host, the models appear in Ant
 
 > ![Model Selector](imgs/en/model-selector.png)
 
+#### 2.3 Per-model Context Compression
+
+Official and custom models are displayed together on the Model Management page. Each model provides access to its raw configuration and its own context compression policy:
+
+- Choose from presets ranging from **Deep Compression** to **Maximum Fidelity**, or configure the compression threshold, Checkpoint limit, and reserved output tokens manually;
+- Let the compression worker follow the current model, or use a fixed Gemini Flash model to balance context consistency, speed, and cost;
+- Select **Official Default** or **Upstream Default** to preserve the model's original Checkpointer behavior and context limits without adding a model-level override;
+- Restart Antigravity IDE or App after saving compression-policy or model-injection changes for them to take effect.
+
 ### 3. Local Proxy and Host Integration
 
 AGY BYOK uses a local proxy that listens only on the local machine to perform protocol conversion and request forwarding:
@@ -99,7 +108,7 @@ Host integration differs by platform:
 | macOS · Antigravity CLI | Manages the user-session `CLOUD_CODE_URL` | Takes effect after fully quitting and reopening the terminal application; AGY BYOK restores enabled state on startup |
 | Windows · Antigravity CLI | Manages the user-level `CLOUD_CODE_URL` environment variable | Takes effect after fully quitting and reopening the terminal application |
 
-The App and CLI share one environment-variable ownership record on each platform. The original value is restored only after the last owner is disabled. macOS uses the current login-session environment, while Windows uses the user-level environment. Changing the shared environment from the CLI card also restarts a running App so that its real process environment stays consistent with the displayed state.
+The App and CLI share one environment-variable ownership record on each platform. The original value is restored only after the last owner is disabled. macOS uses the current login-session environment, while Windows uses the user-level environment. Changing the shared environment from the CLI card does not stop, launch, or restart a running App.
 
 ### 4. Upstream Protocols and Model Capabilities
 
@@ -166,11 +175,19 @@ Antigravity IDE / App / CLI
 
 The project targets macOS and Windows. CI runs Rust Clippy, tests, and a complete Tauri desktop build natively on both platforms. The examples below use macOS as the primary example; Windows uses the same Tauri / npm commands for building.
 
-### 1. Download and install the prebuilt package for your platform
+### 1. Download the package for your platform
+
+Go to [GitHub Releases](https://github.com/yuzhiqiang1993/agy-byok/releases/latest) to download the latest stable version:
+
+| Platform | Recommended package |
+| :--- | :--- |
+| macOS Apple Silicon | `aarch64.dmg` |
+| macOS Intel | `x64.dmg` |
+| Windows | `x64-setup.exe` or `x64_en-US.msi` |
 
 #### First launch of an unsigned macOS App
 
-After installing the App for the first time, run the following command before opening it:
+If macOS reports that the App cannot be opened after installation, run the following command and then open it again:
 
 ```bash
 sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"
