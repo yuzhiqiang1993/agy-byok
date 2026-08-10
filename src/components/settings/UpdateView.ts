@@ -16,34 +16,136 @@ export interface UpdateManagerState {
 export interface UpdateView {
   versionTag: HTMLSpanElement;
   status: HTMLSpanElement;
-  notes: HTMLParagraphElement;
   checkButton: HTMLButtonElement;
   installButton: HTMLButtonElement;
+  restartButton: HTMLButtonElement;
+  viewReleaseButton: HTMLButtonElement;
+  progressContainer: HTMLDivElement;
+  progressDetail: HTMLSpanElement;
   progress: HTMLProgressElement;
+  settingsNavBadge: HTMLSpanElement;
+  aboutNavBadge: HTMLSpanElement;
 }
 
 export function createUpdateView(): UpdateView {
   return {
     versionTag: element<HTMLSpanElement>("#app-version"),
     status: element<HTMLSpanElement>("#update-status"),
-    notes: element<HTMLParagraphElement>("#update-notes"),
     checkButton: element<HTMLButtonElement>("#check-for-updates"),
     installButton: element<HTMLButtonElement>("#install-update"),
+    restartButton: element<HTMLButtonElement>("#restart-app-now"),
+    viewReleaseButton: element<HTMLButtonElement>("#view-release-notes"),
+    progressContainer: element<HTMLDivElement>("#update-progress-container"),
+    progressDetail: element<HTMLSpanElement>("#update-progress-detail"),
     progress: element<HTMLProgressElement>("#update-progress"),
+    settingsNavBadge: element<HTMLSpanElement>("#settings-nav-badge"),
+    aboutNavBadge: element<HTMLSpanElement>("#about-nav-badge"),
   };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export function formatMarkdownReleaseNotes(raw: string): string {
+  if (!raw.trim()) return "";
+  const lines = raw.split("\n");
+  const htmlParts: string[] = [];
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (inList) {
+        htmlParts.push("</ul>");
+        inList = false;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith("### ")) {
+      if (inList) {
+        htmlParts.push("</ul>");
+        inList = false;
+      }
+      htmlParts.push(`<h4>${escapeHtml(trimmed.slice(4))}</h4>`);
+      continue;
+    }
+
+    if (trimmed.startsWith("## ")) {
+      if (inList) {
+        htmlParts.push("</ul>");
+        inList = false;
+      }
+      htmlParts.push(`<h3>${escapeHtml(trimmed.slice(3))}</h3>`);
+      continue;
+    }
+
+    if (trimmed.startsWith("# ")) {
+      if (inList) {
+        htmlParts.push("</ul>");
+        inList = false;
+      }
+      htmlParts.push(`<h3>${escapeHtml(trimmed.slice(2))}</h3>`);
+      continue;
+    }
+
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+      if (!inList) {
+        htmlParts.push("<ul class=\"update-notes-list\">");
+        inList = true;
+      }
+      let content = escapeHtml(trimmed.slice(2));
+      content = content.replace(/`([^`]+)`/g, "<code>$1</code>");
+      content = content.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      htmlParts.push(`<li>${content}</li>`);
+      continue;
+    }
+
+    if (inList) {
+      htmlParts.push("</ul>");
+      inList = false;
+    }
+    let content = escapeHtml(trimmed);
+    content = content.replace(/`([^`]+)`/g, "<code>$1</code>");
+    content = content.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    htmlParts.push(`<p>${content}</p>`);
+  }
+
+  if (inList) {
+    htmlParts.push("</ul>");
+  }
+
+  return htmlParts.join("");
 }
 
 function updateStatusText(state: UpdateManagerState): string {
   if (state.phase === "checking") return t("settings.checkingUpdates");
   if (state.phase === "available") {
     return state.pendingUpdate
-      ? t("settings.updateAvailable", { version: state.pendingUpdate.version })
+      ? t("settings.updateAvailableWithVersion", {
+          latest: state.pendingUpdate.version,
+          current: state.currentVersion || "—",
+        })
       : t("settings.updateIdle");
   }
   if (state.phase === "downloading") return t("settings.downloadingUpdate");
   if (state.phase === "ready") return t("settings.updateReady");
   if (state.phase === "error") return t("settings.updateCheckFailedShort");
-  return state.hasChecked ? t("settings.latestVersion") : t("settings.updateIdle");
+  return state.hasChecked
+    ? t("settings.latestVersionWithCurrent", { version: state.currentVersion || "—" })
+    : t("settings.updateIdle");
 }
 
 export function renderUpdateView(view: UpdateView, state: UpdateManagerState): void {
@@ -51,20 +153,55 @@ export function renderUpdateView(view: UpdateView, state: UpdateManagerState): v
     version: state.currentVersion || "—",
   });
   view.status.textContent = updateStatusText(state);
-  const operationInProgress = state.phase === "checking" || state.phase === "downloading";
-  view.checkButton.disabled = operationInProgress;
-  view.checkButton.textContent = state.phase === "checking"
+
+  // Badges on nav items
+  const hasAvailableUpdate = state.phase === "available" || state.phase === "ready";
+  view.settingsNavBadge.hidden = !hasAvailableUpdate;
+  view.aboutNavBadge.hidden = !hasAvailableUpdate;
+
+  // Single-action button logic: Only one primary/secondary button is shown at a time
+  const isChecking = state.phase === "checking";
+  const isAvailable = state.phase === "available";
+  const isReady = state.phase === "ready";
+  const isDownloading = state.phase === "downloading";
+
+  // Check button: visible only in idle / checking / error
+  view.checkButton.hidden = isAvailable || isReady || isDownloading;
+  view.checkButton.disabled = isChecking;
+  view.checkButton.textContent = isChecking
     ? t("settings.checkingUpdates")
     : t("settings.checkUpdates");
-  view.installButton.hidden = state.phase !== "available";
-  view.installButton.disabled = state.phase !== "available";
-  view.notes.hidden = state.phase !== "available" || !state.pendingUpdate?.body;
-  view.notes.textContent = state.pendingUpdate?.body ?? "";
-  view.progress.hidden = state.phase !== "downloading";
-  if (state.phase === "downloading" && state.contentLength) {
-    view.progress.max = state.contentLength;
-    view.progress.value = state.downloadedBytes;
+
+  // Install button: visible only in available
+  view.installButton.hidden = !isAvailable;
+  view.installButton.disabled = !isAvailable;
+
+  // Restart button: visible only in ready
+  view.restartButton.hidden = !isReady;
+  view.restartButton.disabled = !isReady;
+
+  // Inline "View release notes" link: visible only when an update is available and notes body exists
+  view.viewReleaseButton.hidden = !isAvailable || !state.pendingUpdate?.body;
+
+  // Progress Section
+  view.progressContainer.hidden = !isDownloading;
+  if (isDownloading) {
+    if (state.contentLength && state.contentLength > 0) {
+      view.progress.max = state.contentLength;
+      view.progress.value = state.downloadedBytes;
+      const percent = Math.min(100, Math.round((state.downloadedBytes / state.contentLength) * 100));
+      view.progressDetail.textContent = t("settings.updateDownloadProgress", {
+        percent: String(percent),
+        downloaded: formatBytes(state.downloadedBytes),
+        total: formatBytes(state.contentLength),
+      });
+    } else {
+      view.progress.removeAttribute("value");
+      view.progressDetail.textContent = t("settings.updateDownloadProgressIndeterminate", {
+        downloaded: formatBytes(state.downloadedBytes),
+      });
+    }
   } else {
-    view.progress.removeAttribute("value");
+    view.progressDetail.textContent = "";
   }
 }

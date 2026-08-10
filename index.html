@@ -37,6 +37,7 @@
           <button type="button" class="side-nav-button tab-trigger" data-target="tab-settings" aria-label="设置" data-i18n-aria-label="nav.settings">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             <span data-i18n="nav.settings">设置</span>
+            <span id="settings-nav-badge" class="nav-badge-dot" hidden></span>
           </button>
         </div>
       </aside>
@@ -72,6 +73,7 @@
           <svg class="icon-error" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <span id="notice-text" class="notice-text"></span>
+        <button id="notice-action-btn" class="notice-action-btn" type="button" hidden></button>
         <button id="dismiss-notice" class="notice-dismiss" type="button" aria-label="关闭通知" title="关闭通知" data-i18n-title="modal.dismissNotice" data-i18n-aria-label="modal.dismissNotice">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
@@ -431,6 +433,7 @@
             <button type="button" class="settings-nav-item" data-settings-target="settings-about">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
               <span data-i18n="settings.navAbout">关于应用</span>
+              <span id="about-nav-badge" class="nav-badge-dot" hidden></span>
             </button>
           </nav>
 
@@ -585,19 +588,30 @@
               </div>
 
               <div id="app-update-card" class="about-update-card">
-                <div class="action-icon" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                <div class="update-card-header">
+                  <div class="action-icon" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                  </div>
+                  <div class="about-update-info">
+                    <strong data-i18n="settings.updateTitle">应用更新</strong>
+                    <div class="update-status-row">
+                      <span id="update-status" aria-live="polite" data-i18n="settings.updateIdle">检查最新版本</span>
+                      <button id="view-release-notes" type="button" class="inline-release-btn" data-i18n="settings.viewReleaseNotesLink" hidden>查看更新说明</button>
+                    </div>
+                  </div>
+                  <div class="about-update-actions">
+                    <button id="check-for-updates" type="button" class="secondary compact-button" data-i18n="settings.checkUpdates">检查更新</button>
+                    <button id="install-update" type="button" class="primary compact-button" data-i18n="settings.installUpdate" hidden>安装更新</button>
+                    <button id="restart-app-now" type="button" class="primary compact-button" data-i18n="settings.updateRestartNow" hidden>立即重启</button>
+                  </div>
                 </div>
-                <div class="about-update-info">
-                  <strong data-i18n="settings.updateTitle">应用更新</strong>
-                  <span id="update-status" aria-live="polite" data-i18n="settings.updateIdle">检查最新版本</span>
-                  <p id="update-notes" class="about-update-notes" hidden></p>
+
+                <div id="update-progress-container" class="update-progress-container" hidden>
+                  <div class="update-progress-info">
+                    <span id="update-progress-detail" class="update-progress-detail"></span>
+                  </div>
+                  <progress id="update-progress" max="1" value="0" data-i18n-aria-label="settings.updateProgress"></progress>
                 </div>
-                <div class="about-update-actions">
-                  <button id="check-for-updates" type="button" class="secondary compact-button" data-i18n="settings.checkUpdates">检查更新</button>
-                  <button id="install-update" type="button" class="primary compact-button" data-i18n="settings.installUpdate" hidden>安装更新</button>
-                </div>
-                <progress id="update-progress" max="1" value="0" data-i18n-aria-label="settings.updateProgress" hidden></progress>
               </div>
 
               <div class="about-quick-links">
@@ -672,6 +686,41 @@
           <div class="confirm-modal-footer">
             <button id="cancel-confirm-modal" class="secondary" type="button" data-i18n="models.cancel">取消</button>
             <button id="ok-confirm-modal" class="primary" type="button" data-i18n="modal.confirmOk">确认</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="release-notes-modal" class="provider-modal" hidden>
+        <div id="release-notes-modal-backdrop" class="provider-modal-backdrop"></div>
+        <section
+          class="provider-modal-dialog release-notes-modal-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="release-notes-modal-title"
+        >
+          <header class="provider-modal-header">
+            <div class="form-summary-copy">
+              <div class="form-summary-title">
+                <strong id="release-notes-modal-title" data-i18n="settings.releaseNotesTitle">版本更新说明</strong>
+                <span id="release-notes-modal-version" class="status-pill accent"></span>
+              </div>
+              <p id="release-notes-modal-subtitle" class="form-summary-desc"></p>
+            </div>
+            <button id="close-release-notes-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.closeWithShortcut" data-i18n-aria-label="modal.close">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </header>
+
+          <div class="provider-modal-body release-notes-modal-body">
+            <div id="release-notes-modal-content" class="about-update-notes markdown-body"></div>
+          </div>
+
+          <div class="provider-modal-footer release-notes-modal-footer">
+            <button id="release-notes-github-link" type="button" class="release-github-btn" data-i18n="settings.viewOnGithub">在 GitHub 查看 ↗</button>
+            <div class="modal-footer-actions">
+              <button id="cancel-release-notes-modal" class="secondary" type="button" data-i18n="modal.close">关闭</button>
+              <button id="install-update-from-modal" class="primary" type="button" data-i18n="settings.installUpdate">安装更新</button>
+            </div>
           </div>
         </section>
       </div>

@@ -77,6 +77,54 @@
   border-top: 1px solid var(--surface-border);
   background: var(--surface-inner);
 }
+
+.release-notes-modal-dialog {
+  width: min(580px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 60px));
+  display: flex;
+  flex-direction: column;
+}
+
+.release-notes-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  max-height: min(420px, calc(100vh - 200px));
+}
+
+.release-notes-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--surface-border);
+  background: var(--surface-inner);
+}
+
+.release-github-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.release-github-btn:hover {
+  background: rgba(37, 99, 235, 0.08);
+  text-decoration: underline;
+}
+
+.modal-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .provider-change-summary {
   margin: 13px 0 0;
   padding: 10px 12px;

@@ -11,11 +11,17 @@ import {
 import { errorMessage } from "../utils/errorUtils";
 import { showNotice } from "./NoticeBar";
 import {
+  openReleaseNotesModal,
+  setupReleaseNotesModal,
+} from "./settings/ReleaseNotesModal";
+import { switchSettingsPane } from "./settings/SettingsNavigation";
+import {
   createUpdateView,
   renderUpdateView,
   type UpdateManagerState,
   type UpdateView,
 } from "./settings/UpdateView";
+import { switchTab } from "./TabManager";
 
 async function clearPendingUpdate(state: UpdateManagerState): Promise<void> {
   const update = state.pendingUpdate;
@@ -53,6 +59,11 @@ async function loadVersion(state: UpdateManagerState, view: UpdateView): Promise
   }
 }
 
+async function navigateToAboutSettings(): Promise<void> {
+  await switchTab("tab-settings");
+  switchSettingsPane("settings-about");
+}
+
 async function checkUpdate(
   state: UpdateManagerState,
   view: UpdateView,
@@ -70,7 +81,14 @@ async function checkUpdate(
     state.phase = state.pendingUpdate ? "available" : "idle";
     renderUpdateView(view, state);
     if (state.pendingUpdate) {
-      showNotice(t("settings.updateAvailable", { version: state.pendingUpdate.version }));
+      showNotice(
+        t("settings.updateAvailable", { version: state.pendingUpdate.version }),
+        "info",
+        {
+          label: t("settings.viewUpdate"),
+          onClick: () => void navigateToAboutSettings(),
+        },
+      );
     } else if (manual) {
       showNotice(t("settings.latestVersion"));
     }
@@ -133,6 +151,10 @@ async function installUpdate(state: UpdateManagerState, view: UpdateView): Promi
   await clearPendingUpdate(state);
   state.phase = "ready";
   renderUpdateView(view, state);
+  showNotice(t("settings.updateReady"));
+}
+
+async function restartApp(): Promise<void> {
   showNotice(t("settings.updateRestarting"));
   try {
     await relaunchApplication();
@@ -143,6 +165,7 @@ async function installUpdate(state: UpdateManagerState, view: UpdateView): Promi
 
 export function setupUpdateManager(): void {
   if (!isTauriRuntime()) return;
+  setupReleaseNotesModal();
   const view = createUpdateView();
   const state: UpdateManagerState = {
     phase: "idle",
@@ -154,6 +177,12 @@ export function setupUpdateManager(): void {
   };
   view.checkButton.addEventListener("click", () => void checkUpdate(state, view, true));
   view.installButton.addEventListener("click", () => void installUpdate(state, view));
+  view.restartButton.addEventListener("click", () => void restartApp());
+  view.viewReleaseButton.addEventListener("click", () => {
+    if (state.pendingUpdate) {
+      openReleaseNotesModal(state.pendingUpdate, state.currentVersion, () => void installUpdate(state, view));
+    }
+  });
   subscribeLanguage(() => renderUpdateView(view, state));
   renderUpdateView(view, state);
   void loadVersion(state, view);
