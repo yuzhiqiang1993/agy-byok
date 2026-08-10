@@ -9,6 +9,7 @@ import {
   launchIde,
   refreshIde,
   openPath,
+  selectAndSetCustomIdePath,
 } from "../controllers/hostController";
 import { store } from "../store/appStore";
 import { t } from "../i18n";
@@ -18,15 +19,33 @@ export function renderIde(status: IdeStatus): void {
   const state = element<HTMLSpanElement>("#ide-state");
   const detail = element<HTMLParagraphElement>("#ide-detail");
 
-  state.textContent = status.ideRunning ? t("overview.running") : status.installed ? t("overview.installed") : t("overview.notInstalled");
-  state.className = `status-pill ${status.ideRunning ? "success" : status.installed ? "neutral" : "error"}`;
-  detail.textContent = !status.installed
+  if (status.ideRunning) {
+    state.textContent = t("overview.running");
+    state.className = "status-pill success";
+    state.title = "";
+    state.removeAttribute("role");
+  } else if (status.installed) {
+    state.textContent = t("overview.installed");
+    state.className = "status-pill neutral";
+    state.title = "";
+    state.removeAttribute("role");
+  } else {
+    state.textContent = t("overview.notDetectedManualSetup");
+    state.className = "status-pill warning clickable";
+    state.title = t("overview.selectInstallPath");
+    state.setAttribute("role", "button");
+  }
+
+  const baseDetail = !status.installed
     ? t("overview.msgUnavailable")
     : !status.compatible
       ? t("overview.versionMismatch")
       : status.ideRunning
         ? t("overview.ideRunning")
         : t("overview.ideNotRunning");
+  detail.textContent = status.isCustomPath
+    ? `${baseDetail} ${t("overview.customPathTag")}`
+    : baseDetail;
 
   const integrationState = element<HTMLSpanElement>("#ide-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#ide-integration-detail");
@@ -93,6 +112,21 @@ export function setupIdeCard(): void {
     render: renderIde,
     launch: launchIde,
   });
+
+  const ideStatePill = document.querySelector<HTMLSpanElement>("#ide-state");
+  if (ideStatePill) {
+    ideStatePill.addEventListener("click", async () => {
+      if (store.ideStatus?.installed) return;
+      try {
+        const result = await selectAndSetCustomIdePath();
+        if (result) {
+          showNotice(t("overview.pathSetSuccess", { name: "Antigravity IDE" }));
+        }
+      } catch (err) {
+        showNotice(errorMessage(err), "error");
+      }
+    });
+  }
 
   const openIdeSettingsBtn = document.querySelector("#open-ide-settings");
   if (openIdeSettingsBtn) {

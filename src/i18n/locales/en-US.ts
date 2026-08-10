@@ -46,6 +46,7 @@ export const enUS: TranslationDict = {
     running: "Running",
     installed: "Installed",
     notInstalled: "Not Installed",
+    notDetectedManualSetup: "Not Detected, Click to Set",
     ideRunning: "Antigravity IDE is running",
     ideNotRunning: "Antigravity IDE is not running",
     appRunning: "Antigravity App is running",
@@ -79,6 +80,10 @@ export const enUS: TranslationDict = {
     launch: "Open",
     restart: "Restart",
     refresh: "Refresh",
+    selectInstallPath: "Select Install Path",
+    customPathTag: " (Custom)",
+    selectPathDialogTitle: "Select {name} Installation Path or Executable",
+    pathSetSuccess: "{name} installation path updated",
 
     checking: "Checking",
     checkingIde: "Detecting Antigravity IDE...",

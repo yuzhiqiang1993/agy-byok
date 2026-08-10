@@ -144,4 +144,17 @@
 .status-pill.success { background: rgba(16, 185, 129, 0.15); color: #059669; }
 .status-pill.accent { background: rgba(37, 99, 235, 0.15); color: #2563eb; }
 .status-pill.error { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
-.status-pill.warning { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.status-pill.warning { background: rgba(245, 158, 11, 0.14); color: #d97706; }
+.status-pill.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.status-pill.clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.status-pill.warning.clickable:hover {
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
+}

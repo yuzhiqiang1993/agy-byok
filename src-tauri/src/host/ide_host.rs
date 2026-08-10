@@ -20,6 +20,8 @@ pub struct IdeStatus {
     pub can_enable_integration: bool,
     pub can_launch_ide: bool,
     pub can_disable_integration: bool,
+    pub installation_path: Option<String>,
+    pub is_custom_path: bool,
 }
 
 pub fn discover_ide_sync(
@@ -105,6 +107,8 @@ pub fn discover_ide_sync(
         can_enable_integration,
         can_launch_ide,
         can_disable_integration: can_disable,
+        installation_path: Some(paths.installation.display().to_string()),
+        is_custom_path: paths.is_custom,
     })
 }
 
@@ -189,6 +193,8 @@ fn unavailable_status(proxy_running: bool) -> IdeStatus {
         can_enable_integration: false,
         can_launch_ide: false,
         can_disable_integration: false,
+        installation_path: None,
+        is_custom_path: false,
     }
 }
 

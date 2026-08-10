@@ -9,7 +9,6 @@ use tokio::net::TcpListener;
 fn test_state() -> DesktopState {
     DesktopState {
         config_store: ConfigStore::in_memory(AppConfig::default()),
-        host_paths: crate::platform::HostPaths::default(),
         host_integration_root: PathBuf::new(),
         activity_log: Arc::new(ActivityLog::new()),
         proxy_host_mutation_lock: tokio::sync::Mutex::new(()),

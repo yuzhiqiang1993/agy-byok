@@ -30,6 +30,7 @@ pub(super) fn host_paths() -> HostPaths {
         executable: installation.join(APP_EXECUTABLE),
         language_server: installation.join("resources/bin/language_server.exe"),
         installation,
+        is_custom: false,
     });
     let ide = discover_installation(
         IDE_EXECUTABLE,
@@ -41,9 +42,83 @@ pub(super) fn host_paths() -> HostPaths {
         executable: installation.join(IDE_EXECUTABLE),
         settings: roaming_app_data.map(|root| root.join("Antigravity IDE/User/settings.json")),
         installation,
+        is_custom: false,
     });
 
     HostPaths { app, ide }
+}
+
+pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, String> {
+    let installation = if custom_path.is_file() {
+        custom_path
+            .parent()
+            .ok_or_else(|| "无效的文件路径".to_string())?
+            .to_path_buf()
+    } else {
+        custom_path.to_path_buf()
+    };
+
+    let executable = installation.join(APP_EXECUTABLE);
+    let language_server = installation.join("resources/bin/language_server.exe");
+
+    if !installation.is_dir() {
+        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+    }
+    if !executable.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity 主程序（{}）：{}",
+            APP_EXECUTABLE,
+            executable.display()
+        ));
+    }
+    if !language_server.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity 核心组件：{}",
+            language_server.display()
+        ));
+    }
+
+    Ok(AppPaths {
+        installation,
+        executable,
+        language_server,
+        is_custom: true,
+    })
+}
+
+pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, String> {
+    let installation = if custom_path.is_file() {
+        custom_path
+            .parent()
+            .ok_or_else(|| "无效的文件路径".to_string())?
+            .to_path_buf()
+    } else {
+        custom_path.to_path_buf()
+    };
+
+    let executable = installation.join(IDE_EXECUTABLE);
+    if !installation.is_dir() {
+        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+    }
+    if !executable.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity IDE 主程序（{}）：{}",
+            IDE_EXECUTABLE,
+            executable.display()
+        ));
+    }
+
+    let roaming_app_data = absolute_environment_path("APPDATA").or_else(|| {
+        absolute_environment_path("USERPROFILE").map(|home| home.join("AppData/Roaming"))
+    });
+    let settings = roaming_app_data.map(|root| root.join("Antigravity IDE/User/settings.json"));
+
+    Ok(IdePaths {
+        installation,
+        executable,
+        settings,
+        is_custom: true,
+    })
 }
 
 fn discover_installation(

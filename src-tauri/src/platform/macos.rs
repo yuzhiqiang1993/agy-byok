@@ -29,6 +29,7 @@ pub(super) fn host_paths() -> HostPaths {
             executable: app_root.join("Contents/MacOS/Antigravity"),
             language_server: app_root.join("Contents/Resources/bin/language_server"),
             installation: app_root,
+            is_custom: false,
         }),
         ide: Some(IdePaths {
             executable: ide_root.join("Contents/MacOS/Electron"),
@@ -36,8 +37,93 @@ pub(super) fn host_paths() -> HostPaths {
                 home.join("Library/Application Support/Antigravity IDE/User/settings.json")
             }),
             installation: ide_root,
+            is_custom: false,
         }),
     }
+}
+
+pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, String> {
+    let mut candidate = custom_path.to_path_buf();
+    while !candidate.as_os_str().is_empty()
+        && !candidate.extension().map_or(false, |ext| ext == "app")
+    {
+        if let Some(parent) = candidate.parent() {
+            candidate = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    let installation = if candidate.extension().map_or(false, |ext| ext == "app") {
+        candidate
+    } else {
+        custom_path.to_path_buf()
+    };
+
+    let executable = installation.join("Contents/MacOS/Antigravity");
+    let language_server = installation.join("Contents/Resources/bin/language_server");
+
+    if !installation.is_dir() {
+        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+    }
+    if !executable.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity 可执行文件：{}",
+            executable.display()
+        ));
+    }
+    if !language_server.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity 核心组件 language_server：{}",
+            language_server.display()
+        ));
+    }
+
+    Ok(AppPaths {
+        installation,
+        executable,
+        language_server,
+        is_custom: true,
+    })
+}
+
+pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, String> {
+    let mut candidate = custom_path.to_path_buf();
+    while !candidate.as_os_str().is_empty()
+        && !candidate.extension().map_or(false, |ext| ext == "app")
+    {
+        if let Some(parent) = candidate.parent() {
+            candidate = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    let installation = if candidate.extension().map_or(false, |ext| ext == "app") {
+        candidate
+    } else {
+        custom_path.to_path_buf()
+    };
+
+    let executable = installation.join("Contents/MacOS/Electron");
+    if !installation.is_dir() {
+        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+    }
+    if !executable.is_file() {
+        return Err(format!(
+            "在所选路径中未找到 Antigravity IDE 主程序：{}",
+            executable.display()
+        ));
+    }
+
+    let settings = user_home_dir().map(|home| {
+        home.join("Library/Application Support/Antigravity IDE/User/settings.json")
+    });
+
+    Ok(IdePaths {
+        installation,
+        executable,
+        settings,
+        is_custom: true,
+    })
 }
 
 fn discover_bundle_installation(

@@ -104,6 +104,7 @@ export const zhCN = {
     running: "运行中",
     installed: "已安装",
     notInstalled: "未安装",
+    notDetectedManualSetup: "未检测到安装，手动设置",
     ideRunning: "Antigravity IDE 正在运行",
     ideNotRunning: "Antigravity IDE 未在运行",
     appRunning: "Antigravity App 正在运行",
@@ -139,6 +140,10 @@ export const zhCN = {
     launch: "打开",
     restart: "重启",
     refresh: "刷新",
+    selectInstallPath: "选择安装路径",
+    customPathTag: "（自定义）",
+    selectPathDialogTitle: "选择 {name} 安装路径或程序",
+    pathSetSuccess: "{name} 安装路径已设置",
   },
   // Model Management Tab
   models: {

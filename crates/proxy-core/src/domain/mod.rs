@@ -6,7 +6,7 @@ pub(crate) mod request;
 pub(crate) mod response;
 mod serde_helpers;
 
-pub use config::{AppConfig, ConfigError, DEFAULT_PROXY_PORT, MIN_PROXY_PORT};
+pub use config::{AppConfig, ConfigError, CustomHostPaths, DEFAULT_PROXY_PORT, MIN_PROXY_PORT};
 pub use error::{ErrorCategory, ProxyError};
 pub use model::{
     CustomModelCheckpointRetryConfig, ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits,

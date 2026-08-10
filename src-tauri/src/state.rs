@@ -27,12 +27,18 @@ pub enum ProxyRuntimeState {
 
 pub struct DesktopState {
     pub config_store: ConfigStore,
-    pub host_paths: HostPaths,
     pub host_integration_root: PathBuf,
     pub activity_log: Arc<ActivityLog>,
     // Mutating commands acquire this before proxy_handle to keep host writes and proxy changes ordered.
     pub proxy_host_mutation_lock: Mutex<()>,
     pub proxy_handle: Mutex<Option<HttpServerHandle>>,
+}
+
+impl DesktopState {
+    pub fn current_host_paths(&self) -> HostPaths {
+        let custom = &self.config_store.get_config().custom_host_paths;
+        HostPaths::resolve(custom)
+    }
 }
 
 pub struct ProxyRuntimeSnapshot {
@@ -91,7 +97,6 @@ pub fn create_state() -> Result<DesktopState, StartupError> {
 
     Ok(DesktopState {
         config_store,
-        host_paths: HostPaths::current(),
         host_integration_root,
         activity_log: Arc::new(ActivityLog::new()),
         proxy_host_mutation_lock: Mutex::new(()),

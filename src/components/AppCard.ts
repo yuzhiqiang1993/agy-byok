@@ -1,11 +1,14 @@
 import type { AppStatus } from "../types/host";
 import { element, setButtonUnavailable } from "../utils/domUtils";
+import { errorMessage } from "../utils/errorUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
+import { showNotice } from "./NoticeBar";
 import {
   disableAppIntegration,
   enableAppIntegration,
   launchApp,
   refreshApp,
+  selectAndSetCustomAppPath,
 } from "../controllers/hostController";
 import { store } from "../store/appStore";
 import { t } from "../i18n";
@@ -14,13 +17,32 @@ import { setupHostIntegrationActions } from "./host/HostIntegrationActions";
 export function renderApp(status: AppStatus): void {
   const state = element<HTMLSpanElement>("#app-state");
   const detail = element<HTMLParagraphElement>("#app-detail");
-  state.textContent = status.appRunning ? t("overview.running") : status.installed ? t("overview.installed") : t("overview.notInstalled");
-  state.className = `status-pill ${status.appRunning ? "success" : status.installed ? "neutral" : "error"}`;
-  detail.textContent = status.appRunning
+
+  if (status.appRunning) {
+    state.textContent = t("overview.running");
+    state.className = "status-pill success";
+    state.title = "";
+    state.removeAttribute("role");
+  } else if (status.installed) {
+    state.textContent = t("overview.installed");
+    state.className = "status-pill neutral";
+    state.title = "";
+    state.removeAttribute("role");
+  } else {
+    state.textContent = t("overview.notDetectedManualSetup");
+    state.className = "status-pill warning clickable";
+    state.title = t("overview.selectInstallPath");
+    state.setAttribute("role", "button");
+  }
+
+  const baseDetail = status.appRunning
     ? t("overview.appRunning")
     : status.installed
       ? t("overview.appNotRunning")
       : t("overview.msgUnavailable");
+  detail.textContent = status.isCustomPath
+    ? `${baseDetail} ${t("overview.customPathTag")}`
+    : baseDetail;
 
   const integrationState = element<HTMLSpanElement>("#app-integration-state");
   const integrationDetail = element<HTMLParagraphElement>("#app-integration-detail");
@@ -87,4 +109,19 @@ export function setupAppCard(): void {
     render: renderApp,
     launch: launchApp,
   });
+
+  const appStatePill = document.querySelector<HTMLSpanElement>("#app-state");
+  if (appStatePill) {
+    appStatePill.addEventListener("click", async () => {
+      if (store.appStatus?.installed) return;
+      try {
+        const result = await selectAndSetCustomAppPath();
+        if (result) {
+          showNotice(t("overview.pathSetSuccess", { name: "Antigravity App" }));
+        }
+      } catch (err) {
+        showNotice(errorMessage(err), "error");
+      }
+    });
+  }
 }

@@ -55,6 +55,7 @@ fn sample_config() -> AppConfig {
             enabled: true,
         }],
         model_compression_policies: Default::default(),
+        custom_host_paths: Default::default(),
     }
 }
 

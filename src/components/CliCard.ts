@@ -14,7 +14,7 @@ export function renderCli(status: CliStatus): void {
   const state = element<HTMLSpanElement>("#cli-state");
   const detail = element<HTMLParagraphElement>("#cli-detail");
   state.textContent = status.installed ? t("overview.installed") : t("overview.notInstalled");
-  state.className = `status-pill ${status.installed ? "neutral" : "error"}`;
+  state.className = `status-pill ${status.installed ? "neutral" : "warning"}`;
   detail.textContent = status.installed ? t("overview.cliInstalled") : t("overview.msgUnavailable");
 
   const integrationState = element<HTMLSpanElement>("#cli-integration-state");

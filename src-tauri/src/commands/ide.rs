@@ -10,7 +10,7 @@ use tauri::State;
 
 #[tauri::command]
 pub(crate) async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeStatus, String> {
-    let paths = state.host_paths.ide.clone();
+    let paths = state.current_host_paths().ide;
     let integration_root = state.host_integration_root.clone();
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
@@ -24,11 +24,48 @@ pub(crate) async fn discover_ide(state: State<'_, DesktopState>) -> Result<IdeSt
 }
 
 #[tauri::command]
+pub(crate) async fn set_custom_ide_path(
+    path: String,
+    state: State<'_, DesktopState>,
+) -> Result<IdeStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let candidate = std::path::PathBuf::from(path.trim());
+    let validated = crate::platform::validate_custom_ide_path(&candidate)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error))?;
+
+    let mut config = state.config_store.get_config();
+    config.custom_host_paths.ide = Some(validated.installation);
+    state
+        .config_store
+        .update_config(config)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error.to_string()))?;
+
+    drop(_mutation_guard);
+    discover_ide(state).await
+}
+
+#[tauri::command]
+pub(crate) async fn reset_custom_ide_path(
+    state: State<'_, DesktopState>,
+) -> Result<IdeStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let mut config = state.config_store.get_config();
+    config.custom_host_paths.ide = None;
+    state
+        .config_store
+        .update_config(config)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error.to_string()))?;
+
+    drop(_mutation_guard);
+    discover_ide(state).await
+}
+
+#[tauri::command]
 pub(crate) async fn enable_ide_integration(
     state: State<'_, DesktopState>,
 ) -> Result<IdeStatus, String> {
     let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
-    let paths = state.host_paths.ide.clone();
+    let paths = state.current_host_paths().ide;
     let integration_root = state.host_integration_root.clone();
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
@@ -73,7 +110,7 @@ pub(crate) async fn enable_ide_integration(
 #[tauri::command]
 pub(crate) async fn launch_ide(state: State<'_, DesktopState>) -> Result<(), String> {
     let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
-    let paths = state.host_paths.ide.clone();
+    let paths = state.current_host_paths().ide;
     let integration_root = state.host_integration_root.clone();
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
@@ -107,7 +144,7 @@ pub(crate) async fn disable_ide_integration(
     state: State<'_, DesktopState>,
 ) -> Result<IdeStatus, String> {
     let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
-    let paths = state.host_paths.ide.clone();
+    let paths = state.current_host_paths().ide;
     let integration_root = state.host_integration_root.clone();
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;

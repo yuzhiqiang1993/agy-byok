@@ -13,6 +13,8 @@ export interface IdeStatus {
   canEnableIntegration: boolean;
   canLaunchIde: boolean;
   canDisableIntegration: boolean;
+  installationPath?: string | null;
+  isCustomPath?: boolean;
 }
 
 export interface AppStatus {
@@ -24,6 +26,8 @@ export interface AppStatus {
   canEnableIntegration: boolean;
   canLaunchApp: boolean;
   canDisableIntegration: boolean;
+  installationPath?: string | null;
+  isCustomPath?: boolean;
 }
 
 export interface CliStatus {

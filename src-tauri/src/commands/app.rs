@@ -12,7 +12,7 @@ pub(crate) async fn discover_app(state: State<'_, DesktopState>) -> Result<AppSt
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    let paths = state.host_paths.app.clone();
+    let paths = state.current_host_paths().app;
     let integration_root = state.host_integration_root.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         discover_app_sync(paths.as_ref(), &integration_root, &endpoint, proxy_running)
@@ -23,6 +23,43 @@ pub(crate) async fn discover_app(state: State<'_, DesktopState>) -> Result<AppSt
 }
 
 #[tauri::command]
+pub(crate) async fn set_custom_app_path(
+    path: String,
+    state: State<'_, DesktopState>,
+) -> Result<AppStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let candidate = std::path::PathBuf::from(path.trim());
+    let validated = crate::platform::validate_custom_app_path(&candidate)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error))?;
+    
+    let mut config = state.config_store.get_config();
+    config.custom_host_paths.app = Some(validated.installation);
+    state
+        .config_store
+        .update_config(config)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error.to_string()))?;
+
+    drop(_mutation_guard);
+    discover_app(state).await
+}
+
+#[tauri::command]
+pub(crate) async fn reset_custom_app_path(
+    state: State<'_, DesktopState>,
+) -> Result<AppStatus, String> {
+    let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
+    let mut config = state.config_store.get_config();
+    config.custom_host_paths.app = None;
+    state
+        .config_store
+        .update_config(config)
+        .map_err(|error| report(HOST_MODIFY_FAILED, error.to_string()))?;
+
+    drop(_mutation_guard);
+    discover_app(state).await
+}
+
+#[tauri::command]
 pub(crate) async fn enable_app_integration(
     state: State<'_, DesktopState>,
 ) -> Result<AppStatus, String> {
@@ -30,7 +67,7 @@ pub(crate) async fn enable_app_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    let paths = state.host_paths.app.clone();
+    let paths = state.current_host_paths().app;
     let integration_root = state.host_integration_root.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let paths = paths.ok_or_else(|| "当前平台暂不支持 Antigravity App 自动接入".to_string())?;
@@ -67,7 +104,7 @@ pub(crate) async fn launch_app(state: State<'_, DesktopState>) -> Result<(), Str
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    let paths = state.host_paths.app.clone();
+    let paths = state.current_host_paths().app;
     let integration_root = state.host_integration_root.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let paths = paths.ok_or_else(|| "当前平台无法定位 Antigravity App".to_string())?;
@@ -99,7 +136,7 @@ pub(crate) async fn disable_app_integration(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    let paths = state.host_paths.app.clone();
+    let paths = state.current_host_paths().app;
     let integration_root = state.host_integration_root.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let paths = paths.ok_or_else(|| "当前平台暂不支持 Antigravity App 自动接入".to_string())?;

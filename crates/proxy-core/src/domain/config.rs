@@ -67,6 +67,17 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomHostPaths {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ide: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
@@ -75,6 +86,8 @@ pub struct AppConfig {
     pub upstream_models: Vec<UpstreamModel>,
     pub virtual_models: Vec<VirtualModel>,
     pub model_compression_policies: BTreeMap<String, ModelCompressionPolicy>,
+    #[serde(default)]
+    pub custom_host_paths: CustomHostPaths,
 }
 
 impl Default for AppConfig {
@@ -85,6 +98,7 @@ impl Default for AppConfig {
             upstream_models: Vec::new(),
             virtual_models: Vec::new(),
             model_compression_policies: BTreeMap::new(),
+            custom_host_paths: CustomHostPaths::default(),
         }
     }
 }

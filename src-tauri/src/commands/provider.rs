@@ -148,8 +148,9 @@ pub(crate) async fn fetch_official_models(
     let snapshot = proxy_runtime_snapshot(&state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
-    let ide_paths = state.host_paths.ide.clone();
-    let app_paths = state.host_paths.app.clone();
+    let host_paths = state.current_host_paths();
+    let ide_paths = host_paths.ide;
+    let app_paths = host_paths.app;
     let integration_root = state.host_integration_root.clone();
     let status_endpoint = endpoint.clone();
     let statuses = tauri::async_runtime::spawn_blocking(move || {
@@ -394,6 +395,7 @@ fn preview_model_config(
             enabled: true,
         }],
         model_compression_policies: Default::default(),
+        custom_host_paths: Default::default(),
     };
     config.validate().map_err(|error| error.to_string())?;
     Ok(config)

@@ -55,6 +55,7 @@ mod tests {
                 enabled: true,
             }],
             model_compression_policies: Default::default(),
+            custom_host_paths: Default::default(),
         }
     }
 
@@ -747,6 +748,7 @@ mod tests {
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
             model_compression_policies: Default::default(),
+            custom_host_paths: Default::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);
@@ -891,6 +893,7 @@ mod tests {
                 enabled: true,
             }],
             model_compression_policies: Default::default(),
+            custom_host_paths: Default::default(),
         };
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
         let request = NeutralChatRequest {
@@ -991,6 +994,7 @@ mod tests {
                 enabled: true,
             }],
             model_compression_policies: Default::default(),
+            custom_host_paths: Default::default(),
         };
 
         let config_store = ConfigStore::in_memory(config);

@@ -21,6 +21,8 @@ pub struct AppStatus {
     pub can_enable_integration: bool,
     pub can_launch_app: bool,
     pub can_disable_integration: bool,
+    pub installation_path: Option<String>,
+    pub is_custom_path: bool,
 }
 
 pub(super) struct IntegrationDetails {
@@ -87,6 +89,8 @@ pub fn discover_app_sync(
         can_launch_app: integration.state == ClientIntegrationState::Official
             || (integration_ready && proxy_running),
         can_disable_integration: integration.can_disable,
+        installation_path: Some(paths.installation.display().to_string()),
+        is_custom_path: paths.is_custom,
     })
 }
 
@@ -261,6 +265,8 @@ fn not_installed_status(proxy_running: bool) -> AppStatus {
         can_enable_integration: false,
         can_launch_app: false,
         can_disable_integration: false,
+        installation_path: None,
+        is_custom_path: false,
     }
 }
 

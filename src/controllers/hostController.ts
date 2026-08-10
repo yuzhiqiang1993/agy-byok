@@ -1,6 +1,8 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import type { AppStatus, CliStatus, IdeStatus } from "../types/host";
 import { hostService } from "../services/hostService";
 import { store } from "../store/appStore";
+import { t } from "../i18n";
 
 let ideStatusRequestVersion = 0;
 let appStatusRequestVersion = 0;
@@ -63,6 +65,34 @@ export async function launchIde(): Promise<void> {
   await hostService.launchIde();
 }
 
+export async function setCustomIdePath(path: string): Promise<IdeStatus> {
+  ideStatusRequestVersion += 1;
+  const status = await hostService.setCustomIdePath(path);
+  ideStatusRequestVersion += 1;
+  store.setIdeStatus(status);
+  return status;
+}
+
+export async function resetCustomIdePath(): Promise<IdeStatus> {
+  ideStatusRequestVersion += 1;
+  const status = await hostService.resetCustomIdePath();
+  ideStatusRequestVersion += 1;
+  store.setIdeStatus(status);
+  return status;
+}
+
+export async function selectAndSetCustomIdePath(): Promise<IdeStatus | null> {
+  const selected = await open({
+    title: t("overview.selectPathDialogTitle", { name: "Antigravity IDE" }),
+    multiple: false,
+    directory: false,
+  });
+  if (!selected) return null;
+  const path = typeof selected === "string" ? selected : selected[0];
+  if (!path) return null;
+  return await setCustomIdePath(path);
+}
+
 export async function enableAppIntegration(): Promise<AppStatus> {
   appStatusRequestVersion += 1;
   try {
@@ -89,6 +119,42 @@ export async function disableAppIntegration(): Promise<AppStatus> {
 
 export async function launchApp(): Promise<void> {
   await hostService.launchApp();
+}
+
+export async function setCustomAppPath(path: string): Promise<AppStatus> {
+  appStatusRequestVersion += 1;
+  try {
+    const status = await hostService.setCustomAppPath(path);
+    appStatusRequestVersion += 1;
+    store.setAppStatus(status);
+    return status;
+  } finally {
+    await refreshCli().catch(() => undefined);
+  }
+}
+
+export async function resetCustomAppPath(): Promise<AppStatus> {
+  appStatusRequestVersion += 1;
+  try {
+    const status = await hostService.resetCustomAppPath();
+    appStatusRequestVersion += 1;
+    store.setAppStatus(status);
+    return status;
+  } finally {
+    await refreshCli().catch(() => undefined);
+  }
+}
+
+export async function selectAndSetCustomAppPath(): Promise<AppStatus | null> {
+  const selected = await open({
+    title: t("overview.selectPathDialogTitle", { name: "Antigravity App" }),
+    multiple: false,
+    directory: false,
+  });
+  if (!selected) return null;
+  const path = typeof selected === "string" ? selected : selected[0];
+  if (!path) return null;
+  return await setCustomAppPath(path);
 }
 
 export async function enableCliIntegration(): Promise<CliStatus> {
