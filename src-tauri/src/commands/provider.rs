@@ -437,6 +437,8 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "gemini-3.6-flash-high");
         assert_eq!(models[0].display_name, "Gemini 3.6 Flash High");
+        assert_eq!(models[0].is_agent_model, None);
+        assert_eq!(models[0].agent_sort_order, None);
         assert_eq!(models[1].id, "claude-sonnet-4-6");
     }
 }

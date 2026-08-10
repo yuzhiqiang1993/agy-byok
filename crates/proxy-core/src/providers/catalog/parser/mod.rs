@@ -4,7 +4,7 @@ use super::{ProviderCatalogModel, UpstreamCompressionPolicy};
 use crate::domain::{CustomModelCheckpointRetryConfig, ModelCompressionPolicy, ProviderProtocol};
 use reasoning::parse_reasoning_metadata;
 use serde_json::{Map, Value};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 #[cfg(test)]
 pub(super) fn parse_catalog_models(
@@ -123,6 +123,11 @@ pub(super) fn parse_catalog_models_with_context(
                 reasoning: parse_reasoning_metadata(item, protocol),
                 upstream_compression: extract_upstream_compression(item),
                 default_compression_policy: extract_default_compression_policy(item),
+                is_recommended: None,
+                is_agent_model: None,
+                agent_sort_order: None,
+                is_deprecated: None,
+                replacement_model_id: None,
             })
         })
         .collect()
@@ -269,14 +274,16 @@ pub(super) fn extract_default_compression_policy(item: &Value) -> Option<ModelCo
 }
 
 pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCatalogModel> {
-    let Some(models) = payload
-        .get("response")
-        .and_then(|response| response.get("models"))
-        .or_else(|| payload.get("models"))
-        .and_then(Value::as_object)
-    else {
+    let response = official_response(payload);
+    let Some(models) = response.get("models").and_then(Value::as_object) else {
         return Vec::new();
     };
+    let deprecated_model_ids = parse_deprecated_model_ids(response);
+    let agent_model_order = parse_agent_model_order(response);
+    let has_agent_model_metadata = response
+        .get("agentModelSorts")
+        .and_then(Value::as_array)
+        .is_some_and(|sorts| !sorts.is_empty() && !agent_model_order.is_empty());
 
     let mut result = models
         .iter()
@@ -331,12 +338,77 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
                 reasoning: parse_reasoning_metadata(item, &ProviderProtocol::GeminiGenerateContent),
                 upstream_compression: extract_upstream_compression(item),
                 default_compression_policy: extract_default_compression_policy(item),
+                is_recommended: item.get("recommended").and_then(Value::as_bool),
+                is_agent_model: has_agent_model_metadata
+                    .then(|| agent_model_order.contains_key(model_id)),
+                agent_sort_order: agent_model_order.get(model_id).copied(),
+                is_deprecated: (!deprecated_model_ids.is_empty())
+                    .then(|| deprecated_model_ids.contains_key(model_id)),
+                replacement_model_id: deprecated_model_ids.get(model_id).cloned(),
                 ..ProviderCatalogModel::default()
             }
         })
         .collect::<Vec<_>>();
-    result.sort_by(|left, right| left.id.cmp(&right.id));
+    if has_agent_model_metadata {
+        result.sort_by(|left, right| {
+            left.agent_sort_order
+                .unwrap_or(u32::MAX)
+                .cmp(&right.agent_sort_order.unwrap_or(u32::MAX))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    } else {
+        result.sort_by(|left, right| left.id.cmp(&right.id));
+    }
     result
+}
+
+fn official_response(payload: &Value) -> &Value {
+    payload
+        .get("response")
+        .filter(|response| response.get("models").and_then(Value::as_object).is_some())
+        .unwrap_or(payload)
+}
+
+fn parse_deprecated_model_ids(response: &Value) -> BTreeMap<String, String> {
+    response
+        .get("deprecatedModelIds")
+        .and_then(Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|(old_model_id, value)| {
+                    let new_model_id = value.get("newModelId").and_then(Value::as_str)?;
+                    (!old_model_id.is_empty() && !new_model_id.is_empty())
+                        .then(|| (old_model_id.clone(), new_model_id.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_agent_model_order(response: &Value) -> BTreeMap<String, u32> {
+    let mut order = BTreeMap::new();
+    let Some(sorts) = response.get("agentModelSorts").and_then(Value::as_array) else {
+        return order;
+    };
+
+    for sort in sorts {
+        let Some(groups) = sort.get("groups").and_then(Value::as_array) else {
+            continue;
+        };
+        for group in groups {
+            let Some(model_ids) = group.get("modelIds").and_then(Value::as_array) else {
+                continue;
+            };
+            for model_id in model_ids.iter().filter_map(Value::as_str) {
+                if !order.contains_key(model_id) {
+                    let position = order.len() as u32;
+                    order.insert(model_id.to_string(), position);
+                }
+            }
+        }
+    }
+    order
 }
 
 fn extract_capabilities(item: &Value) -> Option<Value> {

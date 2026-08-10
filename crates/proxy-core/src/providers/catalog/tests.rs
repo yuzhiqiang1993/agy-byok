@@ -212,6 +212,49 @@ fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
 }
 
 #[test]
+fn parses_official_agent_order_and_deprecated_model_aliases() {
+    let models = parse_official_catalog_models(&json!({
+        "response": {
+            "models": {
+                "gemini-3.1-pro-high": {
+                    "displayName": "Gemini 3.1 Pro (High)"
+                },
+                "gemini-pro-agent": {
+                    "displayName": "Gemini 3.1 Pro (High)",
+                    "recommended": true
+                },
+                "internal-model": {}
+            },
+            "agentModelSorts": [{
+                "groups": [{
+                    "modelIds": ["gemini-pro-agent"]
+                }]
+            }],
+            "deprecatedModelIds": {
+                "gemini-3.1-pro-high": {
+                    "newModelId": "gemini-pro-agent",
+                    "oldModelEnum": "MODEL_PLACEHOLDER_M37",
+                    "newModelEnum": "MODEL_PLACEHOLDER_M16"
+                }
+            }
+        }
+    }));
+
+    assert_eq!(models[0].id, "gemini-pro-agent");
+    assert_eq!(models[0].is_agent_model, Some(true));
+    assert_eq!(models[0].agent_sort_order, Some(0));
+    assert_eq!(models[0].is_recommended, Some(true));
+    assert_eq!(models[0].is_deprecated, Some(false));
+    assert_eq!(models[1].id, "gemini-3.1-pro-high");
+    assert_eq!(models[1].is_agent_model, Some(false));
+    assert_eq!(models[1].is_deprecated, Some(true));
+    assert_eq!(
+        models[1].replacement_model_id.as_deref(),
+        Some("gemini-pro-agent")
+    );
+}
+
+#[test]
 fn parses_complete_checkpointer_as_default_compression_policy() {
     let models = parse_official_catalog_models(&json!({
         "models": {

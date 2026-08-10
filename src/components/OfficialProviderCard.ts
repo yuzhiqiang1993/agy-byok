@@ -2,6 +2,7 @@ import { updateConfig } from "../controllers/configController";
 import { fetchOfficialModels } from "../controllers/providerController";
 import { t } from "../i18n";
 import { store } from "../store/appStore";
+import type { ModelCompressionPolicy } from "../types/config";
 import type { ProviderCatalogModel } from "../types/catalog";
 import { errorMessage } from "../utils/errorUtils";
 import { reasoningLevelLabel } from "../utils/reasoningUtils";
@@ -13,21 +14,6 @@ const COPY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12
 const COPIED_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 
 const OFFICIAL_ENDPOINT_URL = "https://daily-cloudcode-pa.googleapis.com";
-
-// 官方客户端当前公开的 11 个主力 Agent 模型；保持与 IDE、App、CLI 目录交集一致。
-const MAIN_AGENT_MODEL_IDS = [
-  "gemini-3.6-flash-high",
-  "gemini-3.6-flash-medium",
-  "gemini-3.6-flash-low",
-  "gemini-3.5-flash-high",
-  "gemini-3.5-flash-medium",
-  "gemini-3.5-flash-low",
-  "gemini-3.1-pro-high",
-  "gemini-3.1-pro-low",
-  "claude-sonnet-4-6",
-  "claude-opus-4-6-thinking",
-  "gpt-oss-120b-medium",
-];
 
 // 纯粹根据原始数据 item.reasoning.levels 渲染等级 Pill；无数据或无有效等级时直接渲染默认
 function createReasoningVariantPills(item: ProviderCatalogModel): HTMLElement {
@@ -126,7 +112,10 @@ function createEndpoint(): HTMLElement {
   return endpoint;
 }
 
-function createOfficialHeading(upstreamCount: number): HTMLDivElement {
+function createOfficialHeading(upstreamCount: number | null): {
+  element: HTMLDivElement;
+  count: HTMLElement;
+} {
   const heading = document.createElement("div");
   heading.className = "provider-card-heading";
 
@@ -146,19 +135,24 @@ function createOfficialHeading(upstreamCount: number): HTMLDivElement {
   protocol.textContent = t("models.officialMetaTag");
 
   const count = document.createElement("strong");
-  count.textContent = `${upstreamCount} ${t("models.upstreamModels")}`;
+  count.textContent = upstreamCount === null
+    ? "—"
+    : `${upstreamCount} ${t("models.upstreamModels")}`;
 
   metadata.append(protocol, count);
   heading.append(identity, metadata);
-  return heading;
+  return { element: heading, count };
 }
 
-export function renderOfficialProviderCard(): { element: HTMLElement; dispose: () => void } {
+export function renderOfficialProviderCard(options: {
+  onModelCountChange?: (count: number | null) => void;
+} = {}): { element: HTMLElement; dispose: () => void } {
   const card = document.createElement("article");
   card.className = "provider-card";
 
   // 1. Heading
-  card.append(createOfficialHeading(MAIN_AGENT_MODEL_IDS.length));
+  const officialHeading = createOfficialHeading(null);
+  card.append(officialHeading.element);
 
   // 2. Actions 分割行
   const actions = document.createElement("div");
@@ -229,6 +223,7 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
   let isDisposed = false;
 
   const loadOfficialModels = () => {
+    options.onModelCountChange?.(null);
     loadingState.textContent = t("models.officialFetching");
     modelsContainer.replaceChildren(loadingState);
     return fetchOfficialModels()
@@ -236,7 +231,13 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       if (isDisposed) return;
       modelsContainer.replaceChildren();
 
+      const modelAliases = officialModelAliases(models);
+      void synchronizeOfficialModelPolicies(modelAliases).catch((error: unknown) => {
+        console.warn("同步官方模型策略失败，代理运行时仍会按目录映射兼容", error);
+      });
       const mainModels = filterMainAgentModels(models);
+      officialHeading.count.textContent = `${mainModels.length} ${t("models.upstreamModels")}`;
+      options.onModelCountChange?.(mainModels.length);
       summary.className = "provider-test-summary success";
       summary.textContent = t("models.officialStatusOk", { count: mainModels.length });
 
@@ -312,7 +313,10 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
         policyCol.className = "provider-model-variants-inline";
         const capacity = positiveMinimum(item.inputTokenLimit, item.maxTokens, item.contextWindow);
         const outputTokenLimit = positiveMinimum(item.outputTokenLimit);
-        const currentPolicy = store.config.model_compression_policies[item.id] ?? null;
+        const policyModelId = canonicalOfficialModelId(item.id, modelAliases);
+        const currentPolicy = store.config.model_compression_policies[policyModelId]
+          ?? store.config.model_compression_policies[item.id]
+          ?? null;
         const status = getPolicyPillStatus(
           currentPolicy,
           capacity,
@@ -348,8 +352,11 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
             onSave: async (policy) => {
               await updateConfig((current) => {
                 const policies = { ...current.model_compression_policies };
-                if (policy) policies[item.id] = policy;
-                else delete policies[item.id];
+                const relatedModelIds = officialRelatedModelIds(item.id, modelAliases);
+                for (const relatedModelId of relatedModelIds) {
+                  if (policy) policies[relatedModelId] = policy;
+                  else delete policies[relatedModelId];
+                }
                 return { ...current, model_compression_policies: policies };
               });
             },
@@ -366,6 +373,8 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
       const message = errorMessage(err);
       summary.className = "provider-test-summary error";
       summary.textContent = t("models.officialStatusFailed");
+      officialHeading.count.textContent = "—";
+      options.onModelCountChange?.(null);
       modelsContainer.replaceChildren();
       const errorMsg = document.createElement("p");
       errorMsg.className = "provider-model-empty";
@@ -385,15 +394,113 @@ export function renderOfficialProviderCard(): { element: HTMLElement; dispose: (
 }
 
 function filterMainAgentModels(models: ProviderCatalogModel[]): ProviderCatalogModel[] {
-  const modelMap = new Map(models.map((m) => [m.id, m]));
-  const result: ProviderCatalogModel[] = [];
+  const hasAgentMetadata = models.some((model) => model.isAgentModel !== undefined);
+  const hasRecommendationMetadata = models.some((model) => model.isRecommended !== undefined);
+  const filtered = hasAgentMetadata
+    ? models.filter(
+      (model) =>
+        model.isAgentModel === true
+        && model.isDeprecated !== true
+        && (!hasRecommendationMetadata || model.isRecommended === true),
+    )
+    : models.filter((model) => model.isDeprecated !== true);
 
-  for (const id of MAIN_AGENT_MODEL_IDS) {
-    const item = modelMap.get(id);
-    if (item) {
-      result.push(item);
-    }
+  if (!filtered.some((model) => model.agentSortOrder !== undefined)) {
+    return filtered;
   }
 
-  return result;
+  return filtered.sort((left, right) => {
+    const leftOrder = left.agentSortOrder ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.agentSortOrder ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder || left.id.localeCompare(right.id);
+  });
+}
+
+function officialModelAliases(models: ProviderCatalogModel[]): Map<string, string> {
+  const aliases = new Map<string, string>();
+  for (const model of models) {
+    if (model.isDeprecated && model.replacementModelId) {
+      aliases.set(model.id, model.replacementModelId);
+    }
+  }
+  return aliases;
+}
+
+function canonicalOfficialModelId(modelId: string, aliases: ReadonlyMap<string, string>): string {
+  let canonicalId = modelId;
+  const visited = new Set<string>();
+  while (aliases.has(canonicalId) && !visited.has(canonicalId)) {
+    visited.add(canonicalId);
+    canonicalId = aliases.get(canonicalId) ?? canonicalId;
+  }
+  return canonicalId;
+}
+
+function officialRelatedModelIds(
+  modelId: string,
+  aliases: ReadonlyMap<string, string>,
+): Set<string> {
+  const canonicalId = canonicalOfficialModelId(modelId, aliases);
+  const relatedModelIds = new Set<string>([canonicalId]);
+  for (const deprecatedId of aliases.keys()) {
+    if (canonicalOfficialModelId(deprecatedId, aliases) === canonicalId) {
+      relatedModelIds.add(deprecatedId);
+    }
+  }
+  return relatedModelIds;
+}
+
+async function synchronizeOfficialModelPolicies(
+  aliases: ReadonlyMap<string, string>,
+): Promise<void> {
+  // 接口返回的过时映射代表同一逻辑模型；已有任一侧策略时，两侧保持一致。
+  if (!store.configLoaded) return;
+
+  const nextPolicies = synchronizedOfficialPolicies(
+    store.config.model_compression_policies,
+    aliases,
+  );
+  if (!nextPolicies) return;
+
+  await updateConfig((current) => {
+    const currentPolicies = synchronizedOfficialPolicies(
+      current.model_compression_policies,
+      aliases,
+    );
+    return currentPolicies
+      ? { ...current, model_compression_policies: currentPolicies }
+      : current;
+  });
+}
+
+function synchronizedOfficialPolicies(
+  policies: Record<string, ModelCompressionPolicy>,
+  aliases: ReadonlyMap<string, string>,
+): Record<string, ModelCompressionPolicy> | null {
+  const mappedModelIds = new Set([...aliases.keys(), ...aliases.values()]);
+  if (![...mappedModelIds].some((modelId) => policies[modelId] !== undefined)) {
+    return null;
+  }
+
+  const nextPolicies = { ...policies };
+  let changed = false;
+  const canonicalIds = new Set(
+    [...aliases.values()].map((modelId) => canonicalOfficialModelId(modelId, aliases)),
+  );
+  for (const canonicalId of canonicalIds) {
+    const relatedModelIds = officialRelatedModelIds(canonicalId, aliases);
+    const policy = nextPolicies[canonicalId]
+      ?? [...relatedModelIds]
+        .map((modelId) => nextPolicies[modelId])
+        .find((candidate) => candidate !== undefined);
+    if (!policy) continue;
+    const serializedPolicy = JSON.stringify(policy);
+    for (const relatedModelId of relatedModelIds) {
+      if (JSON.stringify(nextPolicies[relatedModelId]) !== serializedPolicy) {
+        nextPolicies[relatedModelId] = policy;
+        changed = true;
+      }
+    }
+  }
+  return changed ? nextPolicies : null;
 }

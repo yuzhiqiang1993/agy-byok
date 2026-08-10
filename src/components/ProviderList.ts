@@ -92,7 +92,7 @@ function createProviderTabs(activeId: string): HTMLDivElement {
 
     const badge = document.createElement("span");
     badge.className = "provider-tab-badge";
-    badge.textContent = isOfficial ? "11" : String(modelCounts.get(provider.id) ?? 0);
+    badge.textContent = isOfficial ? "—" : String(modelCounts.get(provider.id) ?? 0);
 
     tab.append(icon, title, badge);
     tab.addEventListener("click", () => {
@@ -125,7 +125,14 @@ export function renderProviders(): void {
   providerList.append(createProviderTabs(activeId));
 
   if (activeId === OFFICIAL_PROVIDER_ID) {
-    const activeCard = renderOfficialProviderCard();
+    const officialTabBadge = providerList.querySelector<HTMLSpanElement>(
+      ".official-tab .provider-tab-badge",
+    );
+    const activeCard = renderOfficialProviderCard({
+      onModelCountChange: (count) => {
+        if (officialTabBadge) officialTabBadge.textContent = count === null ? "—" : String(count);
+      },
+    });
     disposeActiveProviderCard = activeCard.dispose;
     providerList.append(activeCard.element);
     return;
@@ -153,4 +160,3 @@ function renderEmptyProviders(container: HTMLDivElement): void {
   empty.textContent = t("models.emptyDesc");
   container.append(empty);
 }
-

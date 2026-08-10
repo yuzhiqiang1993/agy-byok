@@ -173,6 +173,55 @@ fn official_policy_map_matches_object_key_and_array_id() {
 }
 
 #[test]
+fn deprecated_official_policy_is_applied_to_both_mapped_model_entries() {
+    let mut catalog = json!({
+        "models": {
+            "gemini-3.1-pro-high": {
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_535
+            },
+            "gemini-pro-agent": {
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_535
+            }
+        },
+        "deprecatedModelIds": {
+            "gemini-3.1-pro-high": {
+                "newModelId": "gemini-pro-agent"
+            }
+        }
+    });
+    let policies = BTreeMap::from([(
+        "gemini-3.1-pro-high".to_string(),
+        policy(80_000, 100_000, 20_000),
+    )]);
+
+    AntigravityModelDescriptor::apply_official_model_overrides(&mut catalog, &policies);
+
+    let deprecated_checkpoint = checkpoint(&catalog["models"]["gemini-3.1-pro-high"]);
+    let replacement_checkpoint = checkpoint(&catalog["models"]["gemini-pro-agent"]);
+    assert_eq!(deprecated_checkpoint["token_threshold"], "80000");
+    assert_eq!(deprecated_checkpoint["max_token_limit"], "100000");
+    assert_eq!(deprecated_checkpoint["max_output_tokens"], "20000");
+    assert_eq!(replacement_checkpoint["token_threshold"], "80000");
+    assert_eq!(replacement_checkpoint["max_token_limit"], "100000");
+    assert_eq!(replacement_checkpoint["max_output_tokens"], "20000");
+
+    let mut replacement_only_catalog = catalog.clone();
+    let replacement_only_policy = BTreeMap::from([(
+        "gemini-pro-agent".to_string(),
+        policy(80_000, 110_000, 24_000),
+    )]);
+    AntigravityModelDescriptor::apply_official_model_overrides(
+        &mut replacement_only_catalog,
+        &replacement_only_policy,
+    );
+    let deprecated_checkpoint =
+        checkpoint(&replacement_only_catalog["models"]["gemini-3.1-pro-high"]);
+    assert_eq!(deprecated_checkpoint["token_threshold"], "80000");
+}
+
+#[test]
 fn official_model_without_policy_keeps_upstream_checkpointer_unchanged() {
     let original = r#"{"enabled":false,"token_threshold":"123"}"#;
     let mut catalog = json!({

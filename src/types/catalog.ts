@@ -28,6 +28,16 @@ export interface ProviderCatalogModel {
   reasoning?: ProviderCatalogReasoning;
   upstreamCompression?: UpstreamCompressionPolicy;
   defaultCompressionPolicy?: ModelCompressionPolicy;
+  /** 官方目录中的推荐标记。 */
+  isRecommended?: boolean;
+  /** 官方目录中模型是否属于 Agent 模型。 */
+  isAgentModel?: boolean;
+  /** 官方 Agent 模型在服务端排序中的位置。 */
+  agentSortOrder?: number;
+  /** 官方目录是否已将该模型标记为过时。 */
+  isDeprecated?: boolean;
+  /** 过时官方模型对应的新模型 ID。 */
+  replacementModelId?: string;
 }
 
 export interface UpstreamCompressionPolicy {

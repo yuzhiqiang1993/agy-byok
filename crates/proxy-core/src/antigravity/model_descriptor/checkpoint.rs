@@ -1,7 +1,7 @@
 use super::AntigravityModelDescriptor;
 use crate::domain::ModelCompressionPolicy;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const CHECKPOINTER_EXPERIMENT: &str = "CASCADE_USE_EXPERIMENT_CHECKPOINTER";
 
@@ -12,10 +12,18 @@ impl AntigravityModelDescriptor {
         models_json: &mut Value,
         policies: &BTreeMap<String, ModelCompressionPolicy>,
     ) {
-        if let Some(models) = models_json.get_mut("models") {
-            apply_official_policies(models, policies);
+        let aliases = official_model_aliases(models_json);
+        if models_json.get("models").is_some() {
+            if let Some(models) = models_json.get_mut("models") {
+                apply_official_policies(models, policies, &aliases);
+            }
+        } else if let Some(models) = models_json
+            .get_mut("response")
+            .and_then(|response| response.get_mut("models"))
+        {
+            apply_official_policies(models, policies, &aliases);
         } else {
-            apply_official_policies(models_json, policies);
+            apply_official_policies(models_json, policies, &aliases);
         }
     }
 }
@@ -23,11 +31,12 @@ impl AntigravityModelDescriptor {
 fn apply_official_policies(
     models: &mut Value,
     policies: &BTreeMap<String, ModelCompressionPolicy>,
+    aliases: &BTreeMap<String, String>,
 ) {
     match models {
         Value::Object(entries) => {
             for (model_id, entry) in entries {
-                let Some(policy) = policies.get(model_id) else {
+                let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
                 apply_policy_with_entry_limits(entry, policy);
@@ -38,7 +47,7 @@ fn apply_official_policies(
                 let Some(model_id) = entry.get("id").and_then(Value::as_str) else {
                     continue;
                 };
-                let Some(policy) = policies.get(model_id) else {
+                let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
                 apply_policy_with_entry_limits(entry, policy);
@@ -46,6 +55,65 @@ fn apply_official_policies(
         }
         _ => {}
     }
+}
+
+fn effective_policy<'a>(
+    model_id: &str,
+    policies: &'a BTreeMap<String, ModelCompressionPolicy>,
+    aliases: &BTreeMap<String, String>,
+) -> Option<&'a ModelCompressionPolicy> {
+    // 同一逻辑模型的旧、新条目共享压缩策略；规范 ID 配置优先。
+    let canonical_id = canonical_model_id(model_id, aliases);
+    policies
+        .get(canonical_id)
+        .or_else(|| policies.get(model_id))
+        .or_else(|| {
+            aliases.iter().find_map(|(deprecated_id, replacement_id)| {
+                if canonical_model_id(deprecated_id, aliases) != canonical_id {
+                    return None;
+                }
+                policies
+                    .get(deprecated_id)
+                    .or_else(|| policies.get(replacement_id))
+            })
+        })
+}
+
+fn canonical_model_id<'a>(model_id: &'a str, aliases: &'a BTreeMap<String, String>) -> &'a str {
+    let mut current = model_id;
+    let mut visited = BTreeSet::new();
+    while let Some(next) = aliases.get(current) {
+        if !visited.insert(current) {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+fn official_model_aliases(models_json: &Value) -> BTreeMap<String, String> {
+    let mut aliases = BTreeMap::new();
+    let containers = models_json
+        .get("response")
+        .filter(|response| response.is_object())
+        .map_or_else(|| vec![models_json], |response| vec![models_json, response]);
+    for container in containers {
+        let Some(entries) = container
+            .get("deprecatedModelIds")
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+        for (deprecated_id, value) in entries {
+            let Some(replacement_id) = value.get("newModelId").and_then(Value::as_str) else {
+                continue;
+            };
+            if !deprecated_id.is_empty() && !replacement_id.is_empty() {
+                aliases.insert(deprecated_id.clone(), replacement_id.to_string());
+            }
+        }
+    }
+    aliases
 }
 
 fn apply_policy_with_entry_limits(entry: &mut Value, policy: &ModelCompressionPolicy) {

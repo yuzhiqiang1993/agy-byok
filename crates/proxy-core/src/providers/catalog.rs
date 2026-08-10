@@ -69,6 +69,21 @@ pub struct ProviderCatalogModel {
     pub upstream_compression: Option<UpstreamCompressionPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_compression_policy: Option<ModelCompressionPolicy>,
+    /// 官方目录中的推荐标记；普通供应商目录不填充此字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_recommended: Option<bool>,
+    /// 官方目录中模型是否属于 Agent 模型；普通供应商目录不填充此字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_agent_model: Option<bool>,
+    /// 官方 Agent 模型在服务端排序中的位置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_sort_order: Option<u32>,
+    /// 官方目录是否已将该模型标记为过时。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_deprecated: Option<bool>,
+    /// 过时官方模型对应的新模型 ID。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement_model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
