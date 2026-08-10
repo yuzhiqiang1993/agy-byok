@@ -3,6 +3,7 @@ import { element, setButtonUnavailable } from "../utils/domUtils";
 import { errorMessage } from "../utils/errorUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
 import { showNotice } from "./NoticeBar";
+import { confirmHostAction } from "./ConfirmModal";
 import {
   disableAppIntegration,
   enableAppIntegration,
@@ -114,6 +115,13 @@ export function setupAppCard(): void {
   if (appStatePill) {
     appStatePill.addEventListener("click", async () => {
       if (store.appStatus?.installed) return;
+      const confirmed = await confirmHostAction(
+        t("overview.selectPathGuideAppMessage"),
+        t("overview.selectPathGuideAppTitle"),
+        t("overview.browsePath"),
+        t("overview.hostCancel"),
+      );
+      if (!confirmed) return;
       try {
         const result = await selectAndSetCustomAppPath();
         if (result) {

@@ -6,6 +6,7 @@ import { proxyService } from "./services/proxyService";
 import { activityService } from "./services/activityService";
 
 import { setupProxyCard, renderProxy, renderProxyLoadFailure } from "./components/ProxyCard";
+import { setupReadinessPanel, renderReadinessPanel } from "./components/ReadinessPanel";
 import { setupIdeCard, renderIde, renderIdeLoadFailure } from "./components/IdeCard";
 import { setupAppCard, renderApp, renderAppLoadFailure } from "./components/AppCard";
 import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliCard";
@@ -113,6 +114,7 @@ setupWindowShortcuts();
 setupSidebarToggle();
 
 setupNoticeBar();
+setupReadinessPanel();
 setupProxyCard();
 setupIdeCard();
 setupAppCard();
@@ -131,6 +133,7 @@ updateDOMTranslations();
 setupUpdateManager();
 
 function renderRuntimeState(): void {
+  renderReadinessPanel();
   if (store.proxyStatusLoadFailed) renderProxyLoadFailure(t("overview.loadFailed"));
   else if (store.proxyStatus) renderProxy(store.proxyStatus);
   if (store.ideStatusLoadFailed) renderIdeLoadFailure(t("overview.loadFailed"));

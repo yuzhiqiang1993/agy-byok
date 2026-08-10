@@ -3,6 +3,7 @@ import { element, setButtonUnavailable } from "../utils/domUtils";
 import { errorMessage } from "../utils/errorUtils";
 import { integrationStateLabel, integrationStateClass, clientStatusMessage, displayIntegrationState } from "../utils/displayUtils";
 import { showNotice } from "./NoticeBar";
+import { confirmHostAction } from "./ConfirmModal";
 import {
   disableIdeIntegration,
   enableIdeIntegration,
@@ -117,6 +118,13 @@ export function setupIdeCard(): void {
   if (ideStatePill) {
     ideStatePill.addEventListener("click", async () => {
       if (store.ideStatus?.installed) return;
+      const confirmed = await confirmHostAction(
+        t("overview.selectPathGuideIdeMessage"),
+        t("overview.selectPathGuideIdeTitle"),
+        t("overview.browsePath"),
+        t("overview.hostCancel"),
+      );
+      if (!confirmed) return;
       try {
         const result = await selectAndSetCustomIdePath();
         if (result) {

@@ -83,8 +83,14 @@
         <section class="panel readiness-panel" aria-labelledby="readiness-title">
           <div class="readiness-copy">
             <div class="readiness-text-group">
-              <h2 id="readiness-title" data-i18n="overview.configurationEffectTitle">配置生效说明</h2>
+              <div class="readiness-title-row">
+                <h2 id="readiness-title" data-i18n="overview.configurationEffectTitle">配置生效说明</h2>
+                <span id="readiness-badge" class="status-pill warning" hidden data-i18n="overview.restartNeededBadge">待重启生效</span>
+              </div>
               <p id="readiness-detail" class="muted" data-i18n="overview.configurationRestartNotice">上下文压缩配置和模型注入的变更，需要重启 Antigravity IDE 或 App 后生效。</p>
+              <div id="readiness-actions" class="readiness-actions" hidden>
+                <button id="bulk-restart-btn" class="primary compact-button" type="button" data-i18n="overview.restartAllRunning">重启运行中客户端</button>
+              </div>
             </div>
 
             <div class="hero-service-widget">
@@ -240,42 +246,55 @@
                   <p id="provider-form-description" class="form-intro" data-i18n="models.step1Intro">添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给已启用代理模式的 IDE、App 或 CLI。</p>
 
                   <div class="provider-presets-wrapper">
-                    <p class="section-label" data-i18n="models.quickPresets">快捷预设</p>
+                    <div class="presets-header-row">
+                      <p class="section-label" data-i18n="models.quickPresets">快捷预设</p>
+                      <div class="preset-filter-row">
+                        <div class="preset-tabs" id="preset-tabs">
+                          <button type="button" class="preset-tab active" data-category="all" data-i18n="presets.catAll">全部</button>
+                          <button type="button" class="preset-tab" data-category="recommended" data-i18n="presets.catRecommended">常用推荐</button>
+                          <button type="button" class="preset-tab" data-category="domestic" data-i18n="presets.catDomestic">国内主流</button>
+                          <button type="button" class="preset-tab" data-category="international" data-i18n="presets.catInternational">国际官方</button>
+                          <button type="button" class="preset-tab" data-category="aggregator" data-i18n="presets.catAggregator">聚合网关</button>
+                          <button type="button" class="preset-tab" data-category="local_custom" data-i18n="presets.catLocalCustom">本地/自定义</button>
+                        </div>
+                        <input id="preset-search" type="search" class="preset-search-input" placeholder="搜索预设…" data-i18n-placeholder="presets.searchPlaceholder" aria-label="搜索预设" data-i18n-aria-label="presets.searchPlaceholder" />
+                      </div>
+                    </div>
                     <div class="provider-presets" id="provider-presets">
-                      <button type="button" class="preset-btn" data-preset="claude" data-i18n="presets.claude">Claude 官方</button>
-                      <button type="button" class="preset-btn" data-preset="openai" data-i18n="presets.openai">OpenAI 官方</button>
-                      <button type="button" class="preset-btn" data-preset="gemini" data-i18n="presets.gemini">Gemini 官方</button>
-                      <button type="button" class="preset-btn" data-preset="cpa" data-i18n="presets.cpa">CPA</button>
-                      <button type="button" class="preset-btn" data-preset="sub2api" data-i18n="presets.sub2api">Sub2API</button>
-                      <button type="button" class="preset-btn" data-preset="deepseek" data-i18n="presets.deepseek">DeepSeek</button>
-                      <button type="button" class="preset-btn" data-preset="ollama" data-i18n="presets.ollama">Ollama (Local)</button>
-                      <button type="button" class="preset-btn" data-preset="openrouter" data-i18n="presets.openrouter">OpenRouter</button>
-                      <button type="button" class="preset-btn" data-preset="modelgate" data-i18n="presets.modelgate">ModelGate</button>
-                      <button type="button" class="preset-btn" data-preset="groq" data-i18n="presets.groq">Groq</button>
-                      <button type="button" class="preset-btn" data-preset="github" data-i18n="presets.github">GitHub Models</button>
-                      <button type="button" class="preset-btn" data-preset="siliconflow" data-i18n="presets.siliconflow">硅基流动</button>
-                      <button type="button" class="preset-btn" data-preset="dashscope" data-i18n="presets.dashscope">阿里云百炼</button>
-                      <button type="button" class="preset-btn" data-preset="moonshot" data-i18n="presets.moonshot">Kimi (Moonshot)</button>
-                      <button type="button" class="preset-btn" data-preset="mistral" data-i18n="presets.mistral">Mistral</button>
-                      <button type="button" class="preset-btn" data-preset="xai" data-i18n="presets.xai">xAI</button>
-                      <button type="button" class="preset-btn" data-preset="perplexity" data-i18n="presets.perplexity">Perplexity</button>
-                      <button type="button" class="preset-btn" data-preset="together" data-i18n="presets.together">Together AI</button>
-                      <button type="button" class="preset-btn" data-preset="fireworks" data-i18n="presets.fireworks">Fireworks AI</button>
-                      <button type="button" class="preset-btn" data-preset="cerebras" data-i18n="presets.cerebras">Cerebras</button>
-                      <button type="button" class="preset-btn" data-preset="sambanova" data-i18n="presets.sambanova">SambaNova</button>
-                      <button type="button" class="preset-btn" data-preset="deepinfra" data-i18n="presets.deepinfra">DeepInfra</button>
-                      <button type="button" class="preset-btn" data-preset="huggingface" data-i18n="presets.huggingface">Hugging Face</button>
-                      <button type="button" class="preset-btn" data-preset="novita" data-i18n="presets.novita">Novita AI</button>
-                      <button type="button" class="preset-btn" data-preset="zhipu" data-i18n="presets.zhipu">智谱 AI</button>
-                      <button type="button" class="preset-btn" data-preset="minimax" data-i18n="presets.minimax">MiniMax</button>
-                      <button type="button" class="preset-btn" data-preset="hunyuan" data-i18n="presets.hunyuan">腾讯混元</button>
-                      <button type="button" class="preset-btn" data-preset="volcengine" data-i18n="presets.volcengine">火山方舟</button>
-                      <button type="button" class="preset-btn" data-preset="qianfan" data-i18n="presets.qianfan">百度千帆</button>
-                      <button type="button" class="preset-btn" data-preset="baichuan" data-i18n="presets.baichuan">百川智能</button>
-                      <button type="button" class="preset-btn" data-preset="yi" data-i18n="presets.yi">零一万物</button>
-                      <button type="button" class="preset-btn" data-preset="xunfei" data-i18n="presets.xunfei">讯飞星火</button>
-                      <button type="button" class="preset-btn" data-preset="stepfun" data-i18n="presets.stepfun">阶跃星辰</button>
-                      <button type="button" class="preset-btn" data-preset="custom" data-i18n="presets.custom">自定义</button>
+                      <button type="button" class="preset-btn" data-preset="claude" data-category="recommended international" data-i18n="presets.claude">Claude 官方</button>
+                      <button type="button" class="preset-btn" data-preset="openai" data-category="recommended international" data-i18n="presets.openai">OpenAI 官方</button>
+                      <button type="button" class="preset-btn" data-preset="gemini" data-category="recommended international" data-i18n="presets.gemini">Gemini 官方</button>
+                      <button type="button" class="preset-btn" data-preset="cpa" data-category="aggregator" data-i18n="presets.cpa">CPA</button>
+                      <button type="button" class="preset-btn" data-preset="sub2api" data-category="aggregator" data-i18n="presets.sub2api">Sub2API</button>
+                      <button type="button" class="preset-btn" data-preset="deepseek" data-category="recommended domestic" data-i18n="presets.deepseek">DeepSeek</button>
+                      <button type="button" class="preset-btn" data-preset="ollama" data-category="local_custom" data-i18n="presets.ollama">Ollama (Local)</button>
+                      <button type="button" class="preset-btn" data-preset="openrouter" data-category="recommended aggregator" data-i18n="presets.openrouter">OpenRouter</button>
+                      <button type="button" class="preset-btn" data-preset="modelgate" data-category="aggregator" data-i18n="presets.modelgate">ModelGate</button>
+                      <button type="button" class="preset-btn" data-preset="groq" data-category="aggregator" data-i18n="presets.groq">Groq</button>
+                      <button type="button" class="preset-btn" data-preset="github" data-category="aggregator" data-i18n="presets.github">GitHub Models</button>
+                      <button type="button" class="preset-btn" data-preset="siliconflow" data-category="recommended domestic" data-i18n="presets.siliconflow">硅基流动</button>
+                      <button type="button" class="preset-btn" data-preset="dashscope" data-category="recommended domestic" data-i18n="presets.dashscope">阿里云百炼</button>
+                      <button type="button" class="preset-btn" data-preset="moonshot" data-category="recommended domestic" data-i18n="presets.moonshot">Kimi (Moonshot)</button>
+                      <button type="button" class="preset-btn" data-preset="mistral" data-category="international" data-i18n="presets.mistral">Mistral</button>
+                      <button type="button" class="preset-btn" data-preset="xai" data-category="international" data-i18n="presets.xai">xAI</button>
+                      <button type="button" class="preset-btn" data-preset="perplexity" data-category="international" data-i18n="presets.perplexity">Perplexity</button>
+                      <button type="button" class="preset-btn" data-preset="together" data-category="aggregator" data-i18n="presets.together">Together AI</button>
+                      <button type="button" class="preset-btn" data-preset="fireworks" data-category="aggregator" data-i18n="presets.fireworks">Fireworks AI</button>
+                      <button type="button" class="preset-btn" data-preset="cerebras" data-category="aggregator" data-i18n="presets.cerebras">Cerebras</button>
+                      <button type="button" class="preset-btn" data-preset="sambanova" data-category="aggregator" data-i18n="presets.sambanova">SambaNova</button>
+                      <button type="button" class="preset-btn" data-preset="deepinfra" data-category="aggregator" data-i18n="presets.deepinfra">DeepInfra</button>
+                      <button type="button" class="preset-btn" data-preset="huggingface" data-category="aggregator" data-i18n="presets.huggingface">Hugging Face</button>
+                      <button type="button" class="preset-btn" data-preset="novita" data-category="aggregator" data-i18n="presets.novita">Novita AI</button>
+                      <button type="button" class="preset-btn" data-preset="zhipu" data-category="domestic" data-i18n="presets.zhipu">智谱 AI</button>
+                      <button type="button" class="preset-btn" data-preset="minimax" data-category="domestic" data-i18n="presets.minimax">MiniMax</button>
+                      <button type="button" class="preset-btn" data-preset="hunyuan" data-category="domestic" data-i18n="presets.hunyuan">腾讯混元</button>
+                      <button type="button" class="preset-btn" data-preset="volcengine" data-category="domestic" data-i18n="presets.volcengine">火山方舟</button>
+                      <button type="button" class="preset-btn" data-preset="qianfan" data-category="domestic" data-i18n="presets.qianfan">百度千帆</button>
+                      <button type="button" class="preset-btn" data-preset="baichuan" data-category="domestic" data-i18n="presets.baichuan">百川智能</button>
+                      <button type="button" class="preset-btn" data-preset="yi" data-category="domestic" data-i18n="presets.yi">零一万物</button>
+                      <button type="button" class="preset-btn" data-preset="xunfei" data-category="domestic" data-i18n="presets.xunfei">讯飞星火</button>
+                      <button type="button" class="preset-btn" data-preset="stepfun" data-category="domestic" data-i18n="presets.stepfun">阶跃星辰</button>
+                      <button type="button" class="preset-btn" data-preset="custom" data-category="recommended local_custom" data-i18n="presets.custom">自定义</button>
                     </div>
                   </div>
                   <div class="form-grid">
@@ -398,9 +417,14 @@
         <section class="panel activity-panel" aria-labelledby="activity-title">
           <div class="panel-heading activity-toolbar">
             <h2 id="activity-title" class="visually-hidden" data-i18n="activity.title">调用日志</h2>
+            <div class="activity-search-wrap">
+              <input id="activity-search" type="search" class="activity-search-input" placeholder="搜索模型、服务或路径…" data-i18n-placeholder="activity.searchPlaceholder" aria-label="搜索日志" data-i18n-aria-label="activity.searchPlaceholder" />
+            </div>
             <div class="heading-actions activity-actions">
               <span id="activity-count" class="count-badge" aria-label="最近日志数量" data-i18n-aria-label="activity.recentLogCount">...</span>
               <label class="check-label activity-filter"><input id="activity-failed-only" type="checkbox" /> <span data-i18n="activity.failedOnly">仅看失败</span></label>
+              <label class="check-label activity-filter"><input id="activity-auto-refresh" type="checkbox" checked /> <span data-i18n="activity.autoRefresh">自动刷新</span></label>
+              <button id="export-activity" class="secondary compact-button" type="button" data-i18n="activity.exportLog">导出</button>
               <button id="refresh-activity" class="secondary compact-button" type="button" data-i18n="activity.refreshLog">刷新</button>
               <button id="clear-activity" class="danger-text" type="button" disabled data-i18n="activity.clearLog">清空内存日志</button>
             </div>

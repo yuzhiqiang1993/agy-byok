@@ -22,15 +22,61 @@ import { t, subscribeLanguage } from "../i18n";
 import { renderActivityItem } from "./ActivityItem";
 import { showNotice } from "./NoticeBar";
 
+let autoRefreshInterval: number | null = null;
+
+function filterVisibleActivityItems(): ActivityItem[] {
+  const searchInput = document.querySelector<HTMLInputElement>("#activity-search");
+  const query = searchInput?.value.trim().toLowerCase() ?? "";
+
+  let items = activityState.failedOnly
+    ? activityState.items.filter(isActivityFailure)
+    : activityState.items;
+
+  if (query) {
+    items = items.filter((item) => {
+      if (item.kind === "http") {
+        return item.requestPath.toLowerCase().includes(query)
+          || item.operation.toLowerCase().includes(query)
+          || String(item.statusCode).includes(query);
+      }
+      return item.requestedVirtualModelId.toLowerCase().includes(query)
+        || item.providerId.toLowerCase().includes(query)
+        || (item.upstreamModelId ?? "").toLowerCase().includes(query)
+        || String(item.statusCode).includes(query);
+    });
+  }
+
+  return items;
+}
+
+function exportCurrentLogs(): void {
+  const items = filterVisibleActivityItems();
+  if (items.length === 0) {
+    showNotice(t("activity.noLogsToExport"), "error");
+    return;
+  }
+  const json = JSON.stringify(items, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `agy-byok-activity-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  showNotice(t("activity.exportSuccess"));
+}
+
 function renderActivityLog(): void {
   const activityCount = element<HTMLSpanElement>("#activity-count");
   const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
+  const exportActivityButton = document.querySelector<HTMLButtonElement>("#export-activity");
   const activityList = element<HTMLDivElement>("#activity-list");
 
   if (activityState.loadError) {
     activityCount.textContent = t("overview.loadFailed");
     activityCount.setAttribute("aria-label", activityCount.textContent);
     setButtonUnavailable(clearActivityButton, true);
+    if (exportActivityButton) setButtonUnavailable(exportActivityButton, true);
     activityList.replaceChildren();
     const error = document.createElement("p");
     error.className = "empty-state error-state";
@@ -40,9 +86,7 @@ function renderActivityLog(): void {
   }
 
   const failures = activityState.items.filter(isActivityFailure).length;
-  const visibleItems = activityState.failedOnly
-    ? activityState.items.filter(isActivityFailure)
-    : activityState.items;
+  const visibleItems = filterVisibleActivityItems();
   activityCount.textContent = activityState.failedOnly
     ? t("activity.countBadgeFiltered", {
         failed: visibleItems.length,
@@ -51,6 +95,7 @@ function renderActivityLog(): void {
     : t("activity.countBadge", { total: activityState.items.length, failed: failures });
   activityCount.setAttribute("aria-label", activityCount.textContent);
   setButtonUnavailable(clearActivityButton, activityState.items.length === 0);
+  if (exportActivityButton) setButtonUnavailable(exportActivityButton, visibleItems.length === 0);
 
   const oldScrollTop = activityList.scrollTop;
   const oldScrollHeight = activityList.scrollHeight;
@@ -133,6 +178,9 @@ export function setupActivityList(): () => void {
   const refreshActivityButton = element<HTMLButtonElement>("#refresh-activity");
   const clearActivityButton = element<HTMLButtonElement>("#clear-activity");
   const failedActivityOnlyCheckbox = element<HTMLInputElement>("#activity-failed-only");
+  const autoRefreshCheckbox = document.querySelector<HTMLInputElement>("#activity-auto-refresh");
+  const exportButton = document.querySelector<HTMLButtonElement>("#export-activity");
+  const searchInput = document.querySelector<HTMLInputElement>("#activity-search");
 
   const handleRefresh = () => {
     void withBusy(
@@ -157,14 +205,44 @@ export function setupActivityList(): () => void {
   };
   failedActivityOnlyCheckbox.addEventListener("change", handleFailedOnlyChange);
 
-  const refreshInterval = window.setInterval(() => {
-    if (document.visibilityState === "visible" && !activityState.actionInProgress) {
-      void refreshActivityLog(true);
+  if (searchInput) {
+    searchInput.addEventListener("input", renderActivityLog);
+  }
+
+  if (exportButton) {
+    exportButton.addEventListener("click", exportCurrentLogs);
+  }
+
+  const startAutoRefresh = () => {
+    if (autoRefreshInterval !== null) window.clearInterval(autoRefreshInterval);
+    autoRefreshInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !activityState.actionInProgress) {
+        void refreshActivityLog(true);
+      }
+    }, 2000);
+  };
+
+  const stopAutoRefresh = () => {
+    if (autoRefreshInterval !== null) {
+      window.clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
     }
-  }, 2000);
+  };
+
+  if (autoRefreshCheckbox) {
+    autoRefreshCheckbox.addEventListener("change", () => {
+      if (autoRefreshCheckbox.checked) startAutoRefresh();
+      else stopAutoRefresh();
+    });
+    if (autoRefreshCheckbox.checked) startAutoRefresh();
+  } else {
+    startAutoRefresh();
+  }
 
   const handleVisibilityChange = () => {
-    if (document.visibilityState === "visible") void refreshActivityLog(true);
+    if (document.visibilityState === "visible" && (autoRefreshCheckbox ? autoRefreshCheckbox.checked : true)) {
+      void refreshActivityLog(true);
+    }
   };
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -174,7 +252,7 @@ export function setupActivityList(): () => void {
     refreshActivityButton.removeEventListener("click", handleRefresh);
     disposeClearButton();
     failedActivityOnlyCheckbox.removeEventListener("change", handleFailedOnlyChange);
-    window.clearInterval(refreshInterval);
+    stopAutoRefresh();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     nextActivityRequestVersion();
   };

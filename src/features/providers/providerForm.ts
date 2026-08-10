@@ -169,6 +169,39 @@ export function setupProviderPresets(context: ProviderFormContext): void {
   if (!presetContainer) return;
 
   const buttons = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-btn");
+  const tabButtons = document.querySelectorAll<HTMLButtonElement>(".preset-tab");
+  const searchInput = document.querySelector<HTMLInputElement>("#preset-search");
+
+  let activeCategory = "all";
+  let searchQuery = "";
+
+  const filterPresets = () => {
+    for (const button of buttons) {
+      const category = button.dataset.category ?? "";
+      const text = button.textContent?.toLowerCase() ?? "";
+      const presetKey = (button.dataset.preset ?? "").toLowerCase();
+      const matchesCategory = activeCategory === "all" || category.includes(activeCategory);
+      const matchesSearch = !searchQuery || text.includes(searchQuery) || presetKey.includes(searchQuery);
+      button.hidden = !(matchesCategory && matchesSearch);
+    }
+  };
+
+  for (const tab of tabButtons) {
+    tab.addEventListener("click", () => {
+      activeCategory = tab.dataset.category ?? "all";
+      for (const item of tabButtons) item.classList.remove("active");
+      tab.classList.add("active");
+      filterPresets();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      searchQuery = searchInput.value.trim().toLowerCase();
+      filterPresets();
+    });
+  }
+
   for (const button of buttons) {
     button.addEventListener("click", async () => {
       const presetKey = button.dataset.preset;
