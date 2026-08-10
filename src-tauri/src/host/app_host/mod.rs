@@ -47,7 +47,7 @@ fn environment_integration_details(
         state,
         endpoint_matches,
         can_enable: true,
-        can_disable: has_ownership,
+        can_disable: has_ownership || state != ClientIntegrationState::Official,
     }
 }
 

@@ -39,10 +39,8 @@ export function renderApp(status: AppStatus): void {
 
   const needsReconfiguration = visibleIntegrationState === "mismatch"
     || status.configurationState === "needs_update";
-  const isManagedAndNormal = (
-    status.integrationState === "managed"
-      || (status.integrationState === "external" && !status.canEnableIntegration)
-  ) && !needsReconfiguration;
+  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
+    && !needsReconfiguration;
 
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableAppBtn.hidden = !showEnableOrUpdateButton;
@@ -88,6 +86,5 @@ export function setupAppCard(): void {
     refresh: refreshApp,
     render: renderApp,
     launch: launchApp,
-    integrationRemainsActiveAfterDisable: (status) => status.integrationState === "external",
   });
 }

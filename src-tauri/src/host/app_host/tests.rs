@@ -24,10 +24,14 @@ fn environment_ownership_is_mapped_consistently_on_both_platforms() {
     let changed =
         environment_integration_details(Some("http://127.0.0.1:54321"), false, true, target);
 
+    let official = environment_integration_details(None, false, false, target);
+
     assert_eq!(managed.state, ClientIntegrationState::Managed);
     assert!(managed.can_disable);
     assert_eq!(external.state, ClientIntegrationState::External);
-    assert!(!external.can_disable);
+    assert!(external.can_disable);
     assert_eq!(changed.state, ClientIntegrationState::Mismatch);
     assert!(changed.can_disable);
+    assert_eq!(official.state, ClientIntegrationState::Official);
+    assert!(!official.can_disable);
 }

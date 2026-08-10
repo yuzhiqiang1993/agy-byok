@@ -33,10 +33,8 @@ export function renderCli(status: CliStatus): void {
 
   const needsReconfiguration = visibleIntegrationState === "mismatch"
     || status.configurationState === "needs_update";
-  const isManagedAndNormal = (
-    status.integrationState === "managed"
-      || (status.integrationState === "external" && !status.canEnableIntegration)
-  ) && !needsReconfiguration;
+  const isManagedAndNormal = (status.integrationState === "managed" || status.integrationState === "external")
+    && !needsReconfiguration;
 
   const showEnableOrUpdateButton = !isManagedAndNormal && (status.canEnableIntegration || status.installed);
   enableCliBtn.hidden = !showEnableOrUpdateButton;
@@ -77,6 +75,5 @@ export function setupCliCard(): void {
     disable: disableCliIntegration,
     refresh: refreshCli,
     render: renderCli,
-    integrationRemainsActiveAfterDisable: (status) => status.integrationState === "external",
   });
 }

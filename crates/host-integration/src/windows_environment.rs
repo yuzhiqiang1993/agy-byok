@@ -126,54 +126,57 @@ pub fn disable(
 ) -> Result<WindowsEnvironmentStatus, HostIntegrationError> {
     let integration_root = integration_root.as_ref();
     let receipt_file = receipt_path(integration_root);
-    let receipt = read_receipt_if_present(&receipt_file)?.ok_or_else(|| {
-        HostIntegrationError::InvalidIntegration(
-            "没有可恢复的 Windows 环境变量接入配置".to_string(),
-        )
-    })?;
-    if !receipt.owners.contains(owner) {
-        return Err(HostIntegrationError::InvalidIntegration(
-            "当前入口未持有 Windows 环境变量接入配置".to_string(),
-        ));
-    }
+    let receipt = read_receipt_if_present(&receipt_file)?;
 
-    let current_value = read_user_environment_value()?;
-    let current_value_is_managed = receipt_matches_current_value(&receipt, current_value.as_ref());
-    let mut remaining_receipt = receipt.clone();
-    remaining_receipt.owners.remove(owner);
+    if let Some(receipt) = receipt {
+        let current_value = read_user_environment_value()?;
+        let current_value_is_managed = receipt_matches_current_value(&receipt, current_value.as_ref());
+        let mut remaining_receipt = receipt.clone();
+        remaining_receipt.owners.remove(owner);
 
-    if !remaining_receipt.owners.is_empty() {
-        write_receipt(&receipt_file, &remaining_receipt)?;
+        if !remaining_receipt.owners.is_empty() {
+            write_receipt(&receipt_file, &remaining_receipt)?;
+            return Ok(WindowsEnvironmentStatus {
+                configured_endpoint: current_value.as_ref().map(|value| value.value.clone()),
+                current_value_is_managed,
+                owners: remaining_receipt.owners,
+            });
+        }
+
+        remove_receipt(&receipt_file)?;
+        if current_value_is_managed {
+            let restore_result = match receipt.original_cloud_code_url.as_ref() {
+                Some(original_value) => write_user_environment_value(original_value),
+                None => delete_user_environment_value(),
+            };
+            if let Err(environment_error) = restore_result {
+                if let Err(recovery_error) = write_receipt(&receipt_file, &receipt) {
+                    return Err(HostIntegrationError::RecoveryFailed {
+                        operation: environment_error.to_string(),
+                        recovery: recovery_error.to_string(),
+                    });
+                }
+                return Err(environment_error);
+            }
+        } else {
+            delete_user_environment_value()?;
+        }
         return Ok(WindowsEnvironmentStatus {
-            configured_endpoint: current_value.as_ref().map(|value| value.value.clone()),
-            current_value_is_managed,
-            owners: remaining_receipt.owners,
+            configured_endpoint: if current_value_is_managed {
+                receipt.original_cloud_code_url.map(|value| value.value)
+            } else {
+                None
+            },
+            current_value_is_managed: false,
+            owners: WindowsEnvironmentOwners::empty(),
         });
     }
 
-    remove_receipt(&receipt_file)?;
-    if current_value_is_managed {
-        let restore_result = match receipt.original_cloud_code_url.as_ref() {
-            Some(original_value) => write_user_environment_value(original_value),
-            None => delete_user_environment_value(),
-        };
-        if let Err(environment_error) = restore_result {
-            if let Err(recovery_error) = write_receipt(&receipt_file, &receipt) {
-                return Err(HostIntegrationError::RecoveryFailed {
-                    operation: environment_error.to_string(),
-                    recovery: recovery_error.to_string(),
-                });
-            }
-            return Err(environment_error);
-        }
+    if read_user_environment_value()?.is_some() {
+        delete_user_environment_value()?;
     }
-    // 当前值已由用户或其他工具接管时，仅移除 receipt，绝不覆盖该值。
     Ok(WindowsEnvironmentStatus {
-        configured_endpoint: if current_value_is_managed {
-            receipt.original_cloud_code_url.map(|value| value.value)
-        } else {
-            current_value.map(|value| value.value)
-        },
+        configured_endpoint: None,
         current_value_is_managed: false,
         owners: WindowsEnvironmentOwners::empty(),
     })

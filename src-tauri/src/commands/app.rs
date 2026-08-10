@@ -104,6 +104,11 @@ pub(crate) async fn disable_app_integration(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let paths = paths.ok_or_else(|| "当前平台暂不支持 Antigravity App 自动接入".to_string())?;
         let current = discover_app_sync(Some(&paths), &integration_root, &endpoint, proxy_running)?;
+        if current.integration_state == ClientIntegrationState::Official
+            && !current.can_disable_integration
+        {
+            return Ok(current);
+        }
         if !current.can_disable_integration {
             return Err("当前 App 没有可恢复的代理配置".to_string());
         }

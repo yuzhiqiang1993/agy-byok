@@ -60,6 +60,11 @@ pub(crate) async fn disable_cli_integration(
     let integration_root = state.host_integration_root.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let current = discover_cli_sync(&integration_root, &endpoint, proxy_running)?;
+        if current.integration_state == ClientIntegrationState::Official
+            && !current.can_disable_integration
+        {
+            return Ok(current);
+        }
         if !current.can_disable_integration {
             return Err("当前 CLI 没有可恢复的代理配置".to_string());
         }
