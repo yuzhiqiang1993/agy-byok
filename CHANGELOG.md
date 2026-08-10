@@ -21,8 +21,8 @@
 
 ### 构建与发布
 
-- macOS 发布产物只保留 DMG，Windows 只保留 NSIS 安装包，并使用包含系统与架构的清晰文件名。
-- 更新清单统一指向 GitHub Release 的公开下载地址。
+- macOS 手动安装包保留 DMG，同时生成仅供应用自动更新使用的 `.app.tar.gz`；Windows 保留 NSIS 安装包，并使用包含系统与架构的清晰文件名。
+- 更新清单统一指向 GitHub Release 的公开下载地址，并覆盖 macOS 与 Windows 平台。
 
 ### 验证
 
