@@ -172,25 +172,41 @@ impl ProxyServer {
             request_builder = request_builder.header(name, value);
         }
 
-        let response = request_builder
-            .timeout(Duration::from_millis(request_timeout_ms))
-            .send()
+        let response_result = if request.stream {
+            // 流式请求只限制响应头等待时间，响应体由逐块空闲超时保护。
+            tokio::time::timeout(
+                Duration::from_millis(request_timeout_ms),
+                request_builder.send(),
+            )
             .await
-            .map_err(|error| {
-                if error.is_timeout() {
-                    ProxyError::new(
-                        ErrorCategory::Timeout,
-                        format!("Upstream timeout: {error}"),
-                        504,
-                    )
-                } else {
-                    ProxyError::new(
-                        ErrorCategory::ConnectionFailed,
-                        format!("Failed to connect to upstream: {error}"),
-                        502,
-                    )
-                }
-            })?;
+            .map_err(|_| {
+                ProxyError::new(
+                    ErrorCategory::Timeout,
+                    format!("Upstream response header timeout after {request_timeout_ms} ms"),
+                    504,
+                )
+            })?
+        } else {
+            request_builder
+                .timeout(Duration::from_millis(request_timeout_ms))
+                .send()
+                .await
+        };
+        let response = response_result.map_err(|error| {
+            if error.is_timeout() {
+                ProxyError::new(
+                    ErrorCategory::Timeout,
+                    format!("Upstream timeout: {error}"),
+                    504,
+                )
+            } else {
+                ProxyError::new(
+                    ErrorCategory::ConnectionFailed,
+                    format!("Failed to connect to upstream: {error}"),
+                    502,
+                )
+            }
+        })?;
 
         Ok((adapter, response))
     }

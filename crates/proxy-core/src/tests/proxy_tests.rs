@@ -13,6 +13,7 @@ mod tests {
     use crate::tests::mock_provider::MockProviderServer;
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
+    use std::time::Duration;
 
     fn connection_test_config(generate_endpoint: String) -> AppConfig {
         AppConfig {
@@ -510,6 +511,58 @@ mod tests {
         assert_eq!(error.category, ErrorCategory::UpstreamServerError);
         assert_eq!(error.status_code, 502);
         assert!(error.message.contains("exceeds"));
+    }
+
+    #[tokio::test]
+    async fn streaming_provider_response_can_outlive_request_timeout() {
+        let chunks = vec![
+            (
+                Duration::ZERO,
+                format!(
+                    "data: {}\n\n",
+                    json!({
+                        "id": "chatcmpl-long-stream",
+                        "model": "gpt-test",
+                        "choices": [{
+                            "index": 0,
+                            "delta": { "content": "still streaming" },
+                            "finish_reason": null
+                        }]
+                    })
+                )
+                .into_bytes(),
+            ),
+            (
+                Duration::from_millis(250),
+                format!(
+                    "data: {}\n\ndata: [DONE]\n\n",
+                    json!({
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop"
+                        }]
+                    })
+                )
+                .into_bytes(),
+            ),
+        ];
+        let (mock_url, _handle) = MockProviderServer::start_delayed_chunked(200, chunks).await;
+        let mut config = connection_test_config(format!("{mock_url}/v1/chat"));
+        config.providers[0].connect_timeout_ms = 50;
+        config.providers[0].request_timeout_ms = 100;
+        config.providers[0].stream_idle_timeout_ms = 500;
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+        let mut request = chat_request("vm-connection");
+        request.stream = true;
+
+        let response = server.handle_chat_request(&request).await.unwrap();
+
+        assert!(response.contains("still streaming"));
+        assert_eq!(response.matches("data: [DONE]").count(), 1);
+        let activities = server.activity_log().get_recent();
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.common.status_code, 200);
     }
 
     #[tokio::test]

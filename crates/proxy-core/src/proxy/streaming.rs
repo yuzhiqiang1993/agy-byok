@@ -252,6 +252,13 @@ impl StreamPipe {
                     return Ok(());
                 }
                 Ok(Err(error)) => {
+                    if error.is_timeout() {
+                        return Err(ProxyError::new(
+                            ErrorCategory::Timeout,
+                            format!("Stream read timeout: {error}"),
+                            504,
+                        ));
+                    }
                     return Err(ProxyError::new(
                         ErrorCategory::StreamInterrupted,
                         format!("Stream read error: {error}"),

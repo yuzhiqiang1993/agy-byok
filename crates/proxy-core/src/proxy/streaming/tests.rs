@@ -1,4 +1,28 @@
 use super::*;
+use crate::tests::mock_provider::MockProviderServer;
+
+/// 测试解码器仅用于触发传输层读取路径。
+struct IgnoringStreamDecoder;
+
+impl ProviderStreamDecoder for IgnoringStreamDecoder {
+    fn decode_data(&mut self, _data: &str) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
+        Ok(Vec::new())
+    }
+
+    fn finish(&mut self) -> Result<Vec<NeutralStreamEvent>, ProxyError> {
+        Ok(Vec::new())
+    }
+}
+
+/// 测试接收器忽略事件，只保留流处理结果。
+struct IgnoringEventSink;
+
+#[async_trait]
+impl NeutralEventSink for IgnoringEventSink {
+    async fn send(&mut self, _event: NeutralStreamEvent) -> Result<(), ProxyError> {
+        Ok(())
+    }
+}
 
 #[test]
 fn decoder_handles_utf8_split_across_network_chunks() {
@@ -71,4 +95,49 @@ fn decoder_rejects_incomplete_utf8_at_eof() {
     let error = decoder.finish().unwrap_err();
 
     assert_eq!(error.category, ErrorCategory::StreamInterrupted);
+}
+
+#[tokio::test]
+async fn stream_pipe_classifies_body_deadline_as_timeout() {
+    let chunks = vec![
+        (Duration::ZERO, b": heartbeat\n\n".to_vec()),
+        (Duration::from_millis(150), b"data: ignored\n\n".to_vec()),
+    ];
+    let (url, _handle) = MockProviderServer::start_delayed_chunked(200, chunks).await;
+    let response = reqwest::Client::new()
+        .get(url)
+        .timeout(Duration::from_millis(50))
+        .send()
+        .await
+        .unwrap();
+    let mut decoder = IgnoringStreamDecoder;
+    let mut sink = IgnoringEventSink;
+
+    let error = StreamPipe::process_stream_to(response, 500, &mut decoder, &mut sink)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.category, ErrorCategory::Timeout);
+    assert_eq!(error.status_code, 504);
+    assert!(error.message.starts_with("Stream read timeout:"));
+}
+
+#[tokio::test]
+async fn stream_pipe_still_enforces_idle_timeout_between_chunks() {
+    let chunks = vec![
+        (Duration::ZERO, b": heartbeat\n\n".to_vec()),
+        (Duration::from_millis(150), b"data: ignored\n\n".to_vec()),
+    ];
+    let (url, _handle) = MockProviderServer::start_delayed_chunked(200, chunks).await;
+    let response = reqwest::Client::new().get(url).send().await.unwrap();
+    let mut decoder = IgnoringStreamDecoder;
+    let mut sink = IgnoringEventSink;
+
+    let error = StreamPipe::process_stream_to(response, 50, &mut decoder, &mut sink)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.category, ErrorCategory::Timeout);
+    assert_eq!(error.status_code, 504);
+    assert!(error.message.starts_with("Stream idle timeout after 50 ms"));
 }

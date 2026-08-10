@@ -28,9 +28,9 @@ impl ProxyServer {
             clients.clear();
         }
 
+        // Provider 客户端不设置整请求总超时，由具体请求按流式语义选择超时策略。
         let client = Client::builder()
             .connect_timeout(Duration::from_millis(connect_timeout_ms))
-            .timeout(Duration::from_secs(120))
             .build()
             .map_err(|error| {
                 ProxyError::new(

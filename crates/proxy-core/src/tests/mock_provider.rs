@@ -1,6 +1,7 @@
 use http_body_util::BodyExt;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -141,6 +142,49 @@ impl MockProviderServer {
                             Ok::<_, Infallible>(hyper::body::Frame::data(bytes::Bytes::from(chunk)))
                         });
                         let body = http_body_util::StreamBody::new(futures::stream::iter(frames));
+                        let response = hyper::Response::builder()
+                            .status(status)
+                            .header("Content-Type", "text/event-stream")
+                            .body(body)
+                            .unwrap();
+                        Ok::<_, Infallible>(response)
+                    }
+                });
+
+                let _ = hyper_util::server::conn::auto::Builder::new(
+                    hyper_util::rt::TokioExecutor::new(),
+                )
+                .serve_connection(io, service)
+                .await;
+            }
+        });
+
+        (url, handle)
+    }
+
+    /// 按指定间隔发送响应块，用于验证流式超时边界。
+    pub async fn start_delayed_chunked(
+        status: u16,
+        chunks: Vec<(Duration, Vec<u8>)>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
+
+        let handle = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let service = hyper::service::service_fn(move |_request| {
+                    let chunks = chunks.clone();
+                    async move {
+                        let frames =
+                            futures::stream::unfold(chunks.into_iter(), |mut chunks| async move {
+                                let (delay, chunk) = chunks.next()?;
+                                tokio::time::sleep(delay).await;
+                                let frame = hyper::body::Frame::data(bytes::Bytes::from(chunk));
+                                Some((Ok::<_, Infallible>(frame), chunks))
+                            });
+                        let body = http_body_util::StreamBody::new(frames);
                         let response = hyper::Response::builder()
                             .status(status)
                             .header("Content-Type", "text/event-stream")
