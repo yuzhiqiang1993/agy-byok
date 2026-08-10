@@ -12,6 +12,9 @@ use std::time::Duration;
 
 #[async_trait]
 pub(crate) trait EncodedFrameSink: Send {
+    /// 上游已接受流式请求，此后下游可以安全发送 HTTP 200 响应头。
+    fn stream_started(&mut self) {}
+
     async fn send(&mut self, frame: String) -> Result<(), ProxyError>;
 }
 
@@ -107,16 +110,27 @@ impl ProxyServer {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         if status >= 400 {
-            let buffered =
-                read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES)
-                    .await
-                    .map_err(|error| {
-                        ProxyError::new(
-                            ErrorCategory::Internal,
-                            format!("Failed to read upstream error body: {error}"),
-                            500,
-                        )
-                    })?;
+            // 错误响应体同样可能停滞，沿用流空闲超时避免启动握手永久等待。
+            let error_body_timeout_ms = route.provider.stream_idle_timeout_ms;
+            let buffered = tokio::time::timeout(
+                Duration::from_millis(error_body_timeout_ms),
+                read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES),
+            )
+            .await
+            .map_err(|_| {
+                ProxyError::new(
+                    ErrorCategory::Timeout,
+                    format!("Upstream error body timeout after {error_body_timeout_ms} ms"),
+                    504,
+                )
+            })?
+            .map_err(|error| {
+                ProxyError::new(
+                    ErrorCategory::Internal,
+                    format!("Failed to read upstream error body: {error}"),
+                    500,
+                )
+            })?;
             let truncated = buffered.is_truncated();
             let body = buffered.into_text();
             let body = if truncated {
@@ -133,6 +147,8 @@ impl ProxyServer {
                 )),
             };
         }
+
+        frame_sink.stream_started();
 
         let mut provider_decoder = adapter.create_stream_decoder(&route.upstream_model);
         let mut usage = None;

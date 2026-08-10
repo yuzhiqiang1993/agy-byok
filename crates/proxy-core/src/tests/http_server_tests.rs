@@ -66,10 +66,50 @@ mod tests {
         }
     }
 
+    fn fallback_model_config(primary_endpoint: String, fallback_endpoint: String) -> AppConfig {
+        let mut config = model_config(primary_endpoint);
+        config.virtual_models[0].fallback_virtual_model_id = Some("virtual-fallback".to_string());
+
+        let mut fallback_provider = config.providers[0].clone();
+        fallback_provider.id = "provider-fallback".to_string();
+        fallback_provider.name = "Fallback Provider".to_string();
+        fallback_provider.generate_endpoint = fallback_endpoint;
+        config.providers.push(fallback_provider);
+
+        let mut fallback_upstream = config.upstream_models[0].clone();
+        fallback_upstream.id = "upstream-fallback".to_string();
+        fallback_upstream.provider_id = "provider-fallback".to_string();
+        fallback_upstream.upstream_model_id = "gpt-fallback".to_string();
+        config.upstream_models.push(fallback_upstream);
+
+        let mut fallback_virtual = config.virtual_models[0].clone();
+        fallback_virtual.id = "virtual-fallback".to_string();
+        fallback_virtual.upstream_model_id = "upstream-fallback".to_string();
+        fallback_virtual.fallback_virtual_model_id = None;
+        config.virtual_models.push(fallback_virtual);
+        config
+    }
+
     async fn create_proxy(config: AppConfig, port: u16) -> (Arc<ProxyServer>, String) {
         let proxy = Arc::new(ProxyServer::new(ConfigStore::in_memory(config), port));
         let token = proxy.auth_manager().get_token().to_string();
         (proxy, token)
+    }
+
+    fn custom_stream_request(
+        client: &reqwest::Client,
+        address: std::net::SocketAddr,
+        token: &str,
+    ) -> reqwest::RequestBuilder {
+        client
+            .post(format!("http://{address}/v1internal:streamGenerateContent"))
+            .header("x-agy-byok-token", token)
+            .json(&json!({
+                "model": "virtual-1",
+                "request": {
+                    "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }]
+                }
+            }))
     }
 
     #[tokio::test]
@@ -338,6 +378,171 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(!body.contains("data: [DONE]"));
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_server_returns_upstream_failure_before_opening_custom_stream() {
+        let (mock_url, _mock_handle) = MockProviderServer::start(
+            503,
+            r#"{"error":{"message":"auth_unavailable: no auth available"}}"#,
+        )
+        .await;
+        let (proxy, token) =
+            create_proxy(model_config(format!("{mock_url}/v1/chat/completions")), 0).await;
+        let handle = LoopbackHttpServer::start(proxy.clone(), test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(1),
+            custom_stream_request(&client, handle.local_addr(), &token).send(),
+        )
+        .await
+        .expect("upstream failure must terminate the HTTP request")
+        .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers()[reqwest::header::CONTENT_TYPE],
+            "application/json"
+        );
+        let error: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["code"], 503);
+        assert_eq!(error["error"]["category"], "upstream_server_error");
+        assert!(error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("auth_unavailable"));
+
+        let activities = proxy.activity_log().get_recent();
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert_eq!(activity.common.status_code, 503);
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_server_times_out_stalled_upstream_error_body() {
+        let chunks = vec![(
+            Duration::from_millis(250),
+            br#"{"error":{"message":"delayed failure"}}"#.to_vec(),
+        )];
+        let (mock_url, _mock_handle) = MockProviderServer::start_delayed_chunked(503, chunks).await;
+        let mut config = model_config(format!("{mock_url}/v1/chat/completions"));
+        config.providers[0].stream_idle_timeout_ms = 50;
+        let (proxy, token) = create_proxy(config, 0).await;
+        let handle = LoopbackHttpServer::start(proxy, test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(1),
+            custom_stream_request(&client, handle.local_addr(), &token).send(),
+        )
+        .await
+        .expect("stalled upstream error body must time out")
+        .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::GATEWAY_TIMEOUT);
+        let error: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(error["error"]["category"], "timeout");
+        assert!(error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("error body timeout"));
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_server_opens_custom_stream_after_fallback_is_accepted() {
+        let (primary_url, _primary_handle) =
+            MockProviderServer::start(503, r#"{"error":{"message":"primary failed"}}"#).await;
+        let fallback_sse = format!(
+            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+            json!({
+                "id": "stream-fallback",
+                "model": "gpt-fallback",
+                "choices": [{
+                    "index": 0,
+                    "delta": { "content": "fallback streamed" },
+                    "finish_reason": null
+                }]
+            }),
+            json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }]
+            })
+        );
+        let (fallback_url, _fallback_handle) = MockProviderServer::start(200, &fallback_sse).await;
+        let config = fallback_model_config(
+            format!("{primary_url}/v1/chat/completions"),
+            format!("{fallback_url}/v1/chat/completions"),
+        );
+        let (proxy, token) = create_proxy(config, 0).await;
+        let handle = LoopbackHttpServer::start(proxy.clone(), test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        let response = custom_stream_request(&client, handle.local_addr(), &token)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body = response.text().await.unwrap();
+        assert!(body.contains("fallback streamed"));
+        assert!(body.contains("\"modelVersion\":\"gpt-fallback\""));
+        let activities = proxy.activity_log().get_recent();
+        let activity = activities[0].as_chat().expect("expected chat activity");
+        assert!(activity.fallback_attempted);
+        assert!(activity.fallback_succeeded);
+
+        drop(client);
+        handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_server_emits_top_level_error_after_custom_stream_starts() {
+        let malformed_sse = "data: not-json\n\n";
+        let (mock_url, _mock_handle) = MockProviderServer::start(200, malformed_sse).await;
+        let (proxy, token) =
+            create_proxy(model_config(format!("{mock_url}/v1/chat/completions")), 0).await;
+        let handle = LoopbackHttpServer::start(proxy, test_options())
+            .await
+            .unwrap();
+        let client = reqwest::Client::new();
+
+        let response = custom_stream_request(&client, handle.local_addr(), &token)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body = tokio::time::timeout(Duration::from_secs(1), response.text())
+            .await
+            .expect("stream error must close the response body")
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(
+            body.trim()
+                .strip_prefix("data:")
+                .expect("expected SSE data frame")
+                .trim(),
+        )
+        .unwrap();
+        assert!(payload.get("response").is_none());
+        assert_eq!(payload["error"]["category"], "stream_interrupted");
 
         drop(client);
         handle.shutdown().await.unwrap();

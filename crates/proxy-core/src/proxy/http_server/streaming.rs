@@ -5,14 +5,32 @@ use crate::proxy::server::EncodedFrameSink;
 use async_trait::async_trait;
 use bytes::Bytes;
 use hyper::body::Frame;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 pub(super) struct HttpFrameSink {
     pub(super) sender: mpsc::Sender<HttpFrame>,
+    pub(super) startup_sender: Option<oneshot::Sender<Result<(), ProxyError>>>,
+}
+
+impl HttpFrameSink {
+    /// 首帧前失败时把真实错误交给 HTTP 层，避免先返回伪成功状态。
+    pub(super) fn reject_start(&mut self, error: &ProxyError) -> bool {
+        let Some(sender) = self.startup_sender.take() else {
+            return false;
+        };
+        let _ = sender.send(Err(error.clone()));
+        true
+    }
 }
 
 #[async_trait]
 impl EncodedFrameSink for HttpFrameSink {
+    fn stream_started(&mut self) {
+        if let Some(sender) = self.startup_sender.take() {
+            let _ = sender.send(Ok(()));
+        }
+    }
+
     async fn send(&mut self, frame: String) -> Result<(), ProxyError> {
         let Some(envelope) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&frame)? else {
             return Ok(());
@@ -39,7 +57,10 @@ mod tests {
     #[tokio::test]
     async fn http_frame_sink_waits_for_bounded_channel_capacity() {
         let (sender, mut receiver) = mpsc::channel(1);
-        let mut sink = HttpFrameSink { sender };
+        let mut sink = HttpFrameSink {
+            sender,
+            startup_sender: None,
+        };
         let frame = "data: {\"candidates\":[]}\n\n".to_string();
 
         sink.send(frame.clone()).await.unwrap();

@@ -4,6 +4,7 @@ use super::responses::{error_response, full_response, proxy_error_response};
 use super::streaming::HttpFrameSink;
 use super::types::{HttpResponse, HttpServerOptions};
 use crate::antigravity::{AntigravityRequestParser, CloudCodeEnvelopeEncoder};
+use crate::domain::{ErrorCategory, ProxyError};
 use crate::proxy::activity::ActivityErrorCategory;
 use crate::proxy::server::ProxyServer;
 use bytes::Bytes;
@@ -14,7 +15,7 @@ use serde_json::json;
 
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::{mpsc, OwnedSemaphorePermit};
+use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit};
 use tokio_stream::wrappers::ReceiverStream;
 
 pub(super) async fn handle_generate_request(
@@ -100,16 +101,25 @@ pub(super) async fn handle_generate_request(
         };
     }
 
+    let (startup_sender, startup_receiver) = oneshot::channel();
     let (sender, receiver) = mpsc::channel(options.stream_buffer_capacity);
     tokio::spawn(async move {
         let _permit = permit;
         let error_sender = sender.clone();
-        let mut frame_sink = HttpFrameSink { sender };
+        let mut frame_sink = HttpFrameSink {
+            sender,
+            startup_sender: Some(startup_sender),
+        };
         let stream_result = proxy
             .handle_chat_stream_to(&neutral_request, &mut frame_sink)
             .await;
 
         if let Err(error) = stream_result {
+            if frame_sink.reject_start(&error) {
+                return;
+            }
+
+            // HTTP 200 已发送后无法再改状态码，使用顶层错误帧让 IDE 立即终止当前流。
             let payload = json!({
                 "error": {
                     "code": error.status_code,
@@ -118,13 +128,23 @@ pub(super) async fn handle_generate_request(
                 }
             });
             let error_frame = format!("data: {}\n\n", payload);
-            if let Ok(Some(envelope)) = CloudCodeEnvelopeEncoder::wrap_stream_frame(&error_frame) {
-                let _ = error_sender
-                    .send(Ok(Frame::data(Bytes::from(envelope))))
-                    .await;
-            }
+            let _ = error_sender
+                .send(Ok(Frame::data(Bytes::from(error_frame))))
+                .await;
         }
     });
+
+    match startup_receiver.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return proxy_error_response(&error),
+        Err(_) => {
+            return proxy_error_response(&ProxyError::new(
+                ErrorCategory::Internal,
+                "Streaming task ended before reporting its startup status",
+                500,
+            ))
+        }
+    }
 
     let body = BodyExt::boxed(StreamBody::new(ReceiverStream::new(receiver)));
     Response::builder()
