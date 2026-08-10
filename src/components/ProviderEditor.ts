@@ -9,7 +9,7 @@ import * as providerCatalog from "../features/providers/providerCatalog";
 import * as providerForm from "../features/providers/providerForm";
 import * as providerSave from "../features/providers/providerSave";
 import { t } from "../i18n";
-import { setupProviderEditorBindings } from "./providerEditor/ProviderEditorBindings";
+import { setupProviderEditorBindings, switchToStep } from "./providerEditor/ProviderEditorBindings";
 
 let providerEditorBusy = false;
 let providerEditorReturnFocus: HTMLElement | null = null;
@@ -97,6 +97,7 @@ function resetProviderEditor(): void {
     setProviderEditorDirty,
     invalidatePendingProviderSave,
     refreshProviderEditorControls,
+    onPresetSelected: () => switchToStep("config"),
   });
 }
 
@@ -125,6 +126,15 @@ export async function openProviderEditor(providerId: string | null = null): Prom
   providerForm.beginProviderEdit(providerId);
   providerFormPanel.hidden = false;
   document.body.classList.add("modal-open");
+
+  if (providerId) {
+    element<HTMLButtonElement>("#step-node-preset").disabled = true;
+    switchToStep("config");
+  } else {
+    element<HTMLButtonElement>("#step-node-preset").disabled = false;
+    switchToStep("preset");
+  }
+
   window.setTimeout(() => element<HTMLInputElement>("#provider-name").focus(), 100);
 }
 
@@ -163,5 +173,12 @@ export function setupProviderEditor(): void {
     openEditor: () => openProviderEditor(),
     refreshControls: refreshProviderEditorControls,
     createCatalogContext: createProviderCatalogContext,
+  });
+  providerForm.setupProviderPresets({
+    resetCatalogResults: providerCatalog.resetCatalogResults,
+    setProviderEditorDirty,
+    invalidatePendingProviderSave,
+    refreshProviderEditorControls,
+    onPresetSelected: () => switchToStep("config"),
   });
 }

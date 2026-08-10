@@ -1,5 +1,4 @@
 import type { Provider, ProviderProtocol } from "../../types/config";
-import { confirmHostAction } from "../../components/ConfirmModal";
 import { store } from "../../store/appStore";
 import { setProviderEditorDirtyState } from "./providerState";
 import { element } from "../../utils/domUtils";
@@ -122,41 +121,41 @@ export function resetProviderForm(context: ProviderFormContext): void {
 }
 
 const PROVIDER_PRESETS = {
-  claude: { protocol: "anthropic_messages", baseUrl: "https://api.anthropic.com" },
-  openai: { protocol: "openai_chat_completions", baseUrl: "https://api.openai.com/v1" },
-  gemini: { protocol: "gemini_generate_content", baseUrl: "https://generativelanguage.googleapis.com" },
-  cpa: { protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8317/v1" },
-  sub2api: { protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8080/v1" },
-  deepseek: { protocol: "openai_chat_completions", baseUrl: "https://api.deepseek.com" },
-  ollama: { protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:11434/v1" },
-  openrouter: { protocol: "openai_chat_completions", baseUrl: "https://openrouter.ai/api/v1" },
-  modelgate: { protocol: "openai_chat_completions", baseUrl: "https://mg.aid.pub/v1" },
-  groq: { protocol: "openai_chat_completions", baseUrl: "https://api.groq.com/openai/v1" },
-  github: { protocol: "openai_chat_completions", baseUrl: "https://models.inference.ai.azure.com" },
-  siliconflow: { protocol: "openai_chat_completions", baseUrl: "https://api.siliconflow.cn/v1" },
-  dashscope: { protocol: "openai_chat_completions", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  moonshot: { protocol: "openai_chat_completions", baseUrl: "https://api.moonshot.cn/v1" },
-  mistral: { protocol: "openai_chat_completions", baseUrl: "https://api.mistral.ai/v1" },
-  xai: { protocol: "openai_chat_completions", baseUrl: "https://api.x.ai/v1" },
-  perplexity: { protocol: "openai_chat_completions", baseUrl: "https://api.perplexity.ai" },
-  together: { protocol: "openai_chat_completions", baseUrl: "https://api.together.xyz/v1" },
-  fireworks: { protocol: "openai_chat_completions", baseUrl: "https://api.fireworks.ai/inference/v1" },
-  cerebras: { protocol: "openai_chat_completions", baseUrl: "https://api.cerebras.ai/v1" },
-  sambanova: { protocol: "openai_chat_completions", baseUrl: "https://api.sambanova.ai/v1" },
-  deepinfra: { protocol: "openai_chat_completions", baseUrl: "https://api.deepinfra.com/v1/openai" },
-  huggingface: { protocol: "openai_chat_completions", baseUrl: "https://router.huggingface.co/v1" },
-  novita: { protocol: "openai_chat_completions", baseUrl: "https://api.novita.ai/openai" },
-  zhipu: { protocol: "openai_chat_completions", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-  minimax: { protocol: "openai_chat_completions", baseUrl: "https://api.minimaxi.com/v1" },
-  hunyuan: { protocol: "openai_chat_completions", baseUrl: "https://api.hunyuan.cloud.tencent.com/v1" },
-  volcengine: { protocol: "openai_chat_completions", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" },
-  qianfan: { protocol: "openai_chat_completions", baseUrl: "https://qianfan.baidubce.com/v2" },
-  baichuan: { protocol: "openai_chat_completions", baseUrl: "https://api.baichuan-ai.com/v1" },
-  yi: { protocol: "openai_chat_completions", baseUrl: "https://api.lingyiwanwu.com/v1" },
-  xunfei: { protocol: "openai_chat_completions", baseUrl: "https://spark-api-open.xf-yun.com/v1" },
-  stepfun: { protocol: "openai_chat_completions", baseUrl: "https://api.stepfun.com/v1" },
-  custom: { protocol: "openai_chat_completions", baseUrl: "" },
-} satisfies Record<string, { protocol: ProviderProtocol; baseUrl: string }>;
+  custom: { nameKey: "presets.custom", protocol: "openai_chat_completions", baseUrl: "", category: "recommended local_custom", tagKey: "models.tagCustom", tagClass: "custom-tag", icon: "+", color: "#9333ea", bgColor: "rgba(147, 51, 234, 0.12)" },
+  cpa: { nameKey: "presets.cpa", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8317/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "C", color: "#4f46e5", bgColor: "rgba(79, 70, 229, 0.12)" },
+  sub2api: { nameKey: "presets.sub2api", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:8080/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "S", color: "#6366f1", bgColor: "rgba(99, 102, 241, 0.12)" },
+  openrouter: { nameKey: "presets.openrouter", protocol: "openai_chat_completions", baseUrl: "https://openrouter.ai/api/v1", category: "recommended aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "O", color: "#0891b2", bgColor: "rgba(8, 145, 178, 0.12)" },
+  modelgate: { nameKey: "presets.modelgate", protocol: "openai_chat_completions", baseUrl: "https://mg.aid.pub/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "M", color: "#0284c7", bgColor: "rgba(2, 132, 199, 0.12)" },
+  claude: { nameKey: "presets.claude", protocol: "anthropic_messages", baseUrl: "https://api.anthropic.com", category: "recommended international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "C", color: "#d97706", bgColor: "rgba(217, 119, 6, 0.12)" },
+  openai: { nameKey: "presets.openai", protocol: "openai_chat_completions", baseUrl: "https://api.openai.com/v1", category: "recommended international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "O", color: "#059669", bgColor: "rgba(5, 150, 105, 0.12)" },
+  gemini: { nameKey: "presets.gemini", protocol: "gemini_generate_content", baseUrl: "https://generativelanguage.googleapis.com", category: "recommended international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "G", color: "#2563eb", bgColor: "rgba(37, 99, 235, 0.12)" },
+  deepseek: { nameKey: "presets.deepseek", protocol: "openai_chat_completions", baseUrl: "https://api.deepseek.com", category: "recommended domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "D", color: "#3b82f6", bgColor: "rgba(59, 130, 246, 0.12)" },
+  ollama: { nameKey: "presets.ollama", protocol: "openai_chat_completions", baseUrl: "http://127.0.0.1:11434/v1", category: "local_custom", tagKey: "models.tagLocal", tagClass: "local-tag", icon: "O", color: "#10b981", bgColor: "rgba(16, 185, 129, 0.12)" },
+  siliconflow: { nameKey: "presets.siliconflow", protocol: "openai_chat_completions", baseUrl: "https://api.siliconflow.cn/v1", category: "recommended domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "硅", color: "#2563eb", bgColor: "rgba(37, 99, 235, 0.12)" },
+  dashscope: { nameKey: "presets.dashscope", protocol: "openai_chat_completions", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", category: "recommended domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "百", color: "#ea580c", bgColor: "rgba(234, 88, 12, 0.12)" },
+  moonshot: { nameKey: "presets.moonshot", protocol: "openai_chat_completions", baseUrl: "https://api.moonshot.cn/v1", category: "recommended domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "K", color: "#e11d48", bgColor: "rgba(225, 29, 72, 0.12)" },
+  zhipu: { nameKey: "presets.zhipu", protocol: "openai_chat_completions", baseUrl: "https://open.bigmodel.cn/api/paas/v4", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "智", color: "#3b82f6", bgColor: "rgba(59, 130, 246, 0.12)" },
+  minimax: { nameKey: "presets.minimax", protocol: "openai_chat_completions", baseUrl: "https://api.minimaxi.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "M", color: "#8b5cf6", bgColor: "rgba(139, 92, 246, 0.12)" },
+  hunyuan: { nameKey: "presets.hunyuan", protocol: "openai_chat_completions", baseUrl: "https://api.hunyuan.cloud.tencent.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "混", color: "#0284c7", bgColor: "rgba(2, 132, 199, 0.12)" },
+  volcengine: { nameKey: "presets.volcengine", protocol: "openai_chat_completions", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "火", color: "#dc2626", bgColor: "rgba(220, 38, 38, 0.12)" },
+  qianfan: { nameKey: "presets.qianfan", protocol: "openai_chat_completions", baseUrl: "https://qianfan.baidubce.com/v2", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "千", color: "#2563eb", bgColor: "rgba(37, 99, 235, 0.12)" },
+  baichuan: { nameKey: "presets.baichuan", protocol: "openai_chat_completions", baseUrl: "https://api.baichuan-ai.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "百", color: "#f59e0b", bgColor: "rgba(245, 158, 11, 0.12)" },
+  yi: { nameKey: "presets.yi", protocol: "openai_chat_completions", baseUrl: "https://api.lingyiwanwu.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "零", color: "#10b981", bgColor: "rgba(16, 185, 129, 0.12)" },
+  xunfei: { nameKey: "presets.xunfei", protocol: "openai_chat_completions", baseUrl: "https://spark-api-open.xf-yun.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "星", color: "#0284c7", bgColor: "rgba(2, 132, 199, 0.12)" },
+  stepfun: { nameKey: "presets.stepfun", protocol: "openai_chat_completions", baseUrl: "https://api.stepfun.com/v1", category: "domestic", tagKey: "models.tagDomestic", tagClass: "", icon: "阶", color: "#7c3aed", bgColor: "rgba(124, 58, 237, 0.12)" },
+  groq: { nameKey: "presets.groq", protocol: "openai_chat_completions", baseUrl: "https://api.groq.com/openai/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "G", color: "#ea580c", bgColor: "rgba(234, 88, 12, 0.12)" },
+  github: { nameKey: "presets.github", protocol: "openai_chat_completions", baseUrl: "https://models.inference.ai.azure.com", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "G", color: "#475569", bgColor: "rgba(71, 85, 105, 0.12)" },
+  mistral: { nameKey: "presets.mistral", protocol: "openai_chat_completions", baseUrl: "https://api.mistral.ai/v1", category: "international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "M", color: "#ea580c", bgColor: "rgba(234, 88, 12, 0.12)" },
+  xai: { nameKey: "presets.xai", protocol: "openai_chat_completions", baseUrl: "https://api.x.ai/v1", category: "international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "X", color: "#0f172a", bgColor: "rgba(15, 23, 42, 0.12)" },
+  perplexity: { nameKey: "presets.perplexity", protocol: "openai_chat_completions", baseUrl: "https://api.perplexity.ai", category: "international", tagKey: "models.tagOfficial", tagClass: "official-tag", icon: "P", color: "#0d9488", bgColor: "rgba(13, 148, 136, 0.12)" },
+  together: { nameKey: "presets.together", protocol: "openai_chat_completions", baseUrl: "https://api.together.xyz/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "T", color: "#2563eb", bgColor: "rgba(37, 99, 235, 0.12)" },
+  fireworks: { nameKey: "presets.fireworks", protocol: "openai_chat_completions", baseUrl: "https://api.fireworks.ai/inference/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "F", color: "#e11d48", bgColor: "rgba(225, 29, 72, 0.12)" },
+  cerebras: { nameKey: "presets.cerebras", protocol: "openai_chat_completions", baseUrl: "https://api.cerebras.ai/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "C", color: "#4f46e5", bgColor: "rgba(79, 70, 229, 0.12)" },
+  sambanova: { nameKey: "presets.sambanova", protocol: "openai_chat_completions", baseUrl: "https://api.sambanova.ai/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "S", color: "#7c3aed", bgColor: "rgba(124, 58, 237, 0.12)" },
+  deepinfra: { nameKey: "presets.deepinfra", protocol: "openai_chat_completions", baseUrl: "https://api.deepinfra.com/v1/openai", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "D", color: "#0284c7", bgColor: "rgba(2, 132, 199, 0.12)" },
+  huggingface: { nameKey: "presets.huggingface", protocol: "openai_chat_completions", baseUrl: "https://router.huggingface.co/v1", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "H", color: "#d97706", bgColor: "rgba(217, 119, 6, 0.12)" },
+  novita: { nameKey: "presets.novita", protocol: "openai_chat_completions", baseUrl: "https://api.novita.ai/openai", category: "aggregator", tagKey: "models.tagAggregator", tagClass: "", icon: "N", color: "#9333ea", bgColor: "rgba(147, 51, 234, 0.12)" },
+} satisfies Record<string, { nameKey: string; protocol: ProviderProtocol; baseUrl: string; category: string; tagKey: string; tagClass: string; icon: string; color: string; bgColor: string }>;
 
 type ProviderPresetKey = keyof typeof PROVIDER_PRESETS;
 
@@ -164,11 +163,71 @@ function isProviderPresetKey(value: string): value is ProviderPresetKey {
   return value in PROVIDER_PRESETS;
 }
 
+interface ProviderFormContext {
+  resetCatalogResults: () => void;
+  setProviderEditorDirty: (dirty: boolean) => void;
+  invalidatePendingProviderSave: () => void;
+  refreshProviderEditorControls: () => void;
+  onPresetSelected?: () => void;
+}
+
+export function syncActivePreset(activeKey: string | null): void {
+  const cards = document.querySelectorAll<HTMLButtonElement>("#provider-presets .preset-card");
+  for (const card of cards) {
+    if (activeKey && card.dataset.preset === activeKey) {
+      card.setAttribute("data-active", "true");
+    } else {
+      card.removeAttribute("data-active");
+    }
+  }
+}
+
+export function detectPresetFromUrl(url: string): ProviderPresetKey | null {
+  const cleanUrl = url.trim().toLowerCase();
+  if (!cleanUrl) return null;
+  for (const [key, preset] of Object.entries(PROVIDER_PRESETS)) {
+    if (key === "custom" || !preset.baseUrl) continue;
+    try {
+      const presetHost = new URL(preset.baseUrl).host;
+      if (cleanUrl.includes(presetHost)) {
+        return key as ProviderPresetKey;
+      }
+    } catch {
+      if (cleanUrl.includes(preset.baseUrl.toLowerCase())) {
+        return key as ProviderPresetKey;
+      }
+    }
+  }
+  return null;
+}
+
+import type { TranslationKey } from "../../i18n";
+
 export function setupProviderPresets(context: ProviderFormContext): void {
   const presetContainer = document.querySelector<HTMLElement>("#provider-presets");
   if (!presetContainer) return;
 
-  const buttons = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-btn");
+  const html = Object.entries(PROVIDER_PRESETS).map(([key, item]) => {
+    const isCustom = key === "custom";
+    const nameStr = t(item.nameKey as TranslationKey);
+    const tagStr = t(item.tagKey as TranslationKey);
+    const subText = isCustom ? t("models.customCardDesc") : item.baseUrl;
+    const customCardClass = isCustom ? " custom-card" : "";
+    const tagClass = item.tagClass ? ` ${item.tagClass}` : "";
+    const titleAttr = isCustom ? ' data-i18n-title="models.customCardDesc"' : ` title="${subText}"`;
+
+    return `
+      <button type="button" class="preset-card${customCardClass}" data-preset="${key}" data-category="${item.category}"${titleAttr}>
+        <div class="preset-card-icon" style="background: ${item.bgColor}; color: ${item.color};">${item.icon}</div>
+        <span class="preset-card-name" data-i18n="presets.${key}">${nameStr}</span>
+        <span class="preset-card-tag${tagClass}" data-i18n="${item.tagKey}">${tagStr}</span>
+      </button>
+    `;
+  }).join("");
+
+  presetContainer.innerHTML = html;
+
+  const cards = presetContainer.querySelectorAll<HTMLButtonElement>(".preset-card");
   const tabButtons = document.querySelectorAll<HTMLButtonElement>(".preset-tab");
   const searchInput = document.querySelector<HTMLInputElement>("#preset-search");
 
@@ -176,13 +235,13 @@ export function setupProviderPresets(context: ProviderFormContext): void {
   let searchQuery = "";
 
   const filterPresets = () => {
-    for (const button of buttons) {
-      const category = button.dataset.category ?? "";
-      const text = button.textContent?.toLowerCase() ?? "";
-      const presetKey = (button.dataset.preset ?? "").toLowerCase();
+    for (const card of cards) {
+      const category = card.dataset.category ?? "";
+      const text = card.textContent?.toLowerCase() ?? "";
+      const presetKey = (card.dataset.preset ?? "").toLowerCase();
       const matchesCategory = activeCategory === "all" || category.includes(activeCategory);
       const matchesSearch = !searchQuery || text.includes(searchQuery) || presetKey.includes(searchQuery);
-      button.hidden = !(matchesCategory && matchesSearch);
+      card.hidden = !(matchesCategory && matchesSearch);
     }
   };
 
@@ -202,22 +261,23 @@ export function setupProviderPresets(context: ProviderFormContext): void {
     });
   }
 
-  for (const button of buttons) {
-    button.addEventListener("click", async () => {
-      const presetKey = button.dataset.preset;
+  for (const card of cards) {
+    card.addEventListener("click", async () => {
+      const presetKey = card.dataset.preset;
       if (!presetKey || !isProviderPresetKey(presetKey)) return;
       const preset = PROVIDER_PRESETS[presetKey];
 
-      const currentBaseUrl = element<HTMLInputElement>("#provider-base-url").value.trim();
-      const currentApiKey = element<HTMLInputElement>("#api-key").value.trim();
-      if (currentBaseUrl || currentApiKey) {
-        const confirmed = await confirmHostAction(
-          t("models.presetOverwriteConfirm"),
-          t("modal.confirmTitle"),
-          t("models.confirmOverwrite"),
-          t("models.cancel")
-        );
-        if (!confirmed) return;
+
+      if (presetKey === "custom") {
+        element<HTMLInputElement>("#provider-name").value = "";
+        element<HTMLSelectElement>("#protocol").value = "openai_chat_completions";
+        element<HTMLInputElement>("#provider-base-url").value = "";
+        updateSuggestedEndpoints(context.resetCatalogResults);
+        context.setProviderEditorDirty(false);
+        syncActivePreset(null);
+        context.onPresetSelected?.();
+        element<HTMLInputElement>("#provider-name").focus();
+        return;
       }
 
       element<HTMLInputElement>("#provider-name").value = t(`presets.${presetKey}`);
@@ -226,8 +286,8 @@ export function setupProviderPresets(context: ProviderFormContext): void {
       updateSuggestedEndpoints(context.resetCatalogResults);
       context.setProviderEditorDirty(true);
 
-      for (const item of buttons) item.removeAttribute("data-active");
-      button.setAttribute("data-active", "true");
+      syncActivePreset(presetKey);
+      context.onPresetSelected?.();
 
       if (presetKey !== "ollama") element<HTMLInputElement>("#api-key").focus();
       else element<HTMLInputElement>("#provider-base-url").focus();

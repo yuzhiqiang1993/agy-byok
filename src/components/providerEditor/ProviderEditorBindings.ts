@@ -21,6 +21,54 @@ interface ProviderEditorBindings {
   createCatalogContext: () => providerCatalog.ProviderCatalogContext;
 }
 
+import { showNotice } from "../NoticeBar";
+
+export function switchToStep(step: "preset" | "config" | "catalog"): void {
+  const presetStep = element<HTMLElement>("#provider-step-preset");
+  const configStep = element<HTMLElement>("#provider-step-config");
+  const catalogStep = element<HTMLElement>("#catalog-results");
+  const presetNode = element<HTMLButtonElement>("#step-node-preset");
+  const configNode = element<HTMLButtonElement>("#step-node-config");
+  const catalogNode = element<HTMLButtonElement>("#step-node-catalog");
+
+  if (step === "preset") {
+    configStep.classList.remove("active");
+    configStep.hidden = true;
+    catalogStep.classList.remove("active");
+    catalogStep.hidden = true;
+    presetStep.hidden = false;
+    presetStep.classList.add("active");
+
+    presetNode.classList.add("active");
+    configNode.classList.remove("active");
+    catalogNode.classList.remove("active");
+  } else if (step === "config") {
+    presetStep.classList.remove("active");
+    presetStep.hidden = true;
+    catalogStep.classList.remove("active");
+    catalogStep.hidden = true;
+    configStep.hidden = false;
+    configStep.classList.add("active");
+
+    presetNode.classList.remove("active");
+    configNode.classList.add("active");
+    configNode.disabled = false;
+    catalogNode.classList.remove("active");
+  } else {
+    presetStep.classList.remove("active");
+    presetStep.hidden = true;
+    configStep.classList.remove("active");
+    configStep.hidden = true;
+    catalogStep.hidden = false;
+    catalogStep.classList.add("active");
+
+    presetNode.classList.remove("active");
+    configNode.classList.remove("active");
+    catalogNode.classList.add("active");
+    catalogNode.disabled = false;
+  }
+}
+
 function bindFormEvents(bindings: ProviderEditorBindings): void {
   const form = element<HTMLFormElement>("#provider-form");
   const saveButton = element<HTMLButtonElement>("#save-provider");
@@ -28,16 +76,30 @@ function bindFormEvents(bindings: ProviderEditorBindings): void {
     event.preventDefault();
     void bindings.withBusy(saveButton, bindings.saveProvider, t("models.saving"));
   });
-  element<HTMLButtonElement>("#fetch-provider-models").addEventListener("click", (event) => {
-    void bindings.withBusy(
+  element<HTMLButtonElement>("#fetch-provider-models").addEventListener("click", async (event) => {
+    await bindings.withBusy(
       event.currentTarget as HTMLButtonElement,
-      bindings.fetchCatalog,
+      async () => {
+        await bindings.fetchCatalog();
+        switchToStep("catalog");
+      },
       t("models.fetching"),
     );
   });
-  element<HTMLInputElement>("#provider-name").addEventListener("input", () => bindings.setDirty(true));
-  element<HTMLInputElement>("#provider-base-url").addEventListener("input", () => {
+  const backToPresetsBtn = document.querySelector<HTMLButtonElement>("#back-to-presets");
+  if (backToPresetsBtn) {
+    backToPresetsBtn.addEventListener("click", () => {
+      switchToStep("preset");
+    });
+  }
+  element<HTMLInputElement>("#provider-name").addEventListener("input", () => {
+    bindings.setDirty(true);
+  });
+  element<HTMLInputElement>("#provider-base-url").addEventListener("input", (event) => {
+    const url = (event.currentTarget as HTMLInputElement).value;
     providerForm.updateSuggestedEndpoints(providerCatalog.resetCatalogResults);
+    const detected = providerForm.detectPresetFromUrl(url);
+    providerForm.syncActivePreset(detected);
     bindings.setDirty(true);
   });
   element<HTMLSelectElement>("#protocol").addEventListener("change", () => {
@@ -55,14 +117,43 @@ function bindFormEvents(bindings: ProviderEditorBindings): void {
     input.type = input.type === "text" ? "password" : "text";
     providerForm.syncApiKeyToggle();
   });
+  const pasteApiKeyBtn = document.querySelector<HTMLButtonElement>("#paste-api-key");
+  if (pasteApiKeyBtn) {
+    pasteApiKeyBtn.addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          const input = element<HTMLInputElement>("#api-key");
+          input.value = text.trim();
+          providerCatalog.resetCatalogResults();
+          bindings.setDirty(true);
+          showNotice(t("models.apiKeyPasted"));
+        }
+      } catch (err) {
+        // clipboard permission denied or unsupported
+      }
+    });
+  }
 }
 
 function bindCatalogEvents(bindings: ProviderEditorBindings): void {
   element<HTMLButtonElement>("#back-to-config").addEventListener("click", () => {
-    element<HTMLElement>("#catalog-results").classList.remove("active");
-    element<HTMLElement>("#catalog-results").hidden = true;
-    element<HTMLElement>("#provider-step-config").hidden = false;
-    element<HTMLElement>("#provider-step-config").classList.add("active");
+    switchToStep("config");
+  });
+  element<HTMLButtonElement>("#step-node-preset").addEventListener("click", () => {
+    if (!element<HTMLButtonElement>("#step-node-preset").disabled) {
+      switchToStep("preset");
+    }
+  });
+  element<HTMLButtonElement>("#step-node-config").addEventListener("click", () => {
+    if (!element<HTMLButtonElement>("#step-node-config").disabled) {
+      switchToStep("config");
+    }
+  });
+  element<HTMLButtonElement>("#step-node-catalog").addEventListener("click", () => {
+    if (!element<HTMLButtonElement>("#step-node-catalog").disabled) {
+      switchToStep("catalog");
+    }
   });
   element<HTMLInputElement>("#catalog-search").addEventListener("input", bindings.renderCatalogModels);
   element<HTMLInputElement>("#select-all-models").addEventListener("change", (event) => {
@@ -78,8 +169,9 @@ function bindCatalogEvents(bindings: ProviderEditorBindings): void {
 }
 
 function bindModalEvents(bindings: ProviderEditorBindings): void {
-  for (const selector of ["#close-provider-modal", "#provider-modal-backdrop", "#cancel-provider"]) {
-    element<HTMLElement>(selector).addEventListener("click", () => void bindings.closeEditor());
+  for (const selector of ["#close-provider-modal", "#provider-modal-backdrop", "#cancel-provider", "#cancel-provider-step1"]) {
+    const btn = document.querySelector<HTMLElement>(selector);
+    if (btn) btn.addEventListener("click", () => void bindings.closeEditor());
   }
   element<HTMLButtonElement>("#open-provider-form").addEventListener(
     "click",

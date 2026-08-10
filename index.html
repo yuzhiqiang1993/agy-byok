@@ -235,6 +235,22 @@
                   <span id="provider-editor-dirty" class="provider-editor-dirty" hidden data-i18n="models.unsaved">未保存</span>
                 </div>
               </div>
+              <div class="wizard-stepper" id="wizard-stepper">
+                <button type="button" class="wizard-step-node active" id="step-node-preset">
+                  <span class="step-num">1</span>
+                  <span class="step-label" data-i18n="models.stepPreset">选择预设</span>
+                </button>
+                <span class="step-divider"></span>
+                <button type="button" class="wizard-step-node" id="step-node-config" disabled>
+                  <span class="step-num">2</span>
+                  <span class="step-label" data-i18n="models.stepConfig">连接配置</span>
+                </button>
+                <span class="step-divider"></span>
+                <button type="button" class="wizard-step-node" id="step-node-catalog" disabled>
+                  <span class="step-num">3</span>
+                  <span class="step-label" data-i18n="models.stepCatalog">选择模型</span>
+                </button>
+              </div>
               <button id="close-provider-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.closeWithShortcut" data-i18n-aria-label="modal.close">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
               </button>
@@ -242,135 +258,129 @@
 
             <form id="provider-form">
               <div class="provider-modal-body">
-                <div id="provider-step-config" class="wizard-step active">
-                  <p id="provider-form-description" class="form-intro" data-i18n="models.step1Intro">添加上游服务，获取模型列表，选择并保存需要使用的模型。保存后的模型会提供给已启用代理模式的 IDE、App 或 CLI。</p>
-
-                  <div class="provider-presets-wrapper">
-                    <div class="presets-header-row">
-                      <p class="section-label" data-i18n="models.quickPresets">快捷预设</p>
-                      <div class="preset-filter-row">
-                        <div class="preset-tabs" id="preset-tabs">
-                          <button type="button" class="preset-tab active" data-category="all" data-i18n="presets.catAll">全部</button>
-                          <button type="button" class="preset-tab" data-category="recommended" data-i18n="presets.catRecommended">常用推荐</button>
-                          <button type="button" class="preset-tab" data-category="domestic" data-i18n="presets.catDomestic">国内主流</button>
-                          <button type="button" class="preset-tab" data-category="international" data-i18n="presets.catInternational">国际官方</button>
-                          <button type="button" class="preset-tab" data-category="aggregator" data-i18n="presets.catAggregator">聚合网关</button>
-                          <button type="button" class="preset-tab" data-category="local_custom" data-i18n="presets.catLocalCustom">本地/自定义</button>
-                        </div>
-                        <input id="preset-search" type="search" class="preset-search-input" placeholder="搜索预设…" data-i18n-placeholder="presets.searchPlaceholder" aria-label="搜索预设" data-i18n-aria-label="presets.searchPlaceholder" />
+                <!-- 步骤 1：快捷预设服务市场 -->
+                <div id="provider-step-preset" class="wizard-step active">
+                  <div class="step-content-scroll">
+                    <div class="presets-market-header">
+                      <div class="presets-market-title-group">
+                        <h3 class="presets-market-title" data-i18n="models.quickPresets">选择服务预设</h3>
+                        <span class="presets-market-desc" data-i18n="models.quickPresetsDesc">从 30+ 官方与主流中转预设中快速挑选，或从零开始自定义服务</span>
                       </div>
                     </div>
-                    <div class="provider-presets" id="provider-presets">
-                      <button type="button" class="preset-btn" data-preset="claude" data-category="recommended international" data-i18n="presets.claude">Claude 官方</button>
-                      <button type="button" class="preset-btn" data-preset="openai" data-category="recommended international" data-i18n="presets.openai">OpenAI 官方</button>
-                      <button type="button" class="preset-btn" data-preset="gemini" data-category="recommended international" data-i18n="presets.gemini">Gemini 官方</button>
-                      <button type="button" class="preset-btn" data-preset="cpa" data-category="aggregator" data-i18n="presets.cpa">CPA</button>
-                      <button type="button" class="preset-btn" data-preset="sub2api" data-category="aggregator" data-i18n="presets.sub2api">Sub2API</button>
-                      <button type="button" class="preset-btn" data-preset="deepseek" data-category="recommended domestic" data-i18n="presets.deepseek">DeepSeek</button>
-                      <button type="button" class="preset-btn" data-preset="ollama" data-category="local_custom" data-i18n="presets.ollama">Ollama (Local)</button>
-                      <button type="button" class="preset-btn" data-preset="openrouter" data-category="recommended aggregator" data-i18n="presets.openrouter">OpenRouter</button>
-                      <button type="button" class="preset-btn" data-preset="modelgate" data-category="aggregator" data-i18n="presets.modelgate">ModelGate</button>
-                      <button type="button" class="preset-btn" data-preset="groq" data-category="aggregator" data-i18n="presets.groq">Groq</button>
-                      <button type="button" class="preset-btn" data-preset="github" data-category="aggregator" data-i18n="presets.github">GitHub Models</button>
-                      <button type="button" class="preset-btn" data-preset="siliconflow" data-category="recommended domestic" data-i18n="presets.siliconflow">硅基流动</button>
-                      <button type="button" class="preset-btn" data-preset="dashscope" data-category="recommended domestic" data-i18n="presets.dashscope">阿里云百炼</button>
-                      <button type="button" class="preset-btn" data-preset="moonshot" data-category="recommended domestic" data-i18n="presets.moonshot">Kimi (Moonshot)</button>
-                      <button type="button" class="preset-btn" data-preset="mistral" data-category="international" data-i18n="presets.mistral">Mistral</button>
-                      <button type="button" class="preset-btn" data-preset="xai" data-category="international" data-i18n="presets.xai">xAI</button>
-                      <button type="button" class="preset-btn" data-preset="perplexity" data-category="international" data-i18n="presets.perplexity">Perplexity</button>
-                      <button type="button" class="preset-btn" data-preset="together" data-category="aggregator" data-i18n="presets.together">Together AI</button>
-                      <button type="button" class="preset-btn" data-preset="fireworks" data-category="aggregator" data-i18n="presets.fireworks">Fireworks AI</button>
-                      <button type="button" class="preset-btn" data-preset="cerebras" data-category="aggregator" data-i18n="presets.cerebras">Cerebras</button>
-                      <button type="button" class="preset-btn" data-preset="sambanova" data-category="aggregator" data-i18n="presets.sambanova">SambaNova</button>
-                      <button type="button" class="preset-btn" data-preset="deepinfra" data-category="aggregator" data-i18n="presets.deepinfra">DeepInfra</button>
-                      <button type="button" class="preset-btn" data-preset="huggingface" data-category="aggregator" data-i18n="presets.huggingface">Hugging Face</button>
-                      <button type="button" class="preset-btn" data-preset="novita" data-category="aggregator" data-i18n="presets.novita">Novita AI</button>
-                      <button type="button" class="preset-btn" data-preset="zhipu" data-category="domestic" data-i18n="presets.zhipu">智谱 AI</button>
-                      <button type="button" class="preset-btn" data-preset="minimax" data-category="domestic" data-i18n="presets.minimax">MiniMax</button>
-                      <button type="button" class="preset-btn" data-preset="hunyuan" data-category="domestic" data-i18n="presets.hunyuan">腾讯混元</button>
-                      <button type="button" class="preset-btn" data-preset="volcengine" data-category="domestic" data-i18n="presets.volcengine">火山方舟</button>
-                      <button type="button" class="preset-btn" data-preset="qianfan" data-category="domestic" data-i18n="presets.qianfan">百度千帆</button>
-                      <button type="button" class="preset-btn" data-preset="baichuan" data-category="domestic" data-i18n="presets.baichuan">百川智能</button>
-                      <button type="button" class="preset-btn" data-preset="yi" data-category="domestic" data-i18n="presets.yi">零一万物</button>
-                      <button type="button" class="preset-btn" data-preset="xunfei" data-category="domestic" data-i18n="presets.xunfei">讯飞星火</button>
-                      <button type="button" class="preset-btn" data-preset="stepfun" data-category="domestic" data-i18n="presets.stepfun">阶跃星辰</button>
-                      <button type="button" class="preset-btn" data-preset="custom" data-category="recommended local_custom" data-i18n="presets.custom">自定义</button>
-                    </div>
-                  </div>
-                  <div class="form-grid">
-                    <label>
-                      <span data-i18n="models.providerName">上游服务名称</span>
-                      <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" data-i18n-placeholder="models.providerNamePlaceholder" />
-                    </label>
 
-                    <label class="protocol-field">
-                      <span data-i18n="models.protocol">协议</span>
-                      <select id="protocol" name="protocol">
-                        <option value="openai_chat_completions" data-i18n="models.protocolOpenAI">OpenAI · Chat Completions</option>
-                        <option value="openai_responses" data-i18n="models.protocolResponses">OpenAI · Responses API</option>
-                        <option value="anthropic_messages" data-i18n="models.protocolAnthropic">Anthropic · Messages API</option>
-                        <option value="gemini_generate_content" data-i18n="models.protocolGemini">Google · Gemini generateContent</option>
-                      </select>
-                      <p id="protocol-help" class="field-hint protocol-help" data-i18n="models.protocolHelpOpenAI">适用于 /v1/chat/completions；CPA、Sub2API 及大多数 OpenAI 兼容网关使用此协议。</p>
-                    </label>
+                    <div class="presets-toolbar">
+                      <div class="preset-tabs" id="preset-tabs">
+                        <button type="button" class="preset-tab active" data-category="all" data-i18n="presets.catAll">全部</button>
+                        <button type="button" class="preset-tab" data-category="aggregator" data-i18n="presets.catAggregator">聚合网关</button>
+                        <button type="button" class="preset-tab" data-category="recommended" data-i18n="presets.catRecommended">常用推荐</button>
+                        <button type="button" class="preset-tab" data-category="domestic" data-i18n="presets.catDomestic">国内主流</button>
+                        <button type="button" class="preset-tab" data-category="international" data-i18n="presets.catInternational">国际官方</button>
+                        <button type="button" class="preset-tab" data-category="local_custom" data-i18n="presets.catLocalCustom">本地/自定义</button>
+                      </div>
 
-                    <div class="wide endpoint-group">
-                      <label>
-                        <span data-i18n="models.apiUrl">API 地址</span>
-                        <input id="provider-base-url" name="baseUrl" type="url" placeholder="例如 https://api.openai.com/v1" data-i18n-placeholder="models.apiUrlPlaceholder" />
-                      </label>
-                      <p class="field-hint" data-i18n="models.apiUrlHint">输入根地址后系统将自动补全模型列表与生成接口，也可展开高级设置自定义。</p>
-                    </div>
-
-                    <div class="wide">
-                      <label class="field-label" for="api-key">
-                        <span data-i18n="models.apiKey">API Key</span>
-                        <span class="optional-badge" data-i18n="models.optional">选填</span>
-                      </label>
-                      <div class="password-wrapper password-field">
-                        <input id="api-key" name="apiKey" type="password" placeholder="输入 API Key（无鉴权则留空）" data-i18n-placeholder="models.apiKeyPlaceholder" autocomplete="off" />
-                        <button id="toggle-api-key" class="password-toggle" type="button" aria-pressed="false" aria-label="显示" data-i18n="models.showKey" data-i18n-aria-label="models.showKey">显示</button>
+                      <div class="preset-search-wrapper">
+                        <svg class="preset-search-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input id="preset-search" type="search" class="preset-search-input" placeholder="搜索服务名称..." data-i18n-placeholder="presets.searchPlaceholder" aria-label="搜索预设" data-i18n-aria-label="presets.searchPlaceholder" />
                       </div>
                     </div>
+
+                    <div class="presets-card-grid" id="provider-presets"></div>
                   </div>
 
-                  <details class="endpoint-settings">
-                    <summary data-i18n="models.advancedSettings">高级设置（自定义端点 URL）</summary>
-                    <div class="form-grid compact-grid">
-                      <label class="wide">
-                        <span data-i18n="models.modelsEndpoint">模型列表接口</span>
-                        <input id="models-endpoint" name="modelsEndpoint" type="url" />
-                      </label>
-                      <label class="wide">
-                        <span data-i18n="models.generateEndpoint">生成响应接口</span>
-                        <input id="generate-endpoint" name="generateEndpoint" type="url" required />
-                      </label>
-                    </div>
-                  </details>
-
-                  <div class="form-actions">
-                    <button id="cancel-provider" class="secondary" type="button" data-i18n="models.cancel">取消</button>
-                    <button id="fetch-provider-models" class="primary" type="button" data-i18n="models.fetchModels">获取模型列表</button>
+                  <div class="form-actions modal-footer-bar">
+                    <button id="cancel-provider-step1" class="secondary" type="button" data-i18n="models.cancel">取消</button>
                   </div>
                 </div>
 
-                <section id="catalog-results" class="catalog-results wizard-step" aria-labelledby="catalog-title" hidden>
-                  <div class="catalog-header">
-                    <div class="catalog-title-group">
-                      <h3 id="catalog-title" data-i18n="models.catalogTitle">选择并保存要使用的模型</h3>
+                <!-- 步骤 2：连接配置表单 -->
+                <div id="provider-step-config" class="wizard-step" hidden>
+                  <div class="step-content-scroll">
+                    <div class="provider-form-section">
+                      <div class="form-grid">
+                        <label>
+                          <span class="field-label-text" data-i18n="models.providerName">上游服务名称</span>
+                          <input id="provider-name" name="providerName" required placeholder="例如 CPA、公司代理" data-i18n-placeholder="models.providerNamePlaceholder" />
+                          <p class="field-hint" data-i18n="models.providerNameHint">自定义显示名称，用于在路由和模型列表区分服务来源。</p>
+                        </label>
+
+                        <label class="protocol-field">
+                          <span class="field-label-text" data-i18n="models.protocol">协议</span>
+                          <select id="protocol" name="protocol">
+                            <option value="openai_chat_completions" data-i18n="models.protocolOpenAI">OpenAI · Chat Completions</option>
+                            <option value="openai_responses" data-i18n="models.protocolResponses">OpenAI · Responses API</option>
+                            <option value="anthropic_messages" data-i18n="models.protocolAnthropic">Anthropic · Messages API</option>
+                            <option value="gemini_generate_content" data-i18n="models.protocolGemini">Google · Gemini generateContent</option>
+                          </select>
+                          <p id="protocol-help" class="field-hint protocol-help" data-i18n="models.protocolHelpOpenAI">适用于 /v1/chat/completions；CPA、Sub2API 及主流 OpenAI 兼容网关。</p>
+                        </label>
+
+                        <div class="wide endpoint-group">
+                          <label>
+                            <span class="field-label-text" data-i18n="models.apiUrl">API 地址</span>
+                            <input id="provider-base-url" name="baseUrl" type="url" placeholder="例如 https://api.openai.com/v1" data-i18n-placeholder="models.apiUrlPlaceholder" />
+                          </label>
+                          <p class="field-hint" data-i18n="models.apiUrlHint">输入根地址后系统将自动补全模型列表与生成接口，也可展开高级设置自定义。</p>
+                        </div>
+
+                        <div class="wide">
+                          <label class="field-label" for="api-key">
+                            <span class="field-label-text" data-i18n="models.apiKey">API Key</span>
+                            <span class="optional-badge" data-i18n="models.optional">选填</span>
+                          </label>
+                          <div class="password-wrapper password-field">
+                            <input id="api-key" name="apiKey" type="password" placeholder="输入 API Key（无鉴权则留空）" data-i18n-placeholder="models.apiKeyPlaceholder" autocomplete="off" />
+                            <button id="paste-api-key" class="password-toggle secondary-toggle" type="button" aria-label="粘贴" data-i18n="models.pasteKey" data-i18n-aria-label="models.pasteKey">粘贴</button>
+                            <button id="toggle-api-key" class="password-toggle" type="button" aria-pressed="false" aria-label="显示" data-i18n="models.showKey" data-i18n-aria-label="models.showKey">显示</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <details class="endpoint-settings">
+                        <summary class="endpoint-summary">
+                          <svg class="details-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                          <span data-i18n="models.advancedSettings">高级设置（自定义端点 URL）</span>
+                        </summary>
+                        <div class="form-grid compact-grid">
+                          <label class="wide">
+                            <span class="field-label-text" data-i18n="models.modelsEndpoint">模型列表接口</span>
+                            <input id="models-endpoint" name="modelsEndpoint" type="url" />
+                          </label>
+                          <label class="wide">
+                            <span class="field-label-text" data-i18n="models.generateEndpoint">生成响应接口</span>
+                            <input id="generate-endpoint" name="generateEndpoint" type="url" required />
+                          </label>
+                        </div>
+                      </details>
                     </div>
-                    <span id="catalog-status" class="status-pill" role="status" aria-live="polite" data-i18n="models.fetching">获取中</span>
-                  </div>
-                  <div class="catalog-toolbar">
-                    <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" data-i18n-placeholder="models.searchPlaceholder" aria-label="搜索模型" data-i18n-aria-label="models.searchPlaceholder" />
-                    <label class="check-label"><input id="select-all-models" type="checkbox" /> <span data-i18n="models.selectAll">选择当前结果</span></label>
                   </div>
 
-                  <div id="catalog-model-list" class="catalog-model-list"></div>
-                  <p class="catalog-help catalog-capability-help" data-i18n="models.capabilityHelp">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
+                  <div class="form-actions modal-footer-bar">
+                    <button id="back-to-presets" class="secondary" type="button" data-i18n="models.backToPresets">← 重新选择预设</button>
+                    <button id="cancel-provider" class="secondary" type="button" data-i18n="models.cancel">取消</button>
+                    <button id="fetch-provider-models" class="primary" type="button" data-i18n="models.fetchModels">获取模型列表 →</button>
+                  </div>
+                </div>
+
+                <!-- 步骤 3：模型挑选列表 -->
+                <section id="catalog-results" class="catalog-results wizard-step" aria-labelledby="catalog-title" hidden>
+                  <div class="step-content-scroll">
+                    <div class="catalog-header">
+                      <div class="catalog-title-group">
+                        <h3 id="catalog-title" data-i18n="models.catalogTitle">选择并保存要使用的模型</h3>
+                      </div>
+                      <span id="catalog-status" class="status-pill" role="status" aria-live="polite" data-i18n="models.fetching">获取中</span>
+                    </div>
+                    <div class="catalog-toolbar">
+                      <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" data-i18n-placeholder="models.searchPlaceholder" aria-label="搜索模型" data-i18n-aria-label="models.searchPlaceholder" />
+                      <label class="check-label"><input id="select-all-models" type="checkbox" /> <span data-i18n="models.selectAll">选择当前结果</span></label>
+                    </div>
+
+                    <div id="catalog-model-list" class="catalog-model-list"></div>
+                    <p class="catalog-help catalog-capability-help" data-i18n="models.capabilityHelp">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
+                  </div>
 
                   <div id="provider-change-summary" class="provider-change-summary" role="status" aria-live="polite" hidden></div>
-                  <div class="catalog-save-row">
+                  <div class="catalog-save-row modal-footer-bar">
                     <button id="back-to-config" class="secondary" type="button" data-i18n="models.backToConfig">返回修改</button>
                     <span id="selected-model-count" data-i18n="models.noModelSelected">未选择任何模型</span>
                     <button id="save-provider" class="primary" type="submit" aria-describedby="provider-change-summary" disabled data-i18n="models.saveProvider">保存上游服务</button>
