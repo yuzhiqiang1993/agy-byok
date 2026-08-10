@@ -122,7 +122,7 @@ fn registry_string(
         return None;
     }
 
-    let mut value = vec![0_u16; (byte_length as usize + 1) / 2];
+    let mut value = vec![0_u16; (byte_length as usize).div_ceil(2)];
     let status = unsafe {
         RegGetValueW(
             root,
