@@ -1,6 +1,6 @@
 use super::checkpoint::apply_model_compression_policy;
 use super::AntigravityModelDescriptor;
-use crate::domain::{ReasoningMapping, UpstreamModel, VirtualModel};
+use crate::domain::{ReasoningMapping, TokenLimitSource, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
@@ -16,7 +16,8 @@ impl AntigravityModelDescriptor {
     ) -> Value {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
-        let supported_mime_types = supported_mime_types(caps.vision);
+        let supported_mime_types = supported_mime_types(caps);
+        let declared_input_modalities = input_modalities(caps, false);
         let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
@@ -28,8 +29,10 @@ impl AntigravityModelDescriptor {
             "inputTokenLimit": input_token_limit,
             "outputTokenLimit": output_token_limit,
             "supportsImages": caps.vision,
+            "supportsVideo": caps.supports_video(),
             "supportsTools": caps.tools,
             "supportsThinking": caps.reasoning.supports_reasoning(),
+            "inputModalities": declared_input_modalities,
             "supportedMimeTypes": supported_mime_types.keys().collect::<Vec<_>>()
         });
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
@@ -42,16 +45,8 @@ impl AntigravityModelDescriptor {
     ) -> Value {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
-        let input_modalities = if caps.vision {
-            vec!["IMAGE", "TEXT"]
-        } else {
-            vec!["TEXT"]
-        };
-        let input_modalities_lowercase = if caps.vision {
-            vec!["image", "text"]
-        } else {
-            vec!["text"]
-        };
+        let declared_input_modalities = input_modalities(caps, false);
+        let input_modalities_lowercase = input_modalities(caps, true);
         let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
@@ -65,15 +60,16 @@ impl AntigravityModelDescriptor {
             "requestedModel": host_model_id,
             "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
             "modelProvider": "MODEL_PROVIDER_GOOGLE",
-            "recommended": true,
+            // 自定义模型不冒充宿主官方推荐项。
+            "recommended": false,
             "supportsImages": caps.vision,
             "supportsVision": caps.vision,
             "supportsImage": caps.vision,
             "supportsThinking": caps.reasoning.supports_reasoning(),
-            "supportsVideo": false,
-            "inputModalities": input_modalities,
+            "supportsVideo": caps.supports_video(),
+            "inputModalities": declared_input_modalities,
             "input_modalities": input_modalities_lowercase,
-            "supportedMimeTypes": supported_mime_types(caps.vision),
+            "supportedMimeTypes": supported_mime_types(caps),
             "tokenizerType": "LLAMA_WITH_SPECIAL"
         });
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
@@ -150,6 +146,13 @@ fn apply_reasoning_metadata(
     let Some(descriptor) = descriptor.as_object_mut() else {
         return;
     };
+    let reasoning = &upstream_model.capabilities.reasoning;
+    if let Some(tokens) = reasoning.thinking_budget {
+        descriptor.insert("thinkingBudget".to_string(), json!(tokens));
+    }
+    if let Some(tokens) = reasoning.min_thinking_budget {
+        descriptor.insert("minThinkingBudget".to_string(), json!(tokens));
+    }
     let Some(level) = virtual_model.default_reasoning_level else {
         return;
     };
@@ -183,12 +186,17 @@ fn apply_custom_model_compression_policy(descriptor: &mut Value, upstream_model:
         return;
     };
     let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
-    apply_model_compression_policy(
-        descriptor,
-        policy,
-        context_window.min(input_token_limit),
-        output_token_limit,
-    );
+    let capacity = if upstream_model.token_limits.context_window_source
+        == TokenLimitSource::Estimated
+        && matches!(
+            upstream_model.token_limits.input_token_limit_source,
+            TokenLimitSource::Catalog | TokenLimitSource::Configured
+        ) {
+        input_token_limit
+    } else {
+        context_window.min(input_token_limit)
+    };
+    apply_model_compression_policy(descriptor, policy, capacity, output_token_limit);
 }
 
 fn custom_model_object(virtual_model: &VirtualModel, upstream_model: &UpstreamModel) -> Value {
@@ -263,16 +271,25 @@ fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_k
     }
 }
 
-fn supported_mime_types(vision: bool) -> Map<String, Value> {
+fn input_modalities(caps: &crate::domain::ModelCapabilities, lowercase: bool) -> Vec<&'static str> {
+    let mut modalities = vec![if lowercase { "text" } else { "TEXT" }];
+    if caps.vision {
+        modalities.insert(0, if lowercase { "image" } else { "IMAGE" });
+    }
+    if caps.supports_video() {
+        modalities.insert(0, if lowercase { "video" } else { "VIDEO" });
+    }
+    modalities
+}
+
+fn supported_mime_types(caps: &crate::domain::ModelCapabilities) -> Map<String, Value> {
     let mut mime_types = Map::from_iter([
         ("text/plain".to_string(), Value::Bool(true)),
         ("text/markdown".to_string(), Value::Bool(true)),
         ("application/json".to_string(), Value::Bool(true)),
     ]);
-    if vision {
-        for mime_type in ["image/png", "image/jpeg", "image/webp"] {
-            mime_types.insert(mime_type.to_string(), Value::Bool(true));
-        }
+    for mime_type in caps.effective_supported_mime_types() {
+        mime_types.insert(mime_type, Value::Bool(true));
     }
     mime_types
 }

@@ -1,9 +1,12 @@
 import type { ReasoningLevel, ReasoningMapping } from "./reasoning";
+import type { ModelCompressionPolicy } from "./config";
 
 interface ProviderCatalogReasoning {
   supported?: boolean;
   levels?: ReasoningLevel[];
   mappings?: Partial<Record<ReasoningLevel, ReasoningMapping>>;
+  thinkingBudget?: number;
+  minThinkingBudget?: number;
 }
 
 export interface ProviderCatalogModel {
@@ -18,9 +21,13 @@ export interface ProviderCatalogModel {
   maxTokens?: number;
   tokenBudget?: number;
   capabilities?: Record<string, unknown> | unknown[];
+  supportedMimeTypes?: string[];
+  supportsImages?: boolean;
+  supportsVideo?: boolean;
   thinking?: unknown;
   reasoning?: ProviderCatalogReasoning;
   upstreamCompression?: UpstreamCompressionPolicy;
+  defaultCompressionPolicy?: ModelCompressionPolicy;
 }
 
 export interface UpstreamCompressionPolicy {

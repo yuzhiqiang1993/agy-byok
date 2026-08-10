@@ -9,9 +9,21 @@ pub(super) fn parse_reasoning_metadata(
     protocol: &ProviderProtocol,
 ) -> Option<ProviderCatalogReasoning> {
     let object = item.as_object()?;
+    let explicit_supported = ["supportsThinking", "supports_thinking"]
+        .iter()
+        .filter_map(|key| object.get(*key).and_then(Value::as_bool))
+        .next();
     let mut supported = None;
     let mut levels = Vec::new();
     let mut mappings = BTreeMap::new();
+    let thinking_budget = ["thinkingBudget", "thinking_budget"]
+        .iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(parse_thinking_budget);
+    let min_thinking_budget = ["minThinkingBudget", "min_thinking_budget"]
+        .iter()
+        .filter_map(|key| object.get(*key))
+        .find_map(parse_positive_u32);
     for key in [
         "reasoning",
         "thinking",
@@ -96,14 +108,35 @@ pub(super) fn parse_reasoning_metadata(
     if !levels.is_empty() || !mappings.is_empty() {
         supported = Some(true);
     }
-    if supported.is_none() && levels.is_empty() && mappings.is_empty() {
+    if explicit_supported.is_some() {
+        supported = explicit_supported;
+    }
+    if supported.is_none()
+        && levels.is_empty()
+        && mappings.is_empty()
+        && thinking_budget.is_none()
+        && min_thinking_budget.is_none()
+    {
         return None;
     }
     Some(ProviderCatalogReasoning {
         supported,
         levels,
         mappings,
+        thinking_budget,
+        min_thinking_budget,
     })
+}
+
+fn parse_thinking_budget(value: &Value) -> Option<i32> {
+    let value = value.as_i64().or_else(|| {
+        value
+            .as_str()
+            .and_then(|value| value.trim().parse::<i64>().ok())
+    })?;
+    (-1..=i64::from(i32::MAX))
+        .contains(&value)
+        .then_some(value as i32)
 }
 
 fn collect_reasoning_metadata(

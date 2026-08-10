@@ -6,13 +6,32 @@ use crate::domain::provider::ParameterOverrides;
 use crate::domain::serde_helpers::required_nullable;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ModelCapabilities {
     pub vision: bool,
     pub tools: bool,
+    /// 上游模型可接收的内联数据 MIME。
+    pub supported_mime_types: Vec<String>,
     pub reasoning: ReasoningCapability,
+}
+
+impl ModelCapabilities {
+    pub fn effective_supported_mime_types(&self) -> BTreeSet<String> {
+        self.supported_mime_types
+            .iter()
+            .map(|mime_type| mime_type.trim().to_ascii_lowercase())
+            .filter(|mime_type| !mime_type.is_empty())
+            .collect::<BTreeSet<_>>()
+    }
+
+    pub fn supports_video(&self) -> bool {
+        self.effective_supported_mime_types()
+            .iter()
+            .any(|mime_type| mime_type.starts_with("video/"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,4 +116,40 @@ fn stable_hash(value: &str) -> u16 {
         hash = hash.wrapping_mul(0x01000193);
     }
     (hash % 200) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn capabilities_require_mime_types() {
+        let error = serde_json::from_value::<ModelCapabilities>(json!({
+            "vision": true,
+            "tools": true,
+            "reasoning": {
+                "supported": null,
+                "thinking_budget": null,
+                "min_thinking_budget": null,
+                "levels": {}
+            }
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("supported_mime_types"));
+    }
+
+    #[test]
+    fn reasoning_requires_explicit_nullable_metadata() {
+        let error = serde_json::from_value::<ModelCapabilities>(json!({
+            "vision": false,
+            "tools": true,
+            "supported_mime_types": [],
+            "reasoning": { "levels": {} }
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("supported"));
+    }
 }

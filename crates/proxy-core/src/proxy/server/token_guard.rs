@@ -38,10 +38,10 @@ pub(super) async fn validate_request(
     let Some(TokenizerConfig::Tiktoken { encoding }) = route.upstream_model.tokenizer else {
         return Ok(());
     };
-    if request_contains_image(request) {
+    if request_contains_inline_data(request) {
         tracing::debug!(
             model_id = %route.upstream_model.upstream_model_id,
-            "Skipping local token hard check because image token accounting is unavailable"
+            "Skipping local token hard check because inline media token accounting is unavailable"
         );
         return Ok(());
     }
@@ -90,12 +90,12 @@ pub(super) async fn validate_request(
     Ok(())
 }
 
-fn request_contains_image(request: &NeutralChatRequest) -> bool {
+fn request_contains_inline_data(request: &NeutralChatRequest) -> bool {
     request.messages.iter().any(|message| {
         message
             .blocks
             .iter()
-            .any(|block| matches!(block, NeutralContentBlock::Image { .. }))
+            .any(|block| matches!(block, NeutralContentBlock::InlineData { .. }))
     })
 }
 
@@ -146,7 +146,7 @@ fn count_input_tokens(
 fn count_block(bpe: &CoreBPE, block: &NeutralContentBlock, protocol: &ProviderProtocol) -> u64 {
     match block {
         NeutralContentBlock::Text(text) => count_text(bpe, text),
-        NeutralContentBlock::Image { .. } => 0,
+        NeutralContentBlock::InlineData { .. } => 0,
         NeutralContentBlock::ToolCall {
             id,
             name,

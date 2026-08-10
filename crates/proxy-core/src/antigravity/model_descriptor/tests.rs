@@ -3,8 +3,8 @@ use super::custom::{
 };
 use super::*;
 use crate::domain::{
-    ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides, UpstreamModel,
-    VirtualModel,
+    ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides,
+    TokenLimitSource, UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -105,6 +105,32 @@ fn custom_model_policy_is_applied_and_clamped_to_model_limits() {
     assert_eq!(checkpoint["max_output_tokens"], "10000");
     assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M72");
     assert_eq!(checkpoint["retry_config"]["max_retries"], 0);
+}
+
+#[test]
+fn estimated_context_does_not_clamp_catalog_input_checkpointer_capacity() {
+    let (virtual_model, mut upstream_model) = models();
+    upstream_model.token_limits = ModelTokenLimits {
+        context_window: Some(128_000),
+        context_window_source: TokenLimitSource::Estimated,
+        input_token_limit: Some(1_048_576),
+        input_token_limit_source: TokenLimitSource::Catalog,
+        output_token_limit: Some(65_535),
+        output_token_limit_source: TokenLimitSource::Catalog,
+    };
+    upstream_model.compression_policy = Some(policy(524_288, 734_003, 65_535));
+    let mut catalog = json!({ "models": {} });
+
+    AntigravityModelDescriptor::inject_into_model_list(
+        &mut catalog,
+        &[virtual_model],
+        &[upstream_model],
+    );
+
+    let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
+    assert_eq!(checkpoint["token_threshold"], "524288");
+    assert_eq!(checkpoint["max_token_limit"], "734003");
+    assert_eq!(checkpoint["max_output_tokens"], "65535");
 }
 
 #[test]
@@ -209,4 +235,68 @@ fn descriptor_uses_experience_defaults_for_missing_model_limits() {
     assert_eq!(descriptor["inputTokenLimit"], DEFAULT_INPUT_TOKEN_LIMIT);
     assert_eq!(descriptor["outputTokenLimit"], DEFAULT_OUTPUT_TOKEN_LIMIT);
     assert_eq!(catalog["contextWindow"], DEFAULT_CONTEXT_WINDOW);
+    assert_eq!(catalog["recommended"], false);
+}
+
+#[test]
+fn video_capabilities_are_consistent_across_catalog_shapes() {
+    let (virtual_model, mut upstream_model) = models();
+    upstream_model.capabilities.supported_mime_types = vec![
+        "image/png".to_string(),
+        "video/mp4".to_string(),
+        "video/webm".to_string(),
+    ];
+    let mut object_catalog = json!({ "models": {} });
+    let mut array_catalog = json!({ "models": [] });
+
+    AntigravityModelDescriptor::inject_into_model_list(
+        &mut object_catalog,
+        std::slice::from_ref(&virtual_model),
+        std::slice::from_ref(&upstream_model),
+    );
+    AntigravityModelDescriptor::inject_into_model_list(
+        &mut array_catalog,
+        &[virtual_model],
+        &[upstream_model],
+    );
+
+    let object_model = &object_catalog["models"]["custom-model"];
+    let array_model = &array_catalog["models"][0];
+    assert_eq!(object_model["supportsVideo"], true);
+    assert_eq!(array_model["supportsVideo"], true);
+    assert_eq!(object_model["supportedMimeTypes"]["video/mp4"], true);
+    assert!(array_model["supportedMimeTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|mime_type| mime_type == "video/mp4"));
+    assert!(object_model["inputModalities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|modality| modality == "VIDEO"));
+    assert!(array_model["inputModalities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|modality| modality == "VIDEO"));
+}
+
+#[test]
+fn model_thinking_budgets_are_preserved_across_catalog_shapes() {
+    let (virtual_model, mut upstream_model) = models();
+    upstream_model.capabilities.reasoning.thinking_budget = Some(10_001);
+    upstream_model.capabilities.reasoning.min_thinking_budget = Some(128);
+
+    let descriptor =
+        AntigravityModelDescriptor::build_model_object(&virtual_model, &upstream_model);
+    let catalog =
+        AntigravityModelDescriptor::build_cloud_code_catalog_entry(&virtual_model, &upstream_model);
+
+    assert_eq!(descriptor["supportsThinking"], true);
+    assert_eq!(descriptor["thinkingBudget"], 10_001);
+    assert_eq!(descriptor["minThinkingBudget"], 128);
+    assert_eq!(catalog["supportsThinking"], true);
+    assert_eq!(catalog["thinkingBudget"], 10_001);
+    assert_eq!(catalog["minThinkingBudget"], 128);
 }

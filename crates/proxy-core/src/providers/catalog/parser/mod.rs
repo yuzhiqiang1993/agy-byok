@@ -1,10 +1,10 @@
 mod reasoning;
 
 use super::{ProviderCatalogModel, UpstreamCompressionPolicy};
-use crate::domain::ProviderProtocol;
+use crate::domain::{CustomModelCheckpointRetryConfig, ModelCompressionPolicy, ProviderProtocol};
 use reasoning::parse_reasoning_metadata;
 use serde_json::{Map, Value};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 #[cfg(test)]
 pub(super) fn parse_catalog_models(
@@ -78,6 +78,8 @@ pub(super) fn parse_catalog_models_with_context(
             let input_token_limit = explicit_input_token_limit.or_else(|| {
                 if is_cpa_catalog {
                     context_window.or(context_length)
+                } else if matches!(protocol, ProviderProtocol::GeminiGenerateContent) {
+                    max_tokens
                 } else {
                     None
                 }
@@ -100,6 +102,8 @@ pub(super) fn parse_catalog_models_with_context(
                 ],
             )
             .or(fallback_output_token_limit);
+            let (supported_mime_types, supports_images, supports_video) =
+                extract_media_metadata(item);
             Some(ProviderCatalogModel {
                 id,
                 display_name,
@@ -112,9 +116,13 @@ pub(super) fn parse_catalog_models_with_context(
                 max_tokens,
                 token_budget,
                 capabilities: extract_capabilities(item),
+                supported_mime_types,
+                supports_images,
+                supports_video,
                 thinking: item.get("thinking").cloned(),
                 reasoning: parse_reasoning_metadata(item, protocol),
                 upstream_compression: extract_upstream_compression(item),
+                default_compression_policy: extract_default_compression_policy(item),
             })
         })
         .collect()
@@ -159,16 +167,39 @@ struct CheckpointerPayload {
     max_output_tokens: Option<Value>,
     checkpoint_model: Option<String>,
     use_last_planner_model: Option<bool>,
+    strategy: Option<String>,
+    max_overhead_ratio: Option<Value>,
+    moving_window_size: Option<Value>,
+    is_sync: Option<bool>,
+    max_user_requests: Option<Value>,
+    include_last_user_message: Option<bool>,
+    include_conversation_log: Option<bool>,
+    include_running_task_snapshots: Option<bool>,
+    include_subagent_snapshots: Option<bool>,
+    include_artifact_snapshots: Option<bool>,
+    retry_config: Option<CheckpointerRetryPayload>,
 }
 
-pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompressionPolicy> {
+#[derive(serde::Deserialize)]
+struct CheckpointerRetryPayload {
+    max_retries: Option<Value>,
+    initial_sleep_duration_ms: Option<Value>,
+    exponential_multiplier: Option<Value>,
+    include_error_feedback: Option<bool>,
+}
+
+fn checkpointer_payload(item: &Value) -> Option<CheckpointerPayload> {
     let string_value = item
         .get("modelExperiments")?
         .get("experiments")?
         .get("CASCADE_USE_EXPERIMENT_CHECKPOINTER")?
         .get("stringValue")?
         .as_str()?;
-    let payload: CheckpointerPayload = serde_json::from_str(string_value).ok()?;
+    serde_json::from_str(string_value).ok()
+}
+
+pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompressionPolicy> {
+    let payload = checkpointer_payload(item)?;
     let enabled = payload.enabled?;
     let token_threshold = parse_positive_u32(payload.token_threshold.as_ref()?)?;
     let max_token_limit = parse_positive_u32(payload.max_token_limit.as_ref()?)?;
@@ -185,6 +216,56 @@ pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompr
         checkpoint_model: payload.checkpoint_model,
         use_last_planner_model: payload.use_last_planner_model,
     })
+}
+
+fn parse_u32(value: &Value) -> Option<u32> {
+    let value = value.as_u64().or_else(|| {
+        value
+            .as_str()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+    })?;
+    (value <= u64::from(u32::MAX)).then_some(value as u32)
+}
+
+fn parse_number_string(value: &Value) -> Option<String> {
+    let string = match value {
+        Value::String(value) => value.trim().to_string(),
+        Value::Number(value) => value.to_string(),
+        _ => return None,
+    };
+    let parsed = string.parse::<f64>().ok()?;
+    (parsed.is_finite() && parsed >= 0.0).then_some(string)
+}
+
+pub(super) fn extract_default_compression_policy(item: &Value) -> Option<ModelCompressionPolicy> {
+    let payload = checkpointer_payload(item)?;
+    let retry = payload.retry_config?;
+    let policy = ModelCompressionPolicy {
+        enabled: payload.enabled?,
+        checkpoint_model: payload.checkpoint_model?,
+        strategy: payload.strategy?,
+        max_overhead_ratio: parse_number_string(payload.max_overhead_ratio.as_ref()?)?,
+        moving_window_size: parse_number_string(payload.moving_window_size.as_ref()?)?,
+        use_last_planner_model: payload.use_last_planner_model?,
+        is_sync: payload.is_sync?,
+        max_user_requests: parse_u32(payload.max_user_requests.as_ref()?)?,
+        include_last_user_message: payload.include_last_user_message?,
+        include_conversation_log: payload.include_conversation_log?,
+        include_running_task_snapshots: payload.include_running_task_snapshots?,
+        include_subagent_snapshots: payload.include_subagent_snapshots?,
+        include_artifact_snapshots: payload.include_artifact_snapshots?,
+        retry_config: CustomModelCheckpointRetryConfig {
+            max_retries: parse_u32(retry.max_retries.as_ref()?)?,
+            initial_sleep_duration_ms: parse_u32(retry.initial_sleep_duration_ms.as_ref()?)?,
+            exponential_multiplier: parse_u32(retry.exponential_multiplier.as_ref()?)?,
+            include_error_feedback: retry.include_error_feedback?,
+        },
+        token_threshold: parse_positive_u32(payload.token_threshold.as_ref()?)?,
+        max_token_limit: parse_positive_u32(payload.max_token_limit.as_ref()?)?,
+        max_output_tokens: parse_positive_u32(payload.max_output_tokens.as_ref()?)?,
+    };
+    policy.validate("catalog checkpointer").ok()?;
+    Some(policy)
 }
 
 pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCatalogModel> {
@@ -218,10 +299,19 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
                 .get("supportsTools")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
-            let supports_reasoning = item
-                .get("supportsThinking")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
+            let supports_reasoning = item.get("supportsThinking").and_then(Value::as_bool);
+            let (supported_mime_types, supports_images, supports_video) =
+                extract_media_metadata(item);
+            let supports_vision = supports_images.unwrap_or(supports_vision);
+
+            let mut capabilities = serde_json::json!({
+                "vision": supports_vision,
+                "tools": supports_tools,
+                "raw_config": item,
+            });
+            if let Some(supports_reasoning) = supports_reasoning {
+                capabilities["reasoning"] = Value::Bool(supports_reasoning);
+            }
 
             ProviderCatalogModel {
                 id: model_id.clone(),
@@ -234,13 +324,13 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
                 input_token_limit,
                 output_token_limit,
                 max_tokens,
-                capabilities: Some(serde_json::json!({
-                    "vision": supports_vision,
-                    "tools": supports_tools,
-                    "reasoning": supports_reasoning,
-                    "raw_config": item,
-                })),
+                capabilities: Some(capabilities),
+                supported_mime_types,
+                supports_images: Some(supports_vision),
+                supports_video,
+                reasoning: parse_reasoning_metadata(item, &ProviderProtocol::GeminiGenerateContent),
                 upstream_compression: extract_upstream_compression(item),
+                default_compression_policy: extract_default_compression_policy(item),
                 ..ProviderCatalogModel::default()
             }
         })
@@ -269,6 +359,12 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
         "experimental_supported_tools",
         "supportsImageInput",
         "supports_image_input",
+        "supportsImages",
+        "supports_images",
+        "supportsVideo",
+        "supports_video",
+        "supportedMimeTypes",
+        "supported_mime_types",
         "supportsParallelToolCalls",
         "supports_parallel_tool_calls",
         "supportsTools",
@@ -286,7 +382,12 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
     if !capabilities.contains_key("vision") {
         let vision = capability_bool(
             &capabilities,
-            &["supportsImageInput", "supports_image_input"],
+            &[
+                "supportsImageInput",
+                "supports_image_input",
+                "supportsImages",
+                "supports_images",
+            ],
         )
         .or_else(|| {
             capability_array_contains(
@@ -330,6 +431,80 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
     }
 
     (!capabilities.is_empty()).then_some(Value::Object(capabilities))
+}
+
+fn extract_media_metadata(item: &Value) -> (Option<Vec<String>>, Option<bool>, Option<bool>) {
+    let capabilities = item.get("capabilities").and_then(Value::as_object);
+    let field = |keys: &[&str]| {
+        keys.iter().find_map(|key| item.get(*key)).or_else(|| {
+            capabilities.and_then(|object| keys.iter().find_map(|key| object.get(*key)))
+        })
+    };
+    let mut mime_types = field(&["supportedMimeTypes", "supported_mime_types"])
+        .map(parse_supported_mime_types)
+        .unwrap_or_default();
+    let mut supports_images = field(&[
+        "supportsImages",
+        "supports_images",
+        "supportsVision",
+        "supports_vision",
+        "supportsImageInput",
+        "supports_image_input",
+    ])
+    .and_then(Value::as_bool);
+    let mut supports_video = field(&["supportsVideo", "supports_video"]).and_then(Value::as_bool);
+
+    if !mime_types.is_empty() {
+        supports_images.get_or_insert_with(|| {
+            mime_types
+                .iter()
+                .any(|mime_type| mime_type.starts_with("image/"))
+        });
+        supports_video.get_or_insert_with(|| {
+            mime_types
+                .iter()
+                .any(|mime_type| mime_type.starts_with("video/"))
+        });
+    }
+    if supports_images == Some(true)
+        && !mime_types
+            .iter()
+            .any(|mime_type| mime_type.starts_with("image/"))
+    {
+        mime_types.extend(
+            ["image/png", "image/jpeg", "image/webp"]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+    if supports_video == Some(true)
+        && !mime_types
+            .iter()
+            .any(|mime_type| mime_type.starts_with("video/"))
+    {
+        mime_types.extend(["video/mp4", "video/webm"].into_iter().map(str::to_string));
+    }
+    let supported_mime_types = (!mime_types.is_empty()).then(|| mime_types.into_iter().collect());
+    (supported_mime_types, supports_images, supports_video)
+}
+
+fn parse_supported_mime_types(value: &Value) -> BTreeSet<String> {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect(),
+        Value::Object(values) => values
+            .iter()
+            .filter(|(_, enabled)| enabled.as_bool() == Some(true))
+            .map(|(mime_type, _)| mime_type.trim().to_ascii_lowercase())
+            .filter(|mime_type| !mime_type.is_empty())
+            .collect(),
+        _ => BTreeSet::new(),
+    }
 }
 
 fn capability_bool(capabilities: &Map<String, Value>, keys: &[&str]) -> Option<bool> {

@@ -5,7 +5,7 @@ import type {
   Provider,
 } from "../../types/config";
 import type { ProviderSavePlan } from "../../types/proxy";
-import type { ConfigurableReasoningLevel } from "../../types/reasoning";
+import type { ConfigurableReasoningLevel, ThinkingBudgetConfig } from "../../types/reasoning";
 import { effectiveHostModelId, stripConfiguredModelSuffix } from "../../utils/modelUtils";
 import { summarizeProviderChanges } from "./providerChangeSummary";
 import { buildProviderModelPlan } from "./providerModelPlan";
@@ -18,7 +18,10 @@ interface ProviderSavePlanInput {
   selectedCatalogModelIds: ReadonlySet<string>;
   catalogReasoningLevelsByModel: ReadonlyMap<string, ReadonlySet<ConfigurableReasoningLevel>>;
   catalogCustomReasoningByModel: ReadonlyMap<string, string>;
+  catalogThinkingBudgetsByModel: ReadonlyMap<string, ThinkingBudgetConfig>;
   catalogVisionEnabledModelIds: ReadonlySet<string>;
+  catalogVideoEnabledModelIds: ReadonlySet<string>;
+  catalogSupportedMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;

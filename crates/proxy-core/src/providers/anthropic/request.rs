@@ -1,13 +1,14 @@
 use super::DEFAULT_MAX_TOKENS;
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, Provider, ProxyError,
+    is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
+    NeutralContentBlock, Provider, ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-fn convert_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
+fn convert_blocks(blocks: &[NeutralContentBlock]) -> Result<Vec<Value>, ProxyError> {
     let mut out = Vec::new();
     for block in blocks {
         match block {
@@ -17,10 +18,17 @@ fn convert_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
                     "text": text
                 }));
             }
-            NeutralContentBlock::Image {
+            NeutralContentBlock::InlineData {
                 mime_type,
                 data_base64,
             } => {
+                if !is_supported_inline_image_mime_type(mime_type) {
+                    return Err(ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!("Anthropic Messages does not support inline {mime_type} content"),
+                        400,
+                    ));
+                }
                 out.push(json!({
                     "type": "image",
                     "source": {
@@ -66,7 +74,7 @@ fn convert_blocks(blocks: &[NeutralContentBlock]) -> Vec<Value> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 pub(super) fn build_request_payload(
@@ -96,7 +104,7 @@ pub(super) fn build_request_payload(
             MessageRole::Tool => "user",
         };
 
-        let content_blocks = convert_blocks(&msg.blocks);
+        let content_blocks = convert_blocks(&msg.blocks)?;
         messages_json.push(json!({
             "role": role_str,
             "content": content_blocks

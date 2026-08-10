@@ -1,7 +1,7 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
-    ProxyError,
+    is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
+    NeutralContentBlock, NeutralMessage, Provider, ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -52,7 +52,7 @@ fn input_content_type(role: &MessageRole) -> &'static str {
     }
 }
 
-fn convert_message(message: &NeutralMessage) -> Vec<Value> {
+fn convert_message(message: &NeutralMessage) -> Result<Vec<Value>, ProxyError> {
     let role = match message.role {
         MessageRole::System => "system",
         MessageRole::User => "user",
@@ -69,13 +69,22 @@ fn convert_message(message: &NeutralMessage) -> Vec<Value> {
                 "type": input_content_type(&message.role),
                 "text": text,
             })),
-            NeutralContentBlock::Image {
+            NeutralContentBlock::InlineData {
                 mime_type,
                 data_base64,
-            } => content.push(json!({
-                "type": "input_image",
-                "image_url": format!("data:{};base64,{}", mime_type, data_base64),
-            })),
+            } => {
+                if !is_supported_inline_image_mime_type(mime_type) {
+                    return Err(ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!("OpenAI Responses does not support inline {mime_type} content"),
+                        400,
+                    ));
+                }
+                content.push(json!({
+                    "type": "input_image",
+                    "image_url": format!("data:{};base64,{}", mime_type, data_base64),
+                }));
+            }
             NeutralContentBlock::ToolCall {
                 id,
                 name,
@@ -110,7 +119,7 @@ fn convert_message(message: &NeutralMessage) -> Vec<Value> {
     }
     items.extend(function_calls);
     items.extend(function_outputs);
-    items
+    Ok(items)
 }
 
 pub(super) fn build_request_payload(
@@ -128,7 +137,7 @@ pub(super) fn build_request_payload(
 
     let mut input = Vec::new();
     for message in &request.messages {
-        input.extend(convert_message(message));
+        input.extend(convert_message(message)?);
     }
     payload["input"] = Value::Array(input);
 

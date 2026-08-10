@@ -15,7 +15,7 @@ pub use model::{
 };
 pub use provider::{ParameterOverrides, Provider, ProviderProtocol};
 pub(crate) use request::{
-    MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, NeutralTool,
-    NeutralToolFunction,
+    is_supported_inline_image_mime_type, MessageRole, NeutralChatRequest, NeutralContentBlock,
+    NeutralMessage, NeutralTool, NeutralToolFunction,
 };
 pub(crate) use response::{FinishReason, NeutralChatResponse, NeutralStreamEvent, UsageInfo};

@@ -1,7 +1,7 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
-    ProxyError,
+    is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
+    NeutralContentBlock, NeutralMessage, Provider, ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -47,7 +47,7 @@ fn is_json_schema_type(value: &str) -> bool {
     )
 }
 
-fn convert_message(msg: &NeutralMessage) -> Value {
+fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
     let role_str = match msg.role {
         MessageRole::System => "system",
         MessageRole::User => "user",
@@ -57,10 +57,10 @@ fn convert_message(msg: &NeutralMessage) -> Value {
 
     if msg.blocks.len() == 1 {
         if let NeutralContentBlock::Text(ref text) = msg.blocks[0] {
-            return json!({
+            return Ok(json!({
                 "role": role_str,
                 "content": text
-            });
+            }));
         }
     }
 
@@ -77,10 +77,19 @@ fn convert_message(msg: &NeutralMessage) -> Value {
                     "text": text
                 }));
             }
-            NeutralContentBlock::Image {
+            NeutralContentBlock::InlineData {
                 mime_type,
                 data_base64,
             } => {
+                if !is_supported_inline_image_mime_type(mime_type) {
+                    return Err(ProxyError::new(
+                        ErrorCategory::UnsupportedFeature,
+                        format!(
+                            "OpenAI Chat Completions does not support inline {mime_type} content"
+                        ),
+                        400,
+                    ));
+                }
                 contents.push(json!({
                     "type": "image_url",
                     "image_url": {
@@ -143,7 +152,7 @@ fn convert_message(msg: &NeutralMessage) -> Value {
         }
     }
 
-    obj
+    Ok(obj)
 }
 
 pub(super) fn build_request_payload(
@@ -164,7 +173,7 @@ pub(super) fn build_request_payload(
     }
 
     for msg in &request.messages {
-        messages_json.push(convert_message(msg));
+        messages_json.push(convert_message(msg)?);
     }
     payload["messages"] = Value::Array(messages_json);
 

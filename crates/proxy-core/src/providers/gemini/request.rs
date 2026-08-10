@@ -76,7 +76,7 @@ pub(super) fn convert_message(msg: &NeutralMessage) -> Value {
             NeutralContentBlock::Text(text) => {
                 parts.push(json!({ "text": text }));
             }
-            NeutralContentBlock::Image {
+            NeutralContentBlock::InlineData {
                 mime_type,
                 data_base64,
             } => {
@@ -136,16 +136,9 @@ pub(super) fn convert_message(msg: &NeutralMessage) -> Value {
 }
 
 fn write_reasoning(payload: &mut Value, route: &ResolvedRoute) -> Result<(), ProxyError> {
-    let Some(level) = route.final_reasoning_level else {
-        return Ok(());
-    };
-
-    let mapping = route
-        .upstream_model
-        .capabilities
-        .reasoning
-        .mapping_for(level)
-        .ok_or_else(|| {
+    let reasoning = &route.upstream_model.capabilities.reasoning;
+    let (field, value) = if let Some(level) = route.final_reasoning_level {
+        let mapping = reasoning.mapping_for(level).ok_or_else(|| {
             ProxyError::new(
                 ErrorCategory::UnsupportedFeature,
                 format!(
@@ -155,18 +148,22 @@ fn write_reasoning(payload: &mut Value, route: &ResolvedRoute) -> Result<(), Pro
                 400,
             )
         })?;
-
-    let (field, value) = match mapping {
-        ReasoningMapping::Disabled => ("thinkingBudget", json!(0)),
-        ReasoningMapping::BudgetTokens(tokens) => ("thinkingBudget", json!(tokens)),
-        ReasoningMapping::NativeLevel(level) => ("thinkingLevel", json!(level)),
-        ReasoningMapping::Effort(_) | ReasoningMapping::Adaptive => {
-            return Err(ProxyError::new(
-                ErrorCategory::UnsupportedFeature,
-                format!("Gemini does not support reasoning mapping {:?}", mapping),
-                400,
-            ));
+        match mapping {
+            ReasoningMapping::Disabled => ("thinkingBudget", json!(0)),
+            ReasoningMapping::BudgetTokens(tokens) => ("thinkingBudget", json!(tokens)),
+            ReasoningMapping::NativeLevel(level) => ("thinkingLevel", json!(level)),
+            ReasoningMapping::Effort(_) | ReasoningMapping::Adaptive => {
+                return Err(ProxyError::new(
+                    ErrorCategory::UnsupportedFeature,
+                    format!("Gemini does not support reasoning mapping {:?}", mapping),
+                    400,
+                ));
+            }
         }
+    } else if let Some(tokens) = reasoning.thinking_budget {
+        ("thinkingBudget", json!(tokens))
+    } else {
+        return Ok(());
     };
 
     let generation_config = payload

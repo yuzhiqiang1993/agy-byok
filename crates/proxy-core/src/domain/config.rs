@@ -1,4 +1,7 @@
-use super::{ModelCompressionPolicy, ParameterOverrides, Provider, UpstreamModel, VirtualModel};
+use super::{
+    is_supported_inline_image_mime_type, ModelCompressionPolicy, ParameterOverrides, Provider,
+    ProviderProtocol, UpstreamModel, VirtualModel,
+};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -173,6 +176,13 @@ impl AppConfig {
                     target_id: model.provider_id.clone(),
                 });
             }
+            let provider = self
+                .providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .expect("validated provider reference must exist");
+            validate_model_media_capabilities(model, &provider.protocol)?;
+            validate_model_reasoning_capabilities(model, &provider.protocol)?;
             if model.upstream_model_id.trim().is_empty() {
                 return Err(ConfigError::InvalidValue(format!(
                     "UpstreamModel {} has an empty upstream model ID",
@@ -273,6 +283,103 @@ impl AppConfig {
     }
 }
 
+fn validate_model_media_capabilities(
+    model: &UpstreamModel,
+    protocol: &ProviderProtocol,
+) -> Result<(), ConfigError> {
+    let mut seen = HashSet::new();
+    let mut has_image = false;
+    for mime_type in &model.capabilities.supported_mime_types {
+        let normalized = mime_type.trim().to_ascii_lowercase();
+        if normalized.is_empty() || !normalized.contains('/') {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} has invalid supported MIME type {mime_type:?}",
+                model.id
+            )));
+        }
+        if !seen.insert(normalized.clone()) {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} has duplicate supported MIME type {normalized}",
+                model.id
+            )));
+        }
+        if normalized.starts_with("image/") {
+            has_image = true;
+        }
+        if !matches!(protocol, ProviderProtocol::GeminiGenerateContent)
+            && !is_supported_inline_image_mime_type(&normalized)
+        {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} cannot use inline MIME type {normalized} with provider protocol {:?}",
+                model.id, protocol
+            )));
+        }
+    }
+    if model.capabilities.vision != has_image {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} vision capability must match its image MIME types",
+            model.id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_model_reasoning_capabilities(
+    model: &UpstreamModel,
+    protocol: &ProviderProtocol,
+) -> Result<(), ConfigError> {
+    let reasoning = &model.capabilities.reasoning;
+    let has_model_budget =
+        reasoning.thinking_budget.is_some() || reasoning.min_thinking_budget.is_some();
+    if reasoning.thinking_budget.is_some_and(|budget| budget < -1) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} thinking_budget must be -1, 0, or a positive integer",
+            model.id
+        )));
+    }
+    if has_model_budget && !matches!(protocol, ProviderProtocol::GeminiGenerateContent) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} can use model-level thinking budgets only with Gemini",
+            model.id
+        )));
+    }
+    if reasoning.supported == Some(false) && (has_model_budget || !reasoning.levels.is_empty()) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} cannot disable reasoning while keeping reasoning configuration",
+            model.id
+        )));
+    }
+    if reasoning.min_thinking_budget == Some(0) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} min_thinking_budget must be greater than 0",
+            model.id
+        )));
+    }
+    if let (Some(minimum), Some(default)) =
+        (reasoning.min_thinking_budget, reasoning.thinking_budget)
+    {
+        if default == 0 || (default > 0 && i64::from(minimum) > i64::from(default)) {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} min_thinking_budget must not exceed thinking_budget",
+                model.id
+            )));
+        }
+    }
+    if let Some(minimum) = reasoning.min_thinking_budget {
+        for mapping in reasoning.levels.values() {
+            if let crate::domain::ReasoningMapping::BudgetTokens(tokens) = mapping {
+                if *tokens < minimum {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "UpstreamModel {} reasoning budget {tokens} is below min_thinking_budget {minimum}",
+                        model.id
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_id(kind: &'static str, id: &str) -> Result<(), ConfigError> {
     if id.trim().is_empty() {
         return Err(ConfigError::InvalidValue(format!(
@@ -352,4 +459,149 @@ fn validate_parameters(label: &str, parameters: &ParameterOverrides) -> Result<(
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{ModelCapabilities, ModelTokenLimits, ReasoningCapability};
+
+    fn media_config(protocol: ProviderProtocol, mime_types: &[&str]) -> AppConfig {
+        let provider_id = "provider".to_string();
+        AppConfig {
+            providers: vec![Provider {
+                id: provider_id.clone(),
+                name: "Provider".to_string(),
+                protocol,
+                models_endpoint: "http://127.0.0.1/models".to_string(),
+                generate_endpoint: "http://127.0.0.1/generate".to_string(),
+                api_key: String::new(),
+                headers: HashMap::new(),
+                default_parameters: ParameterOverrides::default(),
+                connect_timeout_ms: 1_000,
+                request_timeout_ms: 2_000,
+                stream_idle_timeout_ms: 1_000,
+                enabled: true,
+            }],
+            upstream_models: vec![UpstreamModel {
+                id: "upstream".to_string(),
+                provider_id,
+                upstream_model_id: "model".to_string(),
+                display_name: "Model".to_string(),
+                capabilities: ModelCapabilities {
+                    vision: false,
+                    tools: true,
+                    supported_mime_types: mime_types
+                        .iter()
+                        .map(|mime_type| (*mime_type).to_string())
+                        .collect(),
+                    reasoning: ReasoningCapability::default(),
+                },
+                token_limits: ModelTokenLimits::default(),
+                compression_policy: None,
+                tokenizer: None,
+                parameter_overrides: ParameterOverrides::default(),
+                enabled: true,
+            }],
+            ..AppConfig::default()
+        }
+    }
+
+    #[test]
+    fn video_mime_requires_gemini_protocol() {
+        assert!(
+            media_config(ProviderProtocol::GeminiGenerateContent, &["video/mp4"])
+                .validate()
+                .is_ok()
+        );
+
+        let error = media_config(ProviderProtocol::OpenaiChatCompletions, &["video/mp4"])
+            .validate()
+            .unwrap_err();
+        assert!(error.to_string().contains("video/mp4"));
+    }
+
+    #[test]
+    fn unsupported_image_mime_requires_gemini_protocol() {
+        let mut gemini_config =
+            media_config(ProviderProtocol::GeminiGenerateContent, &["image/heic"]);
+        gemini_config.upstream_models[0].capabilities.vision = true;
+        assert!(gemini_config.validate().is_ok());
+
+        let error = media_config(ProviderProtocol::AnthropicMessages, &["image/heic"])
+            .validate()
+            .unwrap_err();
+        assert!(error.to_string().contains("image/heic"));
+    }
+
+    #[test]
+    fn vision_requires_an_explicit_image_mime_type() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0].capabilities.vision = true;
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("vision capability"));
+    }
+
+    #[test]
+    fn minimum_thinking_budget_cannot_exceed_default_budget() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0]
+            .capabilities
+            .reasoning
+            .thinking_budget = Some(128);
+        config.upstream_models[0]
+            .capabilities
+            .reasoning
+            .min_thinking_budget = Some(256);
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("min_thinking_budget"));
+    }
+
+    #[test]
+    fn model_thinking_budget_requires_gemini() {
+        let mut config = media_config(ProviderProtocol::AnthropicMessages, &[]);
+        config.upstream_models[0]
+            .capabilities
+            .reasoning
+            .thinking_budget = Some(10_001);
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("only with Gemini"));
+    }
+
+    #[test]
+    fn disabled_reasoning_rejects_budget_configuration() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        let reasoning = &mut config.upstream_models[0].capabilities.reasoning;
+        reasoning.supported = Some(false);
+        reasoning.thinking_budget = Some(10_001);
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("cannot disable reasoning"));
+    }
+
+    #[test]
+    fn dynamic_thinking_budget_accepts_a_positive_minimum() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        let reasoning = &mut config.upstream_models[0].capabilities.reasoning;
+        reasoning.supported = Some(true);
+        reasoning.thinking_budget = Some(-1);
+        reasoning.min_thinking_budget = Some(128);
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn thinking_budget_rejects_values_below_dynamic_sentinel() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0]
+            .capabilities
+            .reasoning
+            .thinking_budget = Some(-2);
+
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("must be -1, 0"));
+    }
 }

@@ -302,6 +302,7 @@ mod tests {
                 ReasoningLevel::High,
                 ReasoningMapping::Effort("high".to_string()),
             )]),
+            ..ReasoningCapability::default()
         };
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
@@ -331,6 +332,7 @@ mod tests {
                     ReasoningMapping::Effort("high".to_string()),
                 ),
             ]),
+            ..ReasoningCapability::default()
         };
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
         let mut high_model = config.virtual_models[0].clone();
@@ -365,6 +367,7 @@ mod tests {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
             levels: BTreeMap::from([(ReasoningLevel::High, ReasoningMapping::BudgetTokens(8192))]),
+            ..ReasoningCapability::default()
         };
 
         let default_catalog = ProxyServer::new(ConfigStore::in_memory(config.clone()), 0)
@@ -432,6 +435,7 @@ mod tests {
                 ReasoningLevel::High,
                 ReasoningMapping::Effort("high".to_string()),
             )]),
+            ..ReasoningCapability::default()
         };
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
@@ -867,6 +871,7 @@ mod tests {
                 capabilities: ModelCapabilities {
                     vision: false,
                     tools: true,
+                    supported_mime_types: Vec::new(),
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),
@@ -960,11 +965,13 @@ mod tests {
                 capabilities: ModelCapabilities {
                     vision: true,
                     tools: true,
+                    supported_mime_types: vec!["image/jpeg".to_string()],
                     reasoning: ReasoningCapability {
                         levels: BTreeMap::from([(
                             ReasoningLevel::High,
                             ReasoningMapping::BudgetTokens(4096),
                         )]),
+                        ..ReasoningCapability::default()
                     },
                 },
                 token_limits: ModelTokenLimits::default(),

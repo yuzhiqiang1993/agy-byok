@@ -214,6 +214,8 @@
 }
 .provider-model-title-row h4 { min-width: 0; }
 .raw-config-button {
+  /* 暂时隐藏原始配置入口，保留按钮与交互逻辑以便后续恢复。 */
+  display: none;
   min-width: 0;
   min-height: 24px;
   flex: 0 0 auto;

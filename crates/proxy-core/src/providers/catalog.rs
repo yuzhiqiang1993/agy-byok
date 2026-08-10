@@ -1,7 +1,8 @@
 mod parser;
 
 use crate::domain::{
-    AppConfig, ErrorCategory, Provider, ProxyError, ReasoningLevel, ReasoningMapping,
+    AppConfig, ErrorCategory, ModelCompressionPolicy, Provider, ProxyError, ReasoningLevel,
+    ReasoningMapping,
 };
 use crate::providers::get_adapter;
 use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
@@ -25,6 +26,10 @@ pub struct ProviderCatalogReasoning {
     pub(crate) levels: Vec<ReasoningLevel>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) mappings: BTreeMap<ReasoningLevel, ReasoningMapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) thinking_budget: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) min_thinking_budget: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -51,11 +56,19 @@ pub struct ProviderCatalogModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub supported_mime_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_images: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_video: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ProviderCatalogReasoning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_compression: Option<UpstreamCompressionPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_compression_policy: Option<ModelCompressionPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]

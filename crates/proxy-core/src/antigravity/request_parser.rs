@@ -123,7 +123,7 @@ impl AntigravityRequestParser {
                         } else if let Some(inline) = part.get("inlineData") {
                             let mime = inline["mimeType"].as_str().unwrap_or("image/png");
                             let data = inline["data"].as_str().unwrap_or_default();
-                            blocks.push(NeutralContentBlock::Image {
+                            blocks.push(NeutralContentBlock::InlineData {
                                 mime_type: mime.to_string(),
                                 data_base64: data.to_string(),
                             });

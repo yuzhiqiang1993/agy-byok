@@ -1,6 +1,11 @@
 export type ReasoningLevel = "off" | "low" | "medium" | "high" | "x_high" | "max" | "auto";
 export type ConfigurableReasoningLevel = "low" | "medium" | "high" | "x_high" | "max";
 
+export interface ThinkingBudgetConfig {
+  thinkingBudget: number | null;
+  minThinkingBudget: number | null;
+}
+
 export type ReasoningMapping =
   | { kind: "disabled" }
   | { kind: "adaptive" }

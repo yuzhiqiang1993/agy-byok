@@ -30,6 +30,10 @@ export function resolveCatalogModelRowState(
       )
     : undefined;
   const selectedReasoningLevels = state.catalogReasoningLevelsByModel.get(model.id);
+  const thinkingBudgets = state.catalogThinkingBudgetsByModel.get(model.id);
+  const hasReasoningConfiguration = (selectedReasoningLevels?.size ?? 0) > 0
+    || thinkingBudgets?.thinkingBudget != null
+    || thinkingBudgets?.minThinkingBudget != null;
 
   return {
     model,
@@ -43,6 +47,6 @@ export function resolveCatalogModelRowState(
       existingUpstream,
     ),
     reasoningEnabled: state.catalogReasoningEnabledModelIds.has(model.id)
-      && (selectedReasoningLevels?.size ?? 0) > 0,
+      && hasReasoningConfiguration,
   };
 }

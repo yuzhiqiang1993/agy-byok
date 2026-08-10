@@ -20,6 +20,15 @@ import type {
   ProviderCatalogContext,
   ProviderCatalogState,
 } from "./providerCatalogTypes";
+import {
+  catalogSupportedMimeTypes,
+  catalogSupportsImages,
+  catalogSupportsVideo,
+  hasMimeTypeCategory,
+  normalizeMediaMimeTypes,
+  supportsVideoInput,
+  upstreamSupportedMimeTypes,
+} from "./modelMediaCapabilities";
 import { resolveCatalogTokenLimits } from "./modelTokenLimits";
 
 export type { ProviderCatalogContext, ProviderCatalogState } from "./providerCatalogTypes";
@@ -36,7 +45,10 @@ function emptyCatalogState(): InternalProviderCatalogState {
     selectedCatalogModelIds: new Set(),
     catalogReasoningLevelsByModel: new Map(),
     catalogCustomReasoningByModel: new Map(),
+    catalogThinkingBudgetsByModel: new Map(),
     catalogVisionEnabledModelIds: new Set(),
+    catalogVideoEnabledModelIds: new Set(),
+    catalogSupportedMimeTypesByModel: new Map(),
     catalogToolsEnabledModelIds: new Set(),
     catalogReasoningEnabledModelIds: new Set(),
     catalogTokenLimitsByModel: new Map(),
@@ -65,7 +77,7 @@ export function setCatalogModelSelection(modelIds: Iterable<string>, selected: b
 
 function catalogCapability(
   model: ProviderCatalogModel,
-  name: "vision" | "tools",
+  name: "tools",
 ): boolean | undefined {
   const capabilities = model.capabilities;
   if (!capabilities || Array.isArray(capabilities)) return undefined;
@@ -115,6 +127,26 @@ function loadedCatalogState(
     existingUpstreams.map((upstream) => [upstream.upstream_model_id, upstream]),
   );
   const virtualsByUpstreamId = groupVirtualModelsByUpstreamId();
+  const videoAvailable = supportsVideoInput(protocol);
+  const mediaByModel = new Map(models.map((model) => {
+    const upstream = upstreamByModelId.get(model.id);
+    const sourceMimeTypes = upstream
+      ? upstreamSupportedMimeTypes(upstream)
+      : catalogSupportedMimeTypes(model);
+    const supportsImages = upstream?.capabilities.vision ?? catalogSupportsImages(model);
+    const supportsVideo = videoAvailable && (upstream
+      ? hasMimeTypeCategory(sourceMimeTypes, "video")
+      : catalogSupportsVideo(model));
+    return [model.id, {
+      supportsImages,
+      supportsVideo,
+      mimeTypes: normalizeMediaMimeTypes(sourceMimeTypes, {
+        supportsImages,
+        supportsVideo,
+        videoAvailable,
+      }),
+    }] as const;
+  }));
   const reasoningLevelsByModel = new Map(models.map((model) => {
     const upstream = upstreamByModelId.get(model.id);
     if (!upstream) {
@@ -139,11 +171,33 @@ function loadedCatalogState(
       const value = upstream ? customReasoningValueFromUpstream(upstream) : null;
       return value ? [[model.id, value] as const] : [];
     })),
+    catalogThinkingBudgetsByModel: new Map(models.map((model) => {
+      const upstream = upstreamByModelId.get(model.id);
+      const supportsModelBudget = protocol === "gemini_generate_content"
+        && (upstream?.capabilities.reasoning.supported ?? model.reasoning?.supported) !== false;
+      return [model.id, {
+        thinkingBudget: supportsModelBudget
+          ? upstream?.capabilities.reasoning.thinking_budget
+            ?? model.reasoning?.thinkingBudget
+            ?? null
+          : null,
+        minThinkingBudget: supportsModelBudget
+          ? upstream?.capabilities.reasoning.min_thinking_budget
+            ?? model.reasoning?.minThinkingBudget
+            ?? null
+          : null,
+      }] as const;
+    })),
     catalogVisionEnabledModelIds: new Set(models
-      .filter((model) => upstreamByModelId.get(model.id)?.capabilities.vision
-        ?? catalogCapability(model, "vision")
-        ?? true)
+      .filter((model) => mediaByModel.get(model.id)?.supportsImages)
       .map((model) => model.id)),
+    catalogVideoEnabledModelIds: new Set(models
+      .filter((model) => mediaByModel.get(model.id)?.supportsVideo)
+      .map((model) => model.id)),
+    catalogSupportedMimeTypesByModel: new Map(models.map((model) => [
+      model.id,
+      new Set(mediaByModel.get(model.id)?.mimeTypes ?? []),
+    ])),
     catalogToolsEnabledModelIds: new Set(models
       .filter((model) => upstreamByModelId.get(model.id)?.capabilities.tools
         ?? catalogCapability(model, "tools")
@@ -153,8 +207,18 @@ function loadedCatalogState(
       .filter((model) => {
         const upstream = upstreamByModelId.get(model.id);
         return upstream
-          ? Object.keys(upstream.capabilities.reasoning.levels).length > 0
-          : catalogReasoningIsAuthoritative(model);
+          ? upstream.capabilities.reasoning.supported ?? (
+              Object.keys(upstream.capabilities.reasoning.levels).length > 0
+              || upstream.capabilities.reasoning.thinking_budget != null
+              || upstream.capabilities.reasoning.min_thinking_budget != null
+            )
+          : model.reasoning?.supported ?? (
+              catalogReasoningIsAuthoritative(model)
+              || (protocol === "gemini_generate_content" && (
+                model.reasoning?.thinkingBudget != null
+                || model.reasoning?.minThinkingBudget != null
+              ))
+            );
       })
       .map((model) => model.id)),
     catalogTokenLimitsByModel: new Map(models.map((model) => [

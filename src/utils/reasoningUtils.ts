@@ -80,6 +80,11 @@ export function catalogReasoningLevelsForModel(
 
   if (existing.length > 0) return sortReasoningLevels([...new Set(existing)]);
 
+  // 顶层预算是默认请求配置，不代表上游声明了 low/high 等离散档位。
+  if (model.reasoning?.thinkingBudget != null || model.reasoning?.minThinkingBudget != null) {
+    return [];
+  }
+
   // 未声明具体等级时保留手动配置入口，避免把“目录未返回”误当成“不支持”。
   return configurable;
 }

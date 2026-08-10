@@ -85,7 +85,13 @@ export interface UpstreamModel {
   capabilities: {
     vision: boolean;
     tools: boolean;
-    reasoning: { levels: Partial<Record<ReasoningLevel, ReasoningMapping>> };
+    supported_mime_types: string[];
+    reasoning: {
+      supported: boolean | null;
+      thinking_budget: number | null;
+      min_thinking_budget: number | null;
+      levels: Partial<Record<ReasoningLevel, ReasoningMapping>>;
+    };
   };
   token_limits: ModelTokenLimits;
   compression_policy: ModelCompressionPolicy | null;

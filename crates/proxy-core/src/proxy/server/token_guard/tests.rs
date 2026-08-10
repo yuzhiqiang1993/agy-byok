@@ -102,7 +102,7 @@ async fn estimated_limits_do_not_hard_reject_requests() {
 
 #[tokio::test]
 async fn image_requests_skip_local_hard_check() {
-    let request = request_with_blocks(vec![NeutralContentBlock::Image {
+    let request = request_with_blocks(vec![NeutralContentBlock::InlineData {
         mime_type: "image/png".to_string(),
         data_base64: "large-image-data".to_string(),
     }]);

@@ -44,6 +44,7 @@ mod tests {
                 capabilities: ModelCapabilities {
                     vision: false,
                     tools: true,
+                    supported_mime_types: Vec::new(),
                     reasoning: ReasoningCapability::default(),
                 },
                 token_limits: ModelTokenLimits::default(),

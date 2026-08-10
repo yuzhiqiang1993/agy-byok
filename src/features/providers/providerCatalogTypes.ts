@@ -4,14 +4,17 @@ import type {
   Provider,
   ProviderProtocol,
 } from "../../types/config";
-import type { ConfigurableReasoningLevel } from "../../types/reasoning";
+import type { ConfigurableReasoningLevel, ThinkingBudgetConfig } from "../../types/reasoning";
 
 export interface ProviderCatalogState {
   catalogModels: ProviderCatalogModel[];
   selectedCatalogModelIds: ReadonlySet<string>;
   catalogReasoningLevelsByModel: ReadonlyMap<string, ReadonlySet<ConfigurableReasoningLevel>>;
   catalogCustomReasoningByModel: ReadonlyMap<string, string>;
+  catalogThinkingBudgetsByModel: ReadonlyMap<string, ThinkingBudgetConfig>;
   catalogVisionEnabledModelIds: ReadonlySet<string>;
+  catalogVideoEnabledModelIds: ReadonlySet<string>;
+  catalogSupportedMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
@@ -44,7 +47,10 @@ export interface CatalogModelListState extends CatalogControlState {
   catalogModels: ProviderCatalogModel[];
   selectedCatalogModelIds: Set<string>;
   catalogReasoningLevelsByModel: Map<string, Set<ConfigurableReasoningLevel>>;
+  catalogThinkingBudgetsByModel: Map<string, ThinkingBudgetConfig>;
   catalogVisionEnabledModelIds: Set<string>;
+  catalogVideoEnabledModelIds: Set<string>;
+  catalogSupportedMimeTypesByModel: Map<string, Set<string>>;
   catalogToolsEnabledModelIds: Set<string>;
   catalogReasoningEnabledModelIds: Set<string>;
   changedCatalogCapabilityModelIds: Set<string>;

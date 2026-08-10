@@ -12,6 +12,9 @@ mod tests {
         entries: impl IntoIterator<Item = (ReasoningLevel, ReasoningMapping)>,
     ) -> ReasoningCapability {
         ReasoningCapability {
+            supported: None,
+            thinking_budget: None,
+            min_thinking_budget: None,
             levels: entries.into_iter().collect::<BTreeMap<_, _>>(),
         }
     }
@@ -42,6 +45,7 @@ mod tests {
             capabilities: ModelCapabilities {
                 vision: true,
                 tools: true,
+                supported_mime_types: Vec::new(),
                 reasoning,
             },
             token_limits: ModelTokenLimits::default(),
@@ -100,6 +104,24 @@ mod tests {
         }
     }
 
+    fn video_request() -> NeutralChatRequest {
+        let mut request = basic_request();
+        request.messages[0].blocks = vec![NeutralContentBlock::InlineData {
+            mime_type: "video/mp4".to_string(),
+            data_base64: "AAAA".to_string(),
+        }];
+        request
+    }
+
+    fn inline_data_request(mime_type: &str) -> NeutralChatRequest {
+        let mut request = basic_request();
+        request.messages[0].blocks = vec![NeutralContentBlock::InlineData {
+            mime_type: mime_type.to_string(),
+            data_base64: "AAAA".to_string(),
+        }];
+        request
+    }
+
     #[test]
     fn gemini_resolves_stream_and_non_stream_endpoints() {
         let adapter = GeminiAdapter::new();
@@ -125,6 +147,157 @@ mod tests {
                 .unwrap(),
             "https://example.com/v1beta/models/test-model:generateContent?custom=1"
         );
+    }
+
+    #[test]
+    fn antigravity_parser_preserves_video_inline_data() {
+        let request = AntigravityRequestParser::parse(
+            &json!({
+                "model": "vm-1",
+                "contents": [{
+                    "role": "user",
+                    "parts": [{
+                        "inlineData": {
+                            "mimeType": "video/mp4",
+                            "data": "AAAA"
+                        }
+                    }]
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            &request.messages[0].blocks[0],
+            NeutralContentBlock::InlineData { mime_type, data_base64 }
+                if mime_type == "video/mp4" && data_base64 == "AAAA"
+        ));
+    }
+
+    #[test]
+    fn gemini_forwards_video_inline_data() {
+        let route = create_dummy_route(
+            ProviderProtocol::GeminiGenerateContent,
+            ReasoningMapping::NativeLevel("high".to_string()),
+        );
+
+        let payload = GeminiAdapter::new()
+            .build_request_payload(&route, &video_request())
+            .unwrap();
+
+        assert_eq!(
+            payload["contents"][0]["parts"][0]["inlineData"],
+            json!({ "mimeType": "video/mp4", "data": "AAAA" })
+        );
+    }
+
+    #[test]
+    fn gemini_uses_model_default_thinking_budget_without_a_reasoning_level() {
+        let mut route = create_dummy_route(
+            ProviderProtocol::GeminiGenerateContent,
+            ReasoningMapping::NativeLevel("high".to_string()),
+        );
+        route.final_reasoning_level = None;
+        route.upstream_model.capabilities.reasoning.thinking_budget = Some(10_001);
+
+        let payload = GeminiAdapter::new()
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(
+            payload["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            10_001
+        );
+    }
+
+    #[test]
+    fn gemini_reasoning_level_overrides_model_default_thinking_budget() {
+        let mut route = create_dummy_route(
+            ProviderProtocol::GeminiGenerateContent,
+            ReasoningMapping::NativeLevel("high".to_string()),
+        );
+        route.upstream_model.capabilities.reasoning.thinking_budget = Some(10_001);
+
+        let payload = GeminiAdapter::new()
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(
+            payload["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "high"
+        );
+        assert!(payload["generationConfig"]["thinkingConfig"]
+            .get("thinkingBudget")
+            .is_none());
+    }
+
+    #[test]
+    fn image_only_adapters_reject_video_inline_data() {
+        let request = video_request();
+        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
+            (
+                Box::new(OpenAIAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::OpenaiChatCompletions,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+            (
+                Box::new(OpenAIResponsesAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::OpenaiResponses,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+            (
+                Box::new(AnthropicAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::AnthropicMessages,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+        ];
+
+        for (adapter, route) in cases {
+            let error = adapter.build_request_payload(&route, &request).unwrap_err();
+            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
+            assert!(error.message.contains("video/mp4"));
+        }
+    }
+
+    #[test]
+    fn image_only_adapters_reject_unverified_image_formats() {
+        let request = inline_data_request("image/heic");
+        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
+            (
+                Box::new(OpenAIAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::OpenaiChatCompletions,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+            (
+                Box::new(OpenAIResponsesAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::OpenaiResponses,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+            (
+                Box::new(AnthropicAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::AnthropicMessages,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+        ];
+
+        for (adapter, route) in cases {
+            let error = adapter.build_request_payload(&route, &request).unwrap_err();
+            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
+            assert!(error.message.contains("image/heic"));
+        }
     }
 
     #[test]

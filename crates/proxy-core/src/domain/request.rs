@@ -2,6 +2,12 @@ use super::{model::ReasoningLevel, provider::ParameterOverrides};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub(crate) fn is_supported_inline_image_mime_type(mime_type: &str) -> bool {
+    ["image/png", "image/jpeg", "image/webp"]
+        .iter()
+        .any(|supported| mime_type.eq_ignore_ascii_case(supported))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
@@ -14,7 +20,8 @@ pub enum MessageRole {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NeutralContentBlock {
     Text(String),
-    Image {
+    /// Antigravity/Gemini 的内联二进制内容；具体协议适配器负责校验 MIME 支持范围。
+    InlineData {
         mime_type: String,
         data_base64: String,
     },

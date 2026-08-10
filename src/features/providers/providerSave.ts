@@ -133,7 +133,9 @@ function providerSelectionError(
   const missingReasoningLevels = selectedModels.find(
     (model) => catalog.catalogReasoningEnabledModelIds.has(model.id)
       && (catalog.catalogReasoningLevelsByModel.get(model.id)?.size ?? 0) === 0
-      && !catalog.catalogCustomReasoningByModel.has(model.id),
+      && !catalog.catalogCustomReasoningByModel.has(model.id)
+      && catalog.catalogThinkingBudgetsByModel.get(model.id)?.thinkingBudget == null
+      && catalog.catalogThinkingBudgetsByModel.get(model.id)?.minThinkingBudget == null,
   );
   if (missingReasoningLevels) {
     return t("models.reasoningLevelRequired", { name: missingReasoningLevels.displayName });
@@ -163,7 +165,10 @@ function createProviderSavePlan(
     selectedCatalogModelIds: catalog.selectedCatalogModelIds,
     catalogReasoningLevelsByModel: catalog.catalogReasoningLevelsByModel,
     catalogCustomReasoningByModel: catalog.catalogCustomReasoningByModel,
+    catalogThinkingBudgetsByModel: catalog.catalogThinkingBudgetsByModel,
     catalogVisionEnabledModelIds: catalog.catalogVisionEnabledModelIds,
+    catalogVideoEnabledModelIds: catalog.catalogVideoEnabledModelIds,
+    catalogSupportedMimeTypesByModel: catalog.catalogSupportedMimeTypesByModel,
     catalogToolsEnabledModelIds: catalog.catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds: catalog.catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel: catalog.catalogTokenLimitsByModel,

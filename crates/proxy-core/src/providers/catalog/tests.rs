@@ -212,6 +212,32 @@ fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
 }
 
 #[test]
+fn parses_complete_checkpointer_as_default_compression_policy() {
+    let models = parse_official_catalog_models(&json!({
+        "models": {
+            "gemini-pro": {
+                "modelExperiments": {
+                    "experiments": {
+                        "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                            "stringValue": r#"{"checkpoint_model":"MODEL_PLACEHOLDER_M71","enabled":true,"include_artifact_snapshots":true,"include_conversation_log":true,"include_last_user_message":false,"include_running_task_snapshots":true,"include_subagent_snapshots":true,"is_sync":false,"max_output_tokens":"65535","max_overhead_ratio":"0.30","max_token_limit":"734003","max_user_requests":10,"moving_window_size":"1","retry_config":{"exponential_multiplier":2,"include_error_feedback":false,"initial_sleep_duration_ms":1000,"max_retries":0},"strategy":"CHECKPOINT_STRATEGY_UNSPECIFIED","token_threshold":"524288","use_last_planner_model":true}"#
+                        }
+                    }
+                }
+            }
+        }
+    }));
+
+    let policy = models[0].default_compression_policy.as_ref().unwrap();
+    assert!(policy.enabled);
+    assert_eq!(policy.checkpoint_model, "MODEL_PLACEHOLDER_M71");
+    assert_eq!(policy.token_threshold, 524_288);
+    assert_eq!(policy.max_token_limit, 734_003);
+    assert_eq!(policy.max_output_tokens, 65_535);
+    assert!(policy.use_last_planner_model);
+    assert_eq!(policy.retry_config.initial_sleep_duration_ms, 1_000);
+}
+
+#[test]
 fn uses_official_max_tokens_as_input_limit_when_no_explicit_input_limit_exists() {
     let models = parse_official_catalog_models(&json!({
         "models": {
@@ -223,6 +249,108 @@ fn uses_official_max_tokens_as_input_limit_when_no_explicit_input_limit_exists()
 
     assert_eq!(models[0].max_tokens, Some(200_000));
     assert_eq!(models[0].input_token_limit, Some(200_000));
+}
+
+#[test]
+fn parses_official_video_and_mime_capabilities() {
+    let models = parse_official_catalog_models(&json!({
+        "models": {
+            "gemini-pro": {
+                "displayName": "Gemini Pro",
+                "supportsImages": true,
+                "supportsVideo": true,
+                "supportsThinking": true,
+                "thinkingBudget": 10001,
+                "minThinkingBudget": 128,
+                "supportedMimeTypes": {
+                    "image/heic": true,
+                    "image/png": true,
+                    "video/mp4": true,
+                    "video/webm": true,
+                    "video/disabled": false
+                }
+            }
+        }
+    }));
+
+    assert_eq!(models[0].supports_images, Some(true));
+    assert_eq!(models[0].supports_video, Some(true));
+    assert_eq!(models[0].reasoning.as_ref().unwrap().supported, Some(true));
+    assert_eq!(
+        models[0].reasoning.as_ref().unwrap().thinking_budget,
+        Some(10_001)
+    );
+    assert_eq!(
+        models[0].reasoning.as_ref().unwrap().min_thinking_budget,
+        Some(128)
+    );
+    assert_eq!(
+        models[0].supported_mime_types,
+        Some(vec![
+            "image/heic".to_string(),
+            "image/png".to_string(),
+            "video/mp4".to_string(),
+            "video/webm".to_string(),
+        ])
+    );
+}
+
+#[test]
+fn gemini_catalog_uses_max_tokens_as_input_limit() {
+    let models = parse_catalog_models(
+        &json!({
+            "models": [{
+                "name": "models/gemini-pro",
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_535
+            }]
+        }),
+        &ProviderProtocol::GeminiGenerateContent,
+    );
+
+    assert_eq!(models[0].input_token_limit, Some(1_048_576));
+    assert_eq!(models[0].output_token_limit, Some(65_535));
+}
+
+#[test]
+fn parses_dynamic_and_disabled_gemini_thinking_budgets() {
+    let models = parse_catalog_models(
+        &json!({
+            "models": [
+                {
+                    "name": "models/dynamic-thinking",
+                    "supportsThinking": true,
+                    "thinkingBudget": -1,
+                    "minThinkingBudget": 128
+                },
+                {
+                    "name": "models/thinking-disabled",
+                    "supportsThinking": true,
+                    "thinkingBudget": 0
+                },
+                {
+                    "name": "models/explicitly-unsupported",
+                    "supportsThinking": false,
+                    "reasoning": { "levels": ["high"] }
+                }
+            ]
+        }),
+        &ProviderProtocol::GeminiGenerateContent,
+    );
+
+    assert_eq!(
+        models[0].reasoning.as_ref().unwrap().thinking_budget,
+        Some(-1)
+    );
+    assert_eq!(
+        models[0].reasoning.as_ref().unwrap().min_thinking_budget,
+        Some(128)
+    );
+    assert_eq!(
+        models[1].reasoning.as_ref().unwrap().thinking_budget,
+        Some(0)
+    );
+    assert_eq!(models[2].reasoning.as_ref().unwrap().supported, Some(false));
 }
 
 #[test]
@@ -637,6 +765,8 @@ fn parses_reasoning_metadata_without_assuming_missing_capability() {
                     ReasoningMapping::Effort("xhigh".to_string())
                 ),
             ]),
+            thinking_budget: None,
+            min_thinking_budget: None,
         })
     );
     assert_eq!(models[1].reasoning, None);
@@ -646,6 +776,8 @@ fn parses_reasoning_metadata_without_assuming_missing_capability() {
             supported: Some(false),
             levels: Vec::new(),
             mappings: BTreeMap::new(),
+            thinking_budget: None,
+            min_thinking_budget: None,
         })
     );
     assert_eq!(
@@ -654,6 +786,8 @@ fn parses_reasoning_metadata_without_assuming_missing_capability() {
             supported: Some(true),
             levels: Vec::new(),
             mappings: BTreeMap::new(),
+            thinking_budget: None,
+            min_thinking_budget: None,
         })
     );
     assert_eq!(
@@ -662,6 +796,8 @@ fn parses_reasoning_metadata_without_assuming_missing_capability() {
             supported: Some(true),
             levels: Vec::new(),
             mappings: BTreeMap::new(),
+            thinking_budget: None,
+            min_thinking_budget: None,
         })
     );
 }
