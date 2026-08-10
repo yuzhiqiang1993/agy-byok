@@ -20,12 +20,15 @@ jobs:
           - platform: macos-14
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
+            asset_name_pattern: AGY-BYOK_[version]_macOS-Apple-Silicon[ext]
           - platform: macos-14
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
+            asset_name_pattern: AGY-BYOK_[version]_macOS-Intel[ext]
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ""
+            asset_name_pattern: AGY-BYOK_[version]_Windows-x64[ext]
 
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -76,14 +79,21 @@ jobs:
           projectPath: .
           tagName: app-v__VERSION__
           releaseName: AGY BYOK v__VERSION__
-          releaseBody: See the release assets to download or update AGY BYOK.
+          releaseBody: |
+            请按设备选择安装包：
+
+            - macOS Apple Silicon（M 系列）：下载名称包含 `macOS-Apple-Silicon` 的 DMG
+            - macOS Intel：下载名称包含 `macOS-Intel` 的 DMG
+            - Windows 64 位：下载 EXE
+
+            其余文件由应用自动更新使用，无需手动下载。
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: "[platform]-[arch]-[bundle]"
+          releaseAssetNamePattern: ${{ matrix.asset_name_pattern }}
+          uploadWorkflowArtifacts: false
           uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: false
 
   finalize-updater:
     name: Finalize updater manifest
@@ -143,13 +153,12 @@ jobs:
               )
 
           expected_suffixes = {
-              "darwin-aarch64": "_aarch64.app.tar.gz",
-              "darwin-aarch64-app": "_aarch64.app.tar.gz",
-              "darwin-x86_64": "_x64.app.tar.gz",
-              "darwin-x86_64-app": "_x64.app.tar.gz",
-              "windows-x86_64": "_x64-setup.exe",
-              "windows-x86_64-nsis": "_x64-setup.exe",
-              "windows-x86_64-msi": "_x64_en-US.msi",
+              "darwin-aarch64": "_macOS-Apple-Silicon.app.tar.gz",
+              "darwin-aarch64-app": "_macOS-Apple-Silicon.app.tar.gz",
+              "darwin-x86_64": "_macOS-Intel.app.tar.gz",
+              "darwin-x86_64-app": "_macOS-Intel.app.tar.gz",
+              "windows-x86_64": "_Windows-x64.exe",
+              "windows-x86_64-nsis": "_Windows-x64.exe",
           }
           for platform, suffix in expected_suffixes.items():
               entry = latest.get("platforms", {}).get(platform)
