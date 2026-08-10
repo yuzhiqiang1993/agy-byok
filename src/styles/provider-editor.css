@@ -510,7 +510,7 @@ html[data-theme="dark"] .preset-tab:hover {
 
 .presets-card-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
   gap: 8.5px;
   max-height: 450px;
   overflow-y: auto;
@@ -623,14 +623,32 @@ html[data-theme="dark"] .preset-card-tag {
   border-style: solid;
 }
 
+.catalog-fixed-top {
+  flex: 0 0 auto;
+  padding: 14px 22px 10px;
+  border-bottom: 1px solid var(--surface-border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .modal-footer-bar {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 6px;
-  padding-top: 14px;
+  padding: 14px 22px 18px;
   border-top: 1px solid var(--surface-border);
+  background: var(--surface);
+  margin: 0;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.025);
+  position: relative;
+  z-index: 10;
+}
+.catalog-save-row.modal-footer-bar {
+  justify-content: space-between;
 }
 .modal-footer-bar button {
   min-height: 38px;

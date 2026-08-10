@@ -363,7 +363,7 @@
 
                 <!-- 步骤 3：模型挑选列表 -->
                 <section id="catalog-results" class="catalog-results wizard-step" aria-labelledby="catalog-title" hidden>
-                  <div class="step-content-scroll">
+                  <div class="catalog-fixed-top">
                     <div class="catalog-header">
                       <div class="catalog-title-group">
                         <h3 id="catalog-title" data-i18n="models.catalogTitle">选择并保存要使用的模型</h3>
@@ -374,7 +374,9 @@
                       <input id="catalog-search" type="search" placeholder="搜索模型名称或 ID" data-i18n-placeholder="models.searchPlaceholder" aria-label="搜索模型" data-i18n-aria-label="models.searchPlaceholder" />
                       <label class="check-label"><input id="select-all-models" type="checkbox" /> <span data-i18n="models.selectAll">选择当前结果</span></label>
                     </div>
+                  </div>
 
+                  <div class="step-content-scroll">
                     <div id="catalog-model-list" class="catalog-model-list"></div>
                     <p class="catalog-help catalog-capability-help" data-i18n="models.capabilityHelp">图片与工具调用默认开启；按需开启“推理强度”即可配置提供给 IDE / App / CLI 的思考等级。</p>
                   </div>
