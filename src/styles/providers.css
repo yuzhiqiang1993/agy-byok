@@ -128,9 +128,10 @@
   padding: 5px 8px;
   border: 1px solid #e3e8ef;
   border-radius: 7px;
-  background: #f7f9fb;
-  color: #697586;
-  font-size: 10px;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 .provider-endpoint-text {
   overflow: hidden;
@@ -154,7 +155,7 @@
   background: rgba(135, 151, 176, 0.2);
 }
 .provider-meta { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.provider-meta strong { color: #475569; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.provider-meta strong { color: var(--text-secondary); font-size: 12px; font-weight: 650; white-space: nowrap; }
 .provider-actions {
   display: flex;
   min-width: 0;
@@ -164,7 +165,7 @@
   flex-wrap: wrap;
   margin-top: 14px;
   padding: 10px 0 12px;
-  border-bottom: 1px solid #e8ecf1;
+  border-bottom: 1px solid var(--surface-border);
 }
 .provider-edit-actions, .provider-test-actions {
   display: flex;
@@ -190,14 +191,14 @@
 .provider-models-header {
   min-height: 38px;
   padding: 0 4px;
-  border-bottom: 1px solid #e8ecf1;
-  color: #5a6b82;
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--surface-border);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 .provider-models-header span:last-child { text-align: right; }
-.provider-model-empty { margin: 12px 0 0; color: #4b5563; font-size: 11px; }
+.provider-model-empty { margin: 12px 0 0; color: var(--text-muted); font-size: 12.5px; }
 .provider-model-item {
   min-width: 0;
   min-height: 56px;
@@ -234,9 +235,9 @@
 }
 .provider-model-main h4 {
   margin: 0;
-  color: #202a3c;
-  font-size: 12px;
-  font-weight: 680;
+  color: var(--text-main);
+  font-size: 13.5px;
+  font-weight: 650;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -276,12 +277,12 @@
   align-items: center;
   gap: 6px;
   padding: 4px 9px;
-  border: 1px solid #d6e0ef;
+  border: 1px solid var(--surface-border);
   border-radius: 7px;
-  background: #f5f8fc;
-  color: #48617e;
-  font-size: 10px;
-  font-weight: 700;
+  background: var(--surface-inner);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 .model-variant-pill .connection-result {
   display: inline-block;
@@ -331,12 +332,12 @@
   min-height: 22px;
   align-items: center;
   justify-content: center;
-  padding: 3px 6px;
-  border: 1px solid #e1e6ed;
+  padding: 3px 7px;
+  border: 1px solid var(--surface-border);
   border-radius: 6px;
-  background: #f8f9fb;
-  color: #2563eb;
-  font-size: 9px;
+  background: var(--surface-inner);
+  color: var(--accent);
+  font-size: 11px;
   font-weight: 650;
   line-height: 1;
   white-space: nowrap;
@@ -347,8 +348,8 @@
 .connection-result {
   max-width: 340px;
   margin: 8px 0 0;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }

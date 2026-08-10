@@ -13,25 +13,29 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
 }
 .activity-search-wrap {
-  flex: 1;
-  max-width: 320px;
+  flex: 1 1 260px;
+  max-width: 340px;
 }
 .activity-search-input {
   width: 100%;
-  height: 34px;
+  height: 36px;
+  min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--surface-border);
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--surface-inner);
   font-size: 13px;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--text-main);
   outline: none;
-  transition: border-color 0.2s ease;
+  transition: all 0.18s ease;
 }
 .activity-search-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2.5px var(--accent-soft);
 }
 .activity-actions {
   display: flex;
@@ -40,12 +44,60 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.activity-stat-pill {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface-inner);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.activity-actions .check-label {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.activity-actions button {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
 .activity-filter {
-  min-height: 34px;
-  padding: 6px 9px;
-  border: 1px solid #d5dbd6;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68);
+  min-height: 36px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .activity-privacy { line-height: 1.5; }

@@ -16,9 +16,9 @@
   border-left: 1px solid #e2e8f0;
 }
 .catalog-capability-title {
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
@@ -37,9 +37,9 @@
   gap: 8px;
 }
 .catalog-token-title {
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
   letter-spacing: -0.01em;
 }
 .catalog-token-fields {
@@ -52,8 +52,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #64748b;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -61,8 +61,8 @@
   display: inline-flex;
   min-width: max-content;
   align-items: center;
-  color: #0f172a;
-  font-size: 13px;
+  color: var(--text-main);
+  font-size: 13.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -110,9 +110,9 @@
 }
 .catalog-token-context {
   min-width: 0;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.4;
 }
 .catalog-checkpoint-controls {
@@ -121,7 +121,7 @@
   flex-direction: column;
   gap: 10px;
   padding-top: 12px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--surface-border);
 }
 .catalog-checkpoint-mode {
   min-width: 150px;
@@ -139,8 +139,8 @@
 .catalog-checkpoint-preview {
   min-width: 0;
   margin: 0;
-  color: #64748b;
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: 12px;
   line-height: 1.45;
 }
 .catalog-checkpoint-preview.clipped { color: #8a6417; }

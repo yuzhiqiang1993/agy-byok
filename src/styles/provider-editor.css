@@ -212,7 +212,7 @@ html[data-theme="dark"] .wizard-step-node .step-num {
 }
 .form-grid > * { align-self: start; }
 .form-grid label { display: grid; align-content: start; gap: 5px; }
-.field-label-text, legend { color: var(--text-main); font-size: 12.5px; font-weight: 600; }
+.field-label-text, legend { color: var(--text-main); font-size: 13.5px; font-weight: 600; }
 .form-grid label.field-label {
   display: flex;
   align-items: center;
@@ -577,7 +577,7 @@ html[data-theme="dark"] .preset-tab:hover {
 }
 
 .preset-card-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
   line-height: 1.2;
@@ -588,12 +588,12 @@ html[data-theme="dark"] .preset-tab:hover {
 }
 
 .preset-card-tag {
-  padding: 1.5px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.05);
   color: var(--text-secondary);
-  font-size: 9.5px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 650;
   letter-spacing: 0.01em;
   flex-shrink: 0;
   margin-left: auto;
@@ -662,16 +662,16 @@ html[data-theme="dark"] .preset-card-tag {
   border-radius: 8px;
 }
 .field-hint {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12.5px;
+  line-height: 1.4;
   min-height: 16px;
 }
 .protocol-help {
-  margin: 3px 0 0;
+  margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 12.5px;
+  line-height: 1.4;
   min-height: 16px;
 }
