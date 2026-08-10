@@ -193,16 +193,27 @@ function bindLaunchAction<S extends IntegrationStatus>(
 ): void {
   if (!spec.launch) return;
   button.addEventListener("click", () => {
-    const restarting = spec.isRunning(spec.getCurrentStatus());
-    const label = clientLabel(spec.client);
-    void withClientBusy(button, spec.client, async () => {
-      await spec.launch?.();
-      // 启动或重启成功后，忙碌态恢复时应继续显示“重启”。
-      button.dataset.i18n = "overview.restart";
-      button.textContent = t("overview.restart");
-      showNotice(t(restarting ? "overview.hostRestarted" : "overview.hostLaunched", { client: label }));
-      window.setTimeout(() => void spec.refresh().catch(() => undefined), 700);
-    }, showNotice, t(restarting ? "overview.hostRestarting" : "overview.hostLaunching", { client: label }));
+    void (async () => {
+      const restarting = spec.isRunning(spec.getCurrentStatus());
+      const label = clientLabel(spec.client);
+      if (restarting) {
+        const confirmed = await confirmHostAction(
+          t("overview.hostRestartConfirm", { client: label }),
+          t("overview.hostRestartTitle"),
+          t("overview.hostRestartOk"),
+          t("overview.hostCancel"),
+        );
+        if (!confirmed) return;
+      }
+      await withClientBusy(button, spec.client, async () => {
+        await spec.launch?.();
+        // 启动或重启成功后，忙碌态恢复时应继续显示“重启”。
+        button.dataset.i18n = "overview.restart";
+        button.textContent = t("overview.restart");
+        showNotice(t(restarting ? "overview.hostRestarted" : "overview.hostLaunched", { client: label }));
+        window.setTimeout(() => void spec.refresh().catch(() => undefined), 700);
+      }, showNotice, t(restarting ? "overview.hostRestarting" : "overview.hostLaunching", { client: label }));
+    })();
   });
 }
 
