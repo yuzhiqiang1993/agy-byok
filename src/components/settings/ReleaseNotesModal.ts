@@ -57,14 +57,8 @@ export function openReleaseNotesModal(
       modal.close();
       onInstall();
     },
-    onCancel: () => {
-      // Just close
-    }
+    onClosed: () => {
+      currentUpdate = null;
+    },
   });
-
-  const originalClose = modal.close;
-  modal.close = () => {
-    currentUpdate = null;
-    originalClose();
-  };
 }

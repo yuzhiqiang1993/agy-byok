@@ -1,4 +1,7 @@
 import { t } from "../../i18n";
+import { visibleFocusableElements } from "../../utils/domUtils";
+
+let nextModalId = 0;
 
 export interface ModalOptions {
   title: string | HTMLElement;
@@ -10,6 +13,7 @@ export interface ModalOptions {
   cancelLabel?: string;
   onOk?: () => void | Promise<void>;
   onCancel?: () => void;
+  onClosed?: () => void;
   dialogClassName?: string;
   bodyClassName?: string;
   closeOnBackdropClick?: boolean;
@@ -18,9 +22,15 @@ export interface ModalOptions {
 export interface ModalInstance {
   element: HTMLElement;
   close: () => void;
+  setBusy: (busy: boolean, busyLabel?: string) => void;
 }
 
 export function createModal(options: ModalOptions): ModalInstance {
+  const modalId = `agy-modal-${++nextModalId}`;
+  const returnFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const previousBodyOverflow = document.body.style.overflow;
   const overlay = document.createElement("div");
   overlay.className = "agy-modal";
 
@@ -44,6 +54,7 @@ export function createModal(options: ModalOptions): ModalInstance {
   titleRow.className = "agy-modal-title-row";
   
   const titleEl = document.createElement("strong");
+  titleEl.id = `${modalId}-title`;
   titleEl.className = "agy-modal-title";
   if (typeof options.title === "string") {
     titleEl.textContent = options.title;
@@ -51,6 +62,7 @@ export function createModal(options: ModalOptions): ModalInstance {
     titleEl.append(options.title);
   }
   titleRow.append(titleEl);
+  dialog.setAttribute("aria-labelledby", titleEl.id);
 
   if (options.titleExtras) {
     titleRow.append(...options.titleExtras);
@@ -60,6 +72,7 @@ export function createModal(options: ModalOptions): ModalInstance {
 
   if (options.subtitle) {
     const subtitleEl = document.createElement("p");
+    subtitleEl.id = `${modalId}-subtitle`;
     subtitleEl.className = "agy-modal-subtitle";
     if (typeof options.subtitle === "string") {
       subtitleEl.textContent = options.subtitle;
@@ -67,6 +80,7 @@ export function createModal(options: ModalOptions): ModalInstance {
       subtitleEl.append(options.subtitle);
     }
     heading.append(subtitleEl);
+    dialog.setAttribute("aria-describedby", subtitleEl.id);
   }
 
   const closeButton = document.createElement("button");
@@ -85,6 +99,7 @@ export function createModal(options: ModalOptions): ModalInstance {
 
   // Footer
   let footer: HTMLElement | undefined;
+  let okButton: HTMLButtonElement | null = null;
   if (options.footer) {
     footer = options.footer;
     footer.classList.add("agy-modal-footer");
@@ -98,22 +113,19 @@ export function createModal(options: ModalOptions): ModalInstance {
       cancelBtn.type = "button";
       cancelBtn.className = "secondary";
       cancelBtn.textContent = options.cancelLabel ?? t("models.cancel"); // Changed to common cancel if needed, using models.cancel for now
-      cancelBtn.addEventListener("click", () => {
-        if (options.onCancel) options.onCancel();
-        close();
-      });
+      cancelBtn.addEventListener("click", () => cancel());
       footer.append(cancelBtn);
     }
     
     if (options.onOk || options.okLabel) {
-      const okBtn = document.createElement("button");
-      okBtn.type = "button";
-      okBtn.className = "primary";
-      okBtn.textContent = options.okLabel ?? t("modal.confirmOk");
-      okBtn.addEventListener("click", () => {
+      okButton = document.createElement("button");
+      okButton.type = "button";
+      okButton.className = "primary";
+      okButton.textContent = options.okLabel ?? t("modal.confirmOk");
+      okButton.addEventListener("click", () => {
         if (options.onOk) void options.onOk();
       });
-      footer.append(okBtn);
+      footer.append(okButton);
     }
   }
 
@@ -122,34 +134,88 @@ export function createModal(options: ModalOptions): ModalInstance {
   overlay.append(backdrop, dialog);
 
   let isClosed = false;
+  let isBusy = false;
+  // busy 结束后恢复每个控件原本的禁用状态，避免误启用业务上不可操作的字段。
+  const disabledStates = new Map<
+    HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement,
+    boolean
+  >();
   const close = () => {
     if (isClosed) return;
     isClosed = true;
     overlay.remove();
     document.removeEventListener("keydown", onKeyDown);
-    if (document.body.style.overflow === "hidden") {
-        document.body.style.overflow = "";
+    document.body.style.overflow = previousBodyOverflow;
+    options.onClosed?.();
+    if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
+  };
+
+  const cancel = () => {
+    if (isBusy || isClosed) return;
+    options.onCancel?.();
+    close();
+  };
+
+  const setBusy = (busy: boolean, busyLabel?: string) => {
+    if (isClosed || isBusy === busy) return;
+    isBusy = busy;
+    dialog.setAttribute("aria-busy", String(busy));
+    const controls = dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>(
+      "button, input, select, textarea",
+    );
+    if (busy) {
+      disabledStates.clear();
+      controls.forEach((control) => {
+        disabledStates.set(control, control.disabled);
+        control.disabled = true;
+      });
+    } else {
+      controls.forEach((control) => {
+        control.disabled = disabledStates.get(control) ?? control.disabled;
+      });
+      disabledStates.clear();
+    }
+    if (okButton) {
+      okButton.textContent = busy && busyLabel
+        ? busyLabel
+        : options.okLabel ?? t("modal.confirmOk");
     }
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      if (options.onCancel) options.onCancel();
-      close();
+      if (isBusy) return;
+      e.preventDefault();
+      cancel();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    // 对话框打开期间将键盘焦点约束在内部，避免误操作被遮罩覆盖的页面。
+    const focusable = visibleFocusableElements(dialog);
+    if (focusable.length === 0) {
+      e.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !dialog.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
+      e.preventDefault();
+      first.focus();
     }
   };
 
-  closeButton.addEventListener("click", () => {
-    if (options.onCancel) options.onCancel();
-    close();
-  });
+  closeButton.addEventListener("click", cancel);
 
   if (options.closeOnBackdropClick !== false) {
     backdrop.addEventListener("click", (e) => {
       // Only close if clicking the backdrop itself, not its children
       if (e.target === backdrop) {
-          if (options.onCancel) options.onCancel();
-          close();
+        cancel();
       }
     });
   }
@@ -162,5 +228,6 @@ export function createModal(options: ModalOptions): ModalInstance {
   return {
     element: overlay,
     close,
+    setBusy,
   };
 }

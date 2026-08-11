@@ -44,7 +44,6 @@ interface ReasoningModalContext {
 let activeReasoningModel: ProviderCatalogModel | null = null;
 let activeContext: ReasoningModalContext | null = null;
 let currentModal: ModalInstance | null = null;
-let reasoningReturnFocus: HTMLElement | null = null;
 
 // Keep track of active DOM elements for i18n updates if language changes while open
 let activeLabels: HTMLSpanElement[] = [];
@@ -119,9 +118,6 @@ function readBudgetInput(
 }
 
 export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
-  reasoningReturnFocus = document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : null;
   activeReasoningModel = model;
   activeContext = context;
   const draftReasoningLevels = new Set(sortReasoningLevels(context.currentLevels));
@@ -273,26 +269,16 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
       );
       currentModal?.close();
     },
-    onCancel: () => {
-      // Just close
-    }
+    onClosed: () => {
+      activeReasoningModel = null;
+      activeContext = null;
+      currentModal = null;
+      activeLabels = [];
+      activeTestButtons = [];
+      activeReadOnlyNote = null;
+      activeBudgetLabels = [];
+    },
   });
-  
-  // Custom close cleanup
-  const originalClose = currentModal.close;
-  currentModal.close = () => {
-    originalClose();
-    activeReasoningModel = null;
-    activeContext = null;
-    currentModal = null;
-    activeLabels = [];
-    activeTestButtons = [];
-    activeReadOnlyNote = null;
-    activeBudgetLabels = [];
-    if (reasoningReturnFocus?.isConnected) {
-        window.setTimeout(() => reasoningReturnFocus?.focus(), 0);
-    }
-  };
 
   // Focus first checkbox
   window.setTimeout(() => {

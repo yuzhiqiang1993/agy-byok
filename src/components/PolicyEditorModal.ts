@@ -2,7 +2,7 @@ import { t } from "../i18n";
 import type { UpstreamCompressionPolicy } from "../types/catalog";
 import type { ModelCompressionPolicy } from "../types/config";
 import { errorMessage } from "../utils/errorUtils";
-import { createModal } from "./common/Modal";
+import { createModal, type ModalInstance } from "./common/Modal";
 
 type CompressionPresetId =
   | "EXTREMELY_CONSERVATIVE"
@@ -505,16 +505,10 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     render();
   });
 
-  let modal: any;
+  let modal: ModalInstance;
 
   const setSaving = (saving: boolean): void => {
-    for (const control of body.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>("button, input, select")) {
-      control.disabled = saving;
-    }
-    const saveBtn = modal.element.querySelector(".agy-modal-footer .primary");
-    if (saveBtn) {
-       saveBtn.textContent = saving ? t("models.saving") : t("common.save");
-    }
+    modal.setBusy(saving, t("models.saving"));
   };
 
   const titleExtras: HTMLElement[] = [];
@@ -559,18 +553,15 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
           error.focus();
         });
     },
-    onCancel: () => {
-        // Just close
-    }
+    onClosed: () => {
+      if (returnFocus?.isConnected) return;
+      const replacement = [...document.querySelectorAll<HTMLElement>("[data-policy-focus-key]")]
+        .find((element) => element.dataset.policyFocusKey === options.focusKey);
+      const focusTarget = replacement ?? document.querySelector<HTMLElement>(".provider-tab-card.active");
+      if (focusTarget?.isConnected) window.setTimeout(() => focusTarget.focus(), 0);
+    },
   });
-
-  const originalClose = modal.close;
-  modal.close = () => {
-      originalClose();
-      if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
-  };
 
   render();
   window.setTimeout(() => presetSelect.focus(), 0);
 }
-
