@@ -232,6 +232,7 @@ export const enUS: TranslationDict = {
     presetUnknownLimit: "Model capacity unavailable",
     presetUnsupported: "Not supported by this model",
     policyPresetHelp: "Choose a context-capacity preset first. You can use its fixed values or edit them as a custom policy.",
+    policyCustomHelp: "Click percentages for quick setup, or type exact token counts below as fine-tuning fallback.",
     policyEditPreset: "Edit this preset",
     policyOfficialDefaultHelp: "Do not add a model-level override; preserve the native Checkpointer configuration returned by the official catalog.",
     policyCustomUnconfiguredHelp: "Do not add a model-level override; follow this upstream model's own context behavior.",

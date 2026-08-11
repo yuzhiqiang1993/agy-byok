@@ -180,7 +180,7 @@
 }
 
 .policy-editor-dialog {
-  width: min(620px, calc(100vw - 32px));
+  width: min(700px, calc(100vw - 32px));
 }
 .policy-editor-heading,
 .raw-config-heading {
@@ -230,14 +230,75 @@
   gap: 16px;
   padding: 20px 24px;
 }
-.policy-preset-field,
-.policy-custom-grid label {
+.policy-preset-field {
   display: flex;
   flex-direction: column;
   gap: 7px;
   color: var(--text-main);
   font-size: 12px;
   font-weight: 650;
+}
+.policy-custom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+}
+.policy-field-title {
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 650;
+}
+.policy-percentage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.policy-percentage-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 23px;
+  padding: 0 6px;
+  border: 1px solid var(--surface-border);
+  border-radius: 5px;
+  background: var(--surface, #ffffff);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.policy-percentage-btn:hover:not(.disabled):not(.active) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.policy-percentage-btn.active {
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent, #2563eb);
+  font-weight: 600;
+}
+.policy-percentage-btn.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.policy-number-input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface, #ffffff);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .policy-preset-segmented {
   display: flex;

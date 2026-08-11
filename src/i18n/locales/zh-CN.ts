@@ -202,6 +202,7 @@ export const zhCN = {
     presetUnknownLimit: "缺少模型容量",
     presetUnsupported: "当前模型不支持",
     policyPresetHelp: "先选择上下文容量档位；固定值可以直接使用，也可以修改为自定义策略。",
+    policyCustomHelp: "可点击百分比快速设定，也可以手动输入具体 Token 值作为精准调整。",
     policyEditPreset: "修改本档",
     policyOfficialDefaultHelp: "不设置模型级覆盖，保留官方目录返回的原生 Checkpointer 配置。",
     policyCustomUnconfiguredHelp: "不设置模型级覆盖，遵循该上游模型自身的上下文规则。",

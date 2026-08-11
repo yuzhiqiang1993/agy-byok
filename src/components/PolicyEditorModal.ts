@@ -46,7 +46,7 @@ interface PolicyEditorModalOptions {
 
 const DEFAULT_OUTPUT_RESERVE = 16_384;
 const MAX_OUTPUT_RESERVE = 65_535;
-const OUTPUT_RESERVE_OPTIONS = [DEFAULT_OUTPUT_RESERVE, MAX_OUTPUT_RESERVE] as const;
+
 const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M71";
 const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
   "MODEL_PLACEHOLDER_M71",
@@ -560,78 +560,23 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     field: "token_threshold" | "max_token_limit" | "max_output_tokens",
   ): HTMLLabelElement => {
     const label = document.createElement("label");
+    label.className = "policy-custom-field";
+
     const text = document.createElement("span");
+    text.className = "policy-field-title";
     text.textContent = labelText;
-    if (field === "max_output_tokens") {
-      const controls = document.createElement("div");
-      controls.className = "policy-output-controls";
-      const select = document.createElement("select");
-      const currentValue = draft?.[field] ?? DEFAULT_OUTPUT_RESERVE;
-      for (const value of OUTPUT_RESERVE_OPTIONS) {
-        const option = document.createElement("option");
-        option.value = String(value);
-        option.textContent = value.toLocaleString();
-        select.append(option);
-      }
-      const customOption = document.createElement("option");
-      customOption.value = "CUSTOM";
-      customOption.textContent = t("models.presetCustom");
-      select.append(customOption);
-
-      const customInput = document.createElement("input");
-      customInput.type = "number";
-      customInput.min = String(DEFAULT_OUTPUT_RESERVE);
-      customInput.max = String(MAX_OUTPUT_RESERVE);
-      customInput.step = "1";
-      customInput.inputMode = "numeric";
-      customInput.value = String(currentValue);
-      const isPresetValue = OUTPUT_RESERVE_OPTIONS.includes(
-        currentValue as (typeof OUTPUT_RESERVE_OPTIONS)[number],
-      );
-      select.value = isPresetValue ? String(currentValue) : "CUSTOM";
-      customInput.hidden = isPresetValue;
-
-      const validateDraft = () => {
-        if (!draft) return;
-        if (!isValidPolicy(draft, options.capacity, options.outputTokenLimit)) {
-          error.textContent = t("models.policyInvalid");
-          error.hidden = false;
-        } else {
-          error.hidden = true;
-        }
-        renderCapacityBarInForm();
-      };
-
-      select.addEventListener("change", () => {
-        if (!draft) return;
-        if (select.value === "CUSTOM") {
-          customInput.hidden = false;
-          draft[field] = Number(customInput.value);
-        } else {
-          customInput.hidden = true;
-          draft[field] = Number(select.value);
-        }
-        validateDraft();
-      });
-      customInput.addEventListener("input", () => {
-        if (!draft) return;
-        draft[field] = Number(customInput.value);
-        validateDraft();
-      });
-      controls.append(select, customInput);
-      label.append(text, controls);
-      return label;
-    }
+    label.append(text);
 
     const input = document.createElement("input");
     input.type = "number";
     input.min = "1";
     input.step = "1";
     input.inputMode = "numeric";
+    input.className = "policy-number-input";
     input.value = draft ? String(draft[field]) : "";
-    input.addEventListener("input", () => {
+
+    const validateDraft = () => {
       if (!draft) return;
-      draft[field] = Number(input.value);
       if (!isValidPolicy(draft, options.capacity, options.outputTokenLimit)) {
         error.textContent = t("models.policyInvalid");
         error.hidden = false;
@@ -639,8 +584,107 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         error.hidden = true;
       }
       renderCapacityBarInForm();
+      updatePillHighlight();
+    };
+
+    const capacity = options.capacity;
+
+    if (field === "max_output_tokens") {
+      const pillRow = document.createElement("div");
+      pillRow.className = "policy-percentage-row";
+
+      const reserves = [16_384, 32_768, 44_640, 65_535];
+      const pillButtons: HTMLButtonElement[] = [];
+
+      for (const val of reserves) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "policy-percentage-btn";
+        btn.textContent = formatTokenCount(val);
+        btn.title = formatTokenCount(val);
+        if (options.outputTokenLimit && val > options.outputTokenLimit) {
+          btn.disabled = true;
+          btn.classList.add("disabled");
+        }
+        btn.addEventListener("click", () => {
+          if (!draft) return;
+          draft[field] = val;
+          input.value = String(val);
+          validateDraft();
+        });
+        pillButtons.push(btn);
+        pillRow.append(btn);
+      }
+
+      const updatePillHighlight = () => {
+        const current = draft?.[field];
+        for (let i = 0; i < reserves.length; i++) {
+          const isMatch = current === reserves[i];
+          pillButtons[i].classList.toggle("active", isMatch);
+        }
+      };
+
+      input.addEventListener("input", () => {
+        if (!draft) return;
+        draft[field] = Number(input.value);
+        validateDraft();
+      });
+
+      label.append(pillRow, input);
+      updatePillHighlight();
+      return label;
+    }
+
+    const percentages = field === "token_threshold"
+      ? [20, 30, 40, 50, 60, 70, 80]
+      : [40, 50, 60, 70, 80, 90, 95];
+
+    const pillRow = document.createElement("div");
+    pillRow.className = "policy-percentage-row";
+    const pillButtons: { btn: HTMLButtonElement; pct: number }[] = [];
+
+    if (capacity && capacity > 0) {
+      for (const pct of percentages) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "policy-percentage-btn";
+        btn.textContent = `${pct}%`;
+        const calculatedTokens = Math.round(capacity * (pct / 100));
+        btn.title = formatTokenCount(calculatedTokens);
+
+        btn.addEventListener("click", () => {
+          if (!draft) return;
+          draft[field] = calculatedTokens;
+          input.value = String(calculatedTokens);
+          validateDraft();
+        });
+
+        pillButtons.push({ btn, pct });
+        pillRow.append(btn);
+      }
+    }
+
+    const updatePillHighlight = () => {
+      if (!capacity || capacity <= 0 || !draft) return;
+      const currentVal = draft[field];
+      const currentPct = (currentVal / capacity) * 100;
+      for (const { btn, pct } of pillButtons) {
+        const isMatch = Math.abs(currentPct - pct) < 1.5;
+        btn.classList.toggle("active", isMatch);
+      }
+    };
+
+    input.addEventListener("input", () => {
+      if (!draft) return;
+      draft[field] = Number(input.value);
+      validateDraft();
     });
-    label.append(text, input);
+
+    if (capacity && capacity > 0) {
+      label.append(pillRow);
+    }
+    label.append(input);
+    updatePillHighlight();
     return label;
   };
 
@@ -658,7 +702,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       return;
     }
 
-    help.textContent = t("models.policyPresetHelp");
+    help.textContent = mode === "CUSTOM" ? t("models.policyCustomHelp") : t("models.policyPresetHelp");
     if (!draft) {
       draft = createPolicy(DEFAULT_POLICY_LIMITS, defaultWorker);
     }
