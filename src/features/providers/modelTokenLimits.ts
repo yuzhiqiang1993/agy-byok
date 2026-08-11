@@ -25,6 +25,7 @@ export const CONTEXT_WINDOW_OPTIONS = [
   128_000,
   200_000,
   256_000,
+  372_000,
   500_000,
   1_000_000,
   1_048_576,
@@ -33,6 +34,7 @@ export const CONTEXT_WINDOW_OPTIONS = [
 export const TOKEN_INPUT_LIMIT_OPTIONS = [
   128_000,
   256_000,
+  372_000,
   400_000,
   512_000,
   1_000_000,
@@ -92,6 +94,24 @@ export function tokenLimitsForPreset(id: string): ModelTokenLimits | null {
         output_token_limit_source: "configured",
       }
     : null;
+}
+
+export function effectiveCompressionCapacity(limits: ModelTokenLimits): number | null {
+  const contextWindow = limits.context_window;
+  const inputTokenLimit = limits.input_token_limit;
+  if (
+    limits.context_window_source === "estimated"
+    && (limits.input_token_limit_source === "catalog"
+      || limits.input_token_limit_source === "configured")
+    && inputTokenLimit != null
+    && inputTokenLimit > 0
+  ) {
+    return inputTokenLimit;
+  }
+  const capacities = [contextWindow, inputTokenLimit].filter(
+    (value): value is number => value != null && Number.isFinite(value) && value > 0,
+  );
+  return capacities.length > 0 ? Math.min(...capacities) : null;
 }
 
 export function catalogContextWindow(model: ProviderCatalogModel): number | undefined {

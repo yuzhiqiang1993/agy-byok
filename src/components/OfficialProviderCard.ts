@@ -40,6 +40,12 @@ function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElemen
 let cachedOfficialModels: ProviderCatalogModel[] | null = null;
 let cachedModelAliases: Map<string, string> = new Map();
 
+function isOfficialSourceUnavailable(error: unknown): boolean {
+  const code = error instanceof Error ? error.message : String(error);
+  return code === "official_models_host_not_installed"
+    || code === "official_models_host_not_running";
+}
+
 export function getCachedOfficialModelCount(): number | null {
   return cachedOfficialModels ? filterMainAgentModels(cachedOfficialModels).length : null;
 }
@@ -160,7 +166,6 @@ function buildOfficialModelCards(
         defaultHelp: t("models.policyOfficialDefaultHelp"),
         emptyNotice: t("models.policyEmptyNotice"),
         upstreamCompression: item.upstreamCompression,
-        preferCurrentWorker: false,
         focusKey: `official:${item.id}`,
         onSave: async (policy) => {
           await updateConfig((current) => {
@@ -251,9 +256,7 @@ export function renderOfficialProviderCard(options: {
   });
 
   toolbarRight.append(testBtn, refreshBtn);
-  toolbarRight.append(...createOfficialModelsDebugButtons(() => (
-    cachedOfficialModels ? filterMainAgentModels([...cachedOfficialModels]) : []
-  )));
+  toolbarRight.append(...createOfficialModelsDebugButtons());
   toolbar.append(toolbarLeft, toolbarRight);
   card.append(toolbar);
 
@@ -309,7 +312,10 @@ export function renderOfficialProviderCard(options: {
         summary.className = "provider-test-summary error";
         summary.textContent = t("models.officialStatusFailed");
 
-        // 关键防护：已有展示数据时，绝不清空破坏已有视图！
+        if (isOfficialSourceUnavailable(err)) {
+          cachedOfficialModels = null;
+          cachedModelAliases = new Map();
+        }
         if (!cachedOfficialModels || cachedOfficialModels.length === 0) {
           options.onModelCountChange?.(null);
           modelsContainer.replaceChildren();

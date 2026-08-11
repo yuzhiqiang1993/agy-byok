@@ -1,6 +1,7 @@
 use super::ProxyServer;
 use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::ReasoningLevel;
+use crate::proxy::http_server::forwarding::rewrite_official_urls_str;
 
 impl ProxyServer {
     pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
@@ -10,6 +11,16 @@ impl ProxyServer {
             .iter()
             .any(|model| model.matches_id(model_id))
             || model_id.starts_with("custom-")
+    }
+
+    /// 使用与模型目录代理响应相同的完整链路生成最终 JSON。
+    pub fn prepare_model_catalog_response(
+        &self,
+        base_json: serde_json::Value,
+        proxy_target: &str,
+    ) -> String {
+        let models = self.handle_model_list(base_json);
+        rewrite_official_urls_str(&models.to_string(), proxy_target)
     }
 
     /// 注入并融合包含自定义虚拟模型的模型列表描述 JSON

@@ -1,16 +1,15 @@
 use crate::commands::error::{
     OFFICIAL_MODELS_FETCH_FAILED, OFFICIAL_MODELS_HOST_NOT_INSTALLED,
-    OFFICIAL_MODELS_HOST_NOT_RUNNING, OFFICIAL_MODELS_PROXY_REQUIRED, PROVIDER_CATALOG_FAILED,
+    OFFICIAL_MODELS_HOST_NOT_RUNNING, PROVIDER_CATALOG_FAILED,
 };
 use crate::host::app_host::{discover_app_sync, AppStatus};
-use crate::host::cli_host::discover_cli_sync;
-use crate::host::cli_host::CliStatus;
+
 use crate::host::ide_host::{discover_ide_sync, IdeStatus};
 use crate::state::{proxy_runtime_snapshot, DesktopState};
 use agy_byok::domain::{
-    AppConfig, ModelCapabilities, ModelTokenLimits, ParameterOverrides, Provider, ProviderProtocol,
-    ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
-    DEFAULT_PROXY_PORT,
+    AppConfig, ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides,
+    Provider, ProviderProtocol, ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping,
+    UpstreamModel, VirtualModel, DEFAULT_PROXY_PORT,
 };
 use agy_byok::providers::{
     fetch_official_models_catalog, fetch_official_models_catalog_raw, fetch_provider_models,
@@ -19,14 +18,12 @@ use agy_byok::providers::{
 };
 use agy_byok::proxy::ProxyServer;
 use agy_byok::storage::ConfigStore;
-use host_integration::detect_cli_executable;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::time::{Duration, Instant};
 use tauri::State;
 
 const RUNNING_HOST_RETRY_TIMEOUT: Duration = Duration::from_secs(4);
 const OFFICIAL_MODELS_RETRY_INTERVAL: Duration = Duration::from_millis(400);
-const CLI_MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +45,17 @@ pub(crate) async fn test_model_connection(
     let duration_ms = started.elapsed().as_millis() as u64;
 
     Ok(connection_test_result(result, duration_ms))
+}
+
+#[tauri::command]
+pub(crate) fn resolve_effective_compression_policy(
+    policy: ModelCompressionPolicy,
+    capacity: Option<u32>,
+    output_token_limit: Option<u32>,
+) -> Result<ModelCompressionPolicy, String> {
+    policy
+        .resolve_effective(capacity, output_token_limit)
+        .ok_or_else(|| "compression_policy_cannot_be_resolved".to_string())
 }
 
 #[tauri::command]
@@ -83,7 +91,7 @@ pub struct OfficialModelsDebugResult {
     pub error_category: Option<String>,
     pub error_message: Option<String>,
     pub raw_response: Option<String>,
-    pub normalized_models: Vec<ProviderCatalogModel>,
+    pub modified_response: Option<String>,
 }
 
 #[tauri::command]
@@ -115,27 +123,6 @@ pub(crate) async fn fetch_provider_catalog_debug(
             response_body: error.upstream_body.unwrap_or_default(),
         },
     })
-}
-
-#[derive(Debug, Deserialize)]
-struct CliModelsOutput {
-    command: CliModelsCommand,
-}
-
-#[derive(Debug, Deserialize)]
-struct CliModelsCommand {
-    data: CliModelsData,
-}
-
-#[derive(Debug, Deserialize)]
-struct CliModelsData {
-    models: Vec<CliModel>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CliModel {
-    id: String,
-    label: String,
 }
 
 async fn fetch_desktop_official_models(
@@ -170,60 +157,9 @@ async fn fetch_desktop_official_models_raw(
     }
 }
 
-fn parse_cli_models_output(stdout: &str) -> Result<Vec<ProviderCatalogModel>, String> {
-    let json_line = stdout
-        .lines()
-        .rev()
-        .find(|line| line.trim_start().starts_with('{'))
-        .ok_or_else(|| "CLI 未返回模型目录 JSON".to_string())?;
-    let output: CliModelsOutput = serde_json::from_str(json_line)
-        .map_err(|error| format!("解析 CLI 模型目录失败：{error}"))?;
-    let mut models = Vec::new();
-    for model in output.command.data.models {
-        let id = model.id.trim();
-        if id.is_empty()
-            || models
-                .iter()
-                .any(|existing: &ProviderCatalogModel| existing.id == id)
-        {
-            continue;
-        }
-        models.push(ProviderCatalogModel {
-            id: id.to_string(),
-            display_name: model.label.trim().to_string(),
-            ..ProviderCatalogModel::default()
-        });
-    }
-    (!models.is_empty())
-        .then_some(models)
-        .ok_or_else(|| "CLI 返回的模型目录为空".to_string())
-}
-
-async fn fetch_cli_official_models() -> Result<Vec<ProviderCatalogModel>, String> {
-    let raw = fetch_cli_official_models_raw().await?;
-    parse_cli_models_output(&raw)
-}
-
-async fn fetch_cli_official_models_raw() -> Result<String, String> {
-    let executable =
-        detect_cli_executable().ok_or_else(|| "无法定位 CLI 可执行文件".to_string())?;
-    let mut command = tokio::process::Command::new(executable);
-    command
-        .args(["--output-format", "json", "models"])
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(CLI_MODELS_TIMEOUT, command.output())
-        .await
-        .map_err(|_| "CLI 获取模型目录超时".to_string())?
-        .map_err(|error| format!("启动 CLI 获取模型目录失败：{error}"))?;
-    if !output.status.success() {
-        return Err(format!("CLI 获取模型目录失败：{}", output.status));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
 async fn discover_official_host_statuses(
     state: &DesktopState,
-) -> Result<(IdeStatus, AppStatus, CliStatus), String> {
+) -> Result<(IdeStatus, AppStatus), String> {
     let snapshot = proxy_runtime_snapshot(state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
@@ -246,7 +182,6 @@ async fn discover_official_host_statuses(
                 &status_endpoint,
                 proxy_running,
             )?,
-            discover_cli_sync(&integration_root, &status_endpoint, proxy_running)?,
         ))
     })
     .await
@@ -265,14 +200,12 @@ pub(crate) async fn fetch_official_models(
     state: State<'_, DesktopState>,
 ) -> Result<Vec<ProviderCatalogModel>, String> {
     let statuses = discover_official_host_statuses(&state).await?;
-    let proxy_running = proxy_runtime_snapshot(&state).await.running;
-    let (ide_status, app_status, cli_status) = statuses;
-    if !ide_status.installed && !app_status.installed && !cli_status.installed {
+    let (ide_status, app_status) = statuses;
+    if !ide_status.installed && !app_status.installed {
         return Err(OFFICIAL_MODELS_HOST_NOT_INSTALLED.to_string());
     }
 
     let mut found_stopped_host = false;
-    let mut proxy_required = false;
 
     if ide_status.installed {
         if !ide_status.ide_running {
@@ -306,21 +239,6 @@ pub(crate) async fn fetch_official_models(
         }
     }
 
-    if cli_status.installed {
-        match fetch_cli_official_models().await {
-            Ok(models) => return Ok(models),
-            Err(error) => {
-                if cli_status.integration_state.is_ready() && !proxy_running {
-                    proxy_required = true;
-                }
-                tracing::warn!(%error, "通过 CLI 获取官方模型失败");
-            }
-        }
-    }
-
-    if proxy_required {
-        return Err(OFFICIAL_MODELS_PROXY_REQUIRED.to_string());
-    }
     if found_stopped_host {
         return Err(OFFICIAL_MODELS_HOST_NOT_RUNNING.to_string());
     }
@@ -341,13 +259,27 @@ fn official_debug_failure(
         error_category: Some(category.into()),
         error_message: Some(message.into()),
         raw_response,
-        normalized_models: Vec::new(),
+        modified_response: None,
+    }
+}
+
+fn official_debug_proxy_failure(error: ProxyError) -> OfficialModelsDebugResult {
+    OfficialModelsDebugResult {
+        success: false,
+        source: None,
+        request_url: None,
+        status_code: Some(error.status_code),
+        content_type: None,
+        error_category: Some(error.category.as_str().to_string()),
+        error_message: Some(error.message),
+        raw_response: error.upstream_body,
+        modified_response: None,
     }
 }
 
 fn official_debug_success(
     raw: OfficialCatalogRawResponse,
-    models: Vec<ProviderCatalogModel>,
+    modified_response: String,
 ) -> OfficialModelsDebugResult {
     OfficialModelsDebugResult {
         success: true,
@@ -358,7 +290,7 @@ fn official_debug_success(
         error_category: None,
         error_message: None,
         raw_response: Some(raw.body),
-        normalized_models: models,
+        modified_response: Some(modified_response),
     }
 }
 
@@ -371,11 +303,12 @@ pub(crate) async fn fetch_official_models_debug(
     }
 
     let statuses = discover_official_host_statuses(&state).await?;
-    let (ide_status, app_status, cli_status) = statuses;
-    if !ide_status.installed && !app_status.installed && !cli_status.installed {
+    let proxy_target = proxy_runtime_snapshot(&state).await.endpoint;
+    let (ide_status, app_status) = statuses;
+    if !ide_status.installed && !app_status.installed {
         return Ok(official_debug_failure(
             "official_models_host_not_installed",
-            "未检测到 Antigravity IDE、App 或 CLI",
+            "未检测到 Antigravity IDE 或 App",
             None,
         ));
     }
@@ -383,8 +316,16 @@ pub(crate) async fn fetch_official_models_debug(
     let mut found_stopped_host = false;
     let mut last_error: Option<OfficialModelsDebugResult> = None;
     for (installed, running, source) in [
-        (ide_status.installed, ide_status.ide_running, OfficialCatalogSource::Ide),
-        (app_status.installed, app_status.app_running, OfficialCatalogSource::App),
+        (
+            ide_status.installed,
+            ide_status.ide_running,
+            OfficialCatalogSource::Ide,
+        ),
+        (
+            app_status.installed,
+            app_status.app_running,
+            OfficialCatalogSource::App,
+        ),
     ] {
         if !installed {
             continue;
@@ -396,51 +337,32 @@ pub(crate) async fn fetch_official_models_debug(
 
         match fetch_desktop_official_models_raw(source, RUNNING_HOST_RETRY_TIMEOUT).await {
             Ok(raw) => match parse_official_catalog_response(&raw.body, raw.source.as_str()) {
-                Ok(models) => return Ok(official_debug_success(raw, models)),
+                Ok(_) => {
+                    let mut base_json: serde_json::Value = match serde_json::from_str(&raw.body) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            last_error = Some(official_debug_failure(
+                                "upstream_server_error",
+                                format!("解析官方模型原始响应失败：{error}"),
+                                Some(raw.body),
+                            ));
+                            continue;
+                        }
+                    };
+                    if let Some(object) = base_json.as_object_mut() {
+                        object.remove("error");
+                    }
+                    let proxy = ProxyServer::new(state.config_store.clone(), 0);
+                    let modified_response =
+                        proxy.prepare_model_catalog_response(base_json, &proxy_target);
+                    return Ok(official_debug_success(raw, modified_response));
+                }
                 Err(error) => {
-                    last_error = Some(official_debug_failure(
-                        error.category.as_str(),
-                        error.message,
-                        error.upstream_body,
-                    ));
+                    last_error = Some(official_debug_proxy_failure(error));
                 }
             },
             Err(error) => {
-                last_error = Some(official_debug_failure(
-                    error.category.as_str(),
-                    error.message,
-                    error.upstream_body,
-                ));
-            }
-        }
-    }
-
-    if cli_status.installed {
-        match fetch_cli_official_models_raw().await {
-            Ok(raw) => match parse_cli_models_output(&raw) {
-                Ok(models) => {
-                    return Ok(OfficialModelsDebugResult {
-                        success: true,
-                        source: Some("Antigravity CLI".to_string()),
-                        request_url: Some("agy --output-format json models".to_string()),
-                        status_code: None,
-                        content_type: Some("application/json".to_string()),
-                        error_category: None,
-                        error_message: None,
-                        raw_response: Some(raw),
-                        normalized_models: models,
-                    });
-                }
-                Err(error) => {
-                    last_error = Some(official_debug_failure(
-                        "upstream_server_error",
-                        error,
-                        Some(raw),
-                    ));
-                }
-            },
-            Err(error) => {
-                last_error = Some(official_debug_failure("upstream_server_error", error, None));
+                last_error = Some(official_debug_proxy_failure(error));
             }
         }
     }
@@ -449,7 +371,7 @@ pub(crate) async fn fetch_official_models_debug(
         if found_stopped_host {
             official_debug_failure(
                 "official_models_host_not_running",
-                "已安装 Antigravity 客户端，但当前未运行",
+                "请先启动 Antigravity IDE 或 App，再获取官方模型数据",
                 None,
             )
         } else {
@@ -650,19 +572,5 @@ mod tests {
         provider.request_timeout_ms = 0;
 
         assert!(preview_model_config(provider, "model".to_string(), None, None, None).is_err());
-    }
-
-    #[test]
-    fn cli_model_output_is_parsed_and_deduplicated() {
-        let output = r#"{"command":{"data":{"models":[{"id":"gemini-3.6-flash-high","label":"Gemini 3.6 Flash High"},{"id":"gemini-3.6-flash-high","label":"Duplicate"},{"id":"claude-sonnet-4-6","label":"Claude Sonnet 4.6"}]}}}"#;
-
-        let models = parse_cli_models_output(output).unwrap();
-
-        assert_eq!(models.len(), 2);
-        assert_eq!(models[0].id, "gemini-3.6-flash-high");
-        assert_eq!(models[0].display_name, "Gemini 3.6 Flash High");
-        assert_eq!(models[0].is_agent_model, None);
-        assert_eq!(models[0].agent_sort_order, None);
-        assert_eq!(models[1].id, "claude-sonnet-4-6");
     }
 }

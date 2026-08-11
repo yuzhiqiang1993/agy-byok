@@ -29,6 +29,25 @@ pub struct ModelTokenLimits {
 }
 
 impl ModelTokenLimits {
+    pub fn effective_compression_capacity(
+        &self,
+        default_context_window: u32,
+        default_input_token_limit: u32,
+    ) -> u32 {
+        let context_window = self.context_window.unwrap_or(default_context_window);
+        let input_token_limit = self.input_token_limit.unwrap_or(default_input_token_limit);
+        if self.context_window_source == TokenLimitSource::Estimated
+            && matches!(
+                self.input_token_limit_source,
+                TokenLimitSource::Catalog | TokenLimitSource::Configured
+            )
+        {
+            input_token_limit
+        } else {
+            context_window.min(input_token_limit)
+        }
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.context_window == Some(0) {
             return Err("context_window must be greater than 0");

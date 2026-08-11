@@ -179,8 +179,12 @@
   color: #75550f;
 }
 
-.policy-editor-dialog {
-  width: min(700px, calc(100vw - 32px));
+.agy-modal-dialog.policy-editor-dialog {
+  width: min(860px, calc(100vw - 40px));
+  max-width: min(860px, calc(100vw - 40px));
+}
+.agy-modal-dialog.policy-editor-dialog .agy-modal-header {
+  padding: 14px 24px 12px;
 }
 .policy-editor-heading,
 .raw-config-heading {
@@ -227,8 +231,8 @@
 .policy-editor-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px 24px;
+  gap: 12px;
+  padding: 14px 24px 18px;
 }
 .policy-preset-field {
   display: flex;
@@ -241,33 +245,99 @@
 .policy-custom-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-inner);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.policy-custom-field:focus-within {
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.06);
+}
+.policy-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 .policy-field-title {
   color: var(--text-main);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.policy-field-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--accent-soft, rgba(37, 99, 235, 0.08));
+  color: var(--accent, #2563eb);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.policy-input-mode-segmented {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--surface-border);
+}
+.policy-mode-pill {
+  flex: 1;
+  display: inline-flex;
+  height: 23px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.policy-mode-pill:hover:not(.active) {
+  color: var(--text-main);
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+.policy-mode-pill.active {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--accent, #2563eb);
   font-weight: 650;
 }
 .policy-percentage-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.policy-percentage-row-reserves {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 .policy-percentage-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 23px;
+  height: 27px;
   padding: 0 6px;
   border: 1px solid var(--surface-border);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--surface, #ffffff);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.12s ease;
@@ -276,51 +346,86 @@
 .policy-percentage-btn:hover:not(.disabled):not(.active) {
   border-color: var(--accent);
   color: var(--accent);
+  background: var(--accent-soft, rgba(37, 99, 235, 0.04));
 }
 .policy-percentage-btn.active {
   border-color: rgba(37, 99, 235, 0.4);
   background: rgba(37, 99, 235, 0.12);
   color: var(--accent, #2563eb);
-  font-weight: 600;
+  font-weight: 650;
 }
 .policy-percentage-btn.disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.policy-number-input {
-  width: 100%;
-  height: 32px;
-  box-sizing: border-box;
-  padding: 0 8px;
+.policy-input-wrapper {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid var(--surface-border);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--surface, #ffffff);
+  transition: border-color 0.15s ease;
+}
+.policy-input-wrapper:focus-within {
+  border-color: var(--accent, #2563eb);
+}
+.policy-number-input::-webkit-outer-spin-button,
+.policy-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.policy-number-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
   color: var(--text-main);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
-.policy-preset-segmented {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--surface-border);
-  border-radius: 9px;
-  background: var(--surface-inner);
-}
-.policy-pill-tab {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+.policy-input-unit {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
+  margin-left: 6px;
+  user-select: none;
+  flex-shrink: 0;
+}
+.policy-preset-segmented {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+}
+.policy-pill-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
@@ -336,6 +441,32 @@
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
 }
+.policy-pill-recommend {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.policy-pill-tab.active .policy-pill-recommend {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+html[data-theme="dark"] .policy-pill-recommend {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+html[data-theme="dark"] .policy-pill-tab.active .policy-pill-recommend {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
 .policy-pill-tab.disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -344,7 +475,7 @@
 .policy-capacity-bar-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--surface-border);
   border-radius: 10px;
@@ -354,15 +485,41 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .policy-bar-title {
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-weight: 600;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 650;
 }
+.policy-bar-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.policy-bar-legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+.policy-bar-legend .legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.policy-bar-legend .legend-chat::before { background: #10b981; }
+.policy-bar-legend .legend-compress::before { background: #f59e0b; }
+.policy-bar-legend .legend-reserve::before { background: #94a3b8; }
+
 .policy-capacity-bar {
   display: flex;
-  height: 10px;
+  height: 12px;
   width: 100%;
   overflow: hidden;
   border-radius: 9999px;
@@ -423,7 +580,7 @@ html[data-theme="dark"] .policy-capacity-ticks .tick-limit {
 .policy-custom-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 .policy-output-controls {
   display: flex;
@@ -557,6 +714,9 @@ html[data-theme="dark"] .policy-editor-error {
 }
 
 @media (max-width: 680px) {
+  .policy-preset-segmented {
+    flex-wrap: wrap;
+  }
   .policy-metric-grid,
   .policy-custom-grid {
     grid-template-columns: 1fr;

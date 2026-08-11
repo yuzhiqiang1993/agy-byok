@@ -42,6 +42,24 @@ fn model_compression_policy_requires_every_field_and_rejects_unknown_fields() {
 }
 
 #[test]
+fn model_compression_policy_resolves_the_same_effective_values_used_at_runtime() {
+    let mut configured = policy();
+    configured.token_threshold = 95_000;
+    configured.max_token_limit = 120_000;
+    configured.max_output_tokens = 30_000;
+
+    let resolved = configured
+        .resolve_effective(Some(100_000), Some(20_000))
+        .unwrap();
+
+    assert_eq!(resolved.token_threshold, 80_000);
+    assert_eq!(resolved.max_token_limit, 100_000);
+    assert_eq!(resolved.max_output_tokens, 20_000);
+    assert_eq!(resolved.checkpoint_model, configured.checkpoint_model);
+    assert_eq!(resolved.retry_config, configured.retry_config);
+}
+
+#[test]
 fn model_compression_policy_validation_accepts_complete_valid_policy() {
     assert!(policy().validate("policy").is_ok());
 }

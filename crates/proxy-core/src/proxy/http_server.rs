@@ -1,4 +1,4 @@
-mod forwarding;
+pub(crate) mod forwarding;
 mod generation;
 mod lifecycle;
 mod request;

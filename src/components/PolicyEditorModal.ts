@@ -1,3 +1,4 @@
+import { resolveEffectiveCompressionPolicy } from "../controllers/providerController";
 import { t } from "../i18n";
 import type { UpstreamCompressionPolicy } from "../types/catalog";
 import type { ModelCompressionPolicy } from "../types/config";
@@ -39,7 +40,6 @@ interface PolicyEditorModalOptions {
   defaultHelp: string;
   emptyNotice: string;
   upstreamCompression?: UpstreamCompressionPolicy;
-  preferCurrentWorker: boolean;
   focusKey: string;
   onSave: (policy: ModelCompressionPolicy | null) => Promise<void>;
 }
@@ -111,9 +111,16 @@ function presetSupported(
   return outputTokenLimit == null || preset.values.max_output_tokens <= outputTokenLimit;
 }
 
-function recommendedPresetForCapacity(capacity: number | null): CompressionPreset | null {
+function recommendedPresetForCapacity(
+  capacity: number | null,
+  outputTokenLimit?: number | null,
+): CompressionPreset | null {
   if (capacity == null || capacity <= 0) return null;
-  return [...COMPRESSION_PRESETS].reverse().find((preset) => capacity >= preset.minCapacity) ?? null;
+  return (
+    [...COMPRESSION_PRESETS]
+      .reverse()
+      .find((preset) => presetSupported(preset, capacity, outputTokenLimit ?? null)) ?? null
+  );
 }
 
 function createPolicy(
@@ -147,8 +154,12 @@ function createPolicy(
 function createPresetPolicy(
   id: CompressionPresetId,
   worker: CompressionWorkerPolicy,
+  baseline?: ModelCompressionPolicy | null,
 ): ModelCompressionPolicy {
-  return createPolicy(presetById(id).values, worker);
+  const values = presetById(id).values;
+  return baseline
+    ? { ...clonePolicy(baseline), ...values }
+    : createPolicy(values, worker);
 }
 
 function matchingPreset(
@@ -211,42 +222,10 @@ function defaultWorkerPolicy(options: PolicyEditorModalOptions): CompressionWork
     checkpointModel: isFixedWorkerMode(upstream?.checkpointModel)
       ? upstream.checkpointModel
       : DEFAULT_CHECKPOINT_MODEL,
-    useLastPlannerModel: upstream?.useLastPlannerModel ?? options.preferCurrentWorker,
+    useLastPlannerModel: upstream?.useLastPlannerModel ?? false,
   };
 }
 
-function workerMode(policy: ModelCompressionPolicy): CompressionWorkerMode {
-  if (policy.use_last_planner_model) return "CURRENT_MODEL";
-  return isFixedWorkerMode(policy.checkpoint_model)
-    ? policy.checkpoint_model
-    : DEFAULT_CHECKPOINT_MODEL;
-}
-
-function applyWorkerMode(policy: ModelCompressionPolicy, mode: CompressionWorkerMode): void {
-  // “跟随当前模型”由官方字段控制；checkpoint_model 仍保留合法占位模型。
-  if (mode === "CURRENT_MODEL") {
-    policy.use_last_planner_model = true;
-    if (!isFixedWorkerMode(policy.checkpoint_model)) {
-      policy.checkpoint_model = DEFAULT_CHECKPOINT_MODEL;
-    }
-    return;
-  }
-  policy.use_last_planner_model = false;
-  policy.checkpoint_model = mode;
-}
-
-function workerModeLabel(mode: CompressionWorkerMode): string {
-  switch (mode) {
-    case "CURRENT_MODEL":
-      return `${t("models.policyWorkerCurrentModel")} · ${t("models.policyWorkerCurrentModelBadge")}`;
-    case "MODEL_PLACEHOLDER_M50":
-      return `${t("models.policyWorkerModelM50")} · ${t("models.policyWorkerM50Badge")}`;
-    case "MODEL_PLACEHOLDER_M71":
-      return `${t("models.policyWorkerModelM71")} · ${t("models.policyWorkerM71Badge")}`;
-    case "MODEL_PLACEHOLDER_M72":
-      return `${t("models.policyWorkerModelM72")} · ${t("models.policyWorkerM72Badge")}`;
-  }
-}
 
 function formatTokenCount(value: number): string {
   if (value >= 1_000_000) {
@@ -276,7 +255,7 @@ function isValidPolicy(
     && (outputTokenLimit == null || output <= outputTokenLimit);
 }
 
-function createMetric(label: string, value: number): HTMLDivElement {
+function createMetric(label: string, value: number, subtext?: string): HTMLDivElement {
   const metric = document.createElement("div");
   metric.className = "policy-metric";
 
@@ -287,6 +266,12 @@ function createMetric(label: string, value: number): HTMLDivElement {
   const count = document.createElement("strong");
   count.textContent = value.toLocaleString();
   valueRow.append(count);
+
+  if (subtext) {
+    const badge = document.createElement("small");
+    badge.textContent = subtext;
+    valueRow.append(badge);
+  }
 
   metric.append(name, valueRow);
   return metric;
@@ -299,10 +284,11 @@ function renderPolicyMetrics(
 ): void {
   const metrics = document.createElement("div");
   metrics.className = "policy-metric-grid";
+
   metrics.append(
-    createMetric(t("models.policyThreshold"), policy.token_threshold),
-    createMetric(t("models.policyMaxLimit"), policy.max_token_limit),
-    createMetric(t("models.policyMaxOutput"), policy.max_output_tokens),
+    createMetric(t("models.policyThreshold"), policy.token_threshold, formatTokenCount(policy.token_threshold)),
+    createMetric(t("models.policyMaxLimit"), policy.max_token_limit, formatTokenCount(policy.max_token_limit)),
+    createMetric(t("models.policyMaxOutput"), policy.max_output_tokens, formatTokenCount(policy.max_output_tokens)),
   );
   container.append(metrics);
   renderCapacityBar(container, policy, capacity);
@@ -332,7 +318,24 @@ function renderCapacityBar(
   const title = document.createElement("span");
   title.className = "policy-bar-title";
   title.textContent = t("models.policyCapacityBarTitle");
-  labelRow.append(title);
+
+  const legend = document.createElement("div");
+  legend.className = "policy-bar-legend";
+
+  const chatLegend = document.createElement("span");
+  chatLegend.className = "legend-item legend-chat";
+  chatLegend.textContent = t("models.policyContextChatSegment");
+
+  const compressLegend = document.createElement("span");
+  compressLegend.className = "legend-item legend-compress";
+  compressLegend.textContent = t("models.policyContextCompressSegment");
+
+  const reserveLegend = document.createElement("span");
+  reserveLegend.className = "legend-item legend-reserve";
+  reserveLegend.textContent = t("models.policyContextReserveSegment");
+
+  legend.append(chatLegend, compressLegend, reserveLegend);
+  labelRow.append(title, legend);
 
   const bar = document.createElement("div");
   bar.className = "policy-capacity-bar";
@@ -378,47 +381,6 @@ function renderCapacityBar(
   container.append(wrapper);
 }
 
-function renderWorkerModel(container: HTMLElement, modelName: string): void {
-  const worker = document.createElement("div");
-  worker.className = "policy-worker-row";
-
-  const label = document.createElement("span");
-  label.textContent = t("models.policyCheckpointModel");
-
-  const value = document.createElement("strong");
-  value.textContent = modelName;
-
-  worker.append(label, value);
-  container.append(worker);
-}
-
-function renderWorkerModelSelect(
-  container: HTMLElement,
-  policy: ModelCompressionPolicy,
-  onChange: () => void,
-): void {
-  const field = document.createElement("label");
-  field.className = "policy-worker-row";
-
-  const label = document.createElement("span");
-  label.textContent = t("models.policyCheckpointModel");
-
-  const select = document.createElement("select");
-  for (const mode of ["CURRENT_MODEL", ...FIXED_WORKER_MODES] as CompressionWorkerMode[]) {
-    const option = document.createElement("option");
-    option.value = mode;
-    option.textContent = workerModeLabel(mode);
-    select.append(option);
-  }
-  select.value = workerMode(policy);
-  select.addEventListener("change", () => {
-    applyWorkerMode(policy, select.value as CompressionWorkerMode);
-    onChange();
-  });
-
-  field.append(label, select);
-  container.append(field);
-}
 
 export function getPolicyPillStatus(
   policy: ModelCompressionPolicy | null,
@@ -503,11 +465,24 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       { id: "CUSTOM", label: t("models.presetCustom") },
     ];
 
+    const recommended = recommendedPresetForCapacity(options.capacity, options.outputTokenLimit);
+
     for (const item of modes) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = `policy-pill-tab ${mode === item.id ? "active" : ""} ${item.disabled ? "disabled" : ""}`;
-      btn.textContent = item.label;
+
+      const textSpan = document.createElement("span");
+      textSpan.textContent = item.label;
+      btn.append(textSpan);
+
+      if (recommended && item.id === recommended.id) {
+        const badge = document.createElement("span");
+        badge.className = "policy-pill-recommend";
+        badge.textContent = t("models.policyRecommended");
+        btn.append(badge);
+      }
+
       if (item.tooltip) btn.title = item.tooltip;
       btn.disabled = !!item.disabled;
       btn.addEventListener("click", () => {
@@ -518,12 +493,12 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
           const preset = presetById(mode);
           if (presetSupported(preset, capacity, options.outputTokenLimit)) {
             const worker = draft ? workerPolicyFrom(draft) : defaultWorker;
-            draft = createPresetPolicy(mode, worker);
+            draft = createPresetPolicy(mode, worker, draft);
           }
         } else if (mode === "CUSTOM" && !draft) {
-          const preset = recommendedPresetForCapacity(options.capacity);
-          draft = preset && presetSupported(preset, options.capacity, options.outputTokenLimit)
-            ? createPresetPolicy(preset.id, defaultWorker)
+          const recPreset = recommendedPresetForCapacity(options.capacity, options.outputTokenLimit);
+          draft = recPreset
+            ? createPresetPolicy(recPreset.id, defaultWorker)
             : createPolicy(DEFAULT_POLICY_LIMITS, defaultWorker);
         }
         renderSegmented();
@@ -545,7 +520,6 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
           : DEFAULT_OUTPUT_RESERVE,
       }, defaultWorker);
       renderPolicyMetrics(form, policy, options.capacity);
-      renderWorkerModel(form, workerModeLabel(workerMode(policy)));
       return;
     }
 
@@ -558,14 +532,40 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   const createLimitInput = (
     labelText: string,
     field: "token_threshold" | "max_token_limit" | "max_output_tokens",
-  ): HTMLLabelElement => {
-    const label = document.createElement("label");
-    label.className = "policy-custom-field";
+  ): HTMLDivElement => {
+    const fieldContainer = document.createElement("div");
+    fieldContainer.className = "policy-custom-field";
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "policy-field-header";
 
     const text = document.createElement("span");
     text.className = "policy-field-title";
     text.textContent = labelText;
-    label.append(text);
+
+    const badge = document.createElement("span");
+    badge.className = "policy-field-badge";
+
+    headerRow.append(text, badge);
+
+    const modeTabs = document.createElement("div");
+    modeTabs.className = "policy-input-mode-segmented";
+
+    const isOutputField = field === "max_output_tokens";
+    const percentTab = document.createElement("button");
+    percentTab.type = "button";
+    percentTab.className = "policy-mode-pill active";
+    percentTab.textContent = isOutputField ? t("models.policyInputByPreset") : t("models.policyInputByPercent");
+
+    const tokenTab = document.createElement("button");
+    tokenTab.type = "button";
+    tokenTab.className = "policy-mode-pill";
+    tokenTab.textContent = t("models.policyInputByTokens");
+
+    modeTabs.append(percentTab, tokenTab);
+
+    const inputWrapper = document.createElement("div");
+    inputWrapper.className = "policy-input-wrapper";
 
     const input = document.createElement("input");
     input.type = "number";
@@ -575,6 +575,25 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     input.className = "policy-number-input";
     input.value = draft ? String(draft[field]) : "";
 
+    const unit = document.createElement("span");
+    unit.className = "policy-input-unit";
+    unit.textContent = t("models.policyTokenUnit");
+
+    inputWrapper.append(input, unit);
+
+    const capacity = options.capacity;
+
+    let updatePillHighlight = (): boolean => false;
+
+    const updateBadge = () => {
+      const val = Number(input.value);
+      if (!val || isNaN(val)) {
+        badge.textContent = "-";
+        return;
+      }
+      badge.textContent = formatTokenCount(val);
+    };
+
     const validateDraft = () => {
       if (!draft) return;
       if (!isValidPolicy(draft, options.capacity, options.outputTokenLimit)) {
@@ -583,15 +602,16 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       } else {
         error.hidden = true;
       }
-      renderCapacityBarInForm();
+      renderMetricsInForm();
       updatePillHighlight();
+      updateBadge();
     };
 
-    const capacity = options.capacity;
+    let pillRow: HTMLDivElement;
 
     if (field === "max_output_tokens") {
-      const pillRow = document.createElement("div");
-      pillRow.className = "policy-percentage-row";
+      pillRow = document.createElement("div");
+      pillRow.className = "policy-percentage-row policy-percentage-row-reserves";
 
       const reserves = [16_384, 32_768, 44_640, 65_535];
       const pillButtons: HTMLButtonElement[] = [];
@@ -616,63 +636,69 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         pillRow.append(btn);
       }
 
-      const updatePillHighlight = () => {
+      updatePillHighlight = () => {
         const current = draft?.[field];
+        let hasMatch = false;
         for (let i = 0; i < reserves.length; i++) {
           const isMatch = current === reserves[i];
           pillButtons[i].classList.toggle("active", isMatch);
+          if (isMatch) hasMatch = true;
         }
+        return hasMatch;
       };
+    } else {
+      const percentages = field === "token_threshold"
+        ? [20, 30, 40, 50, 60, 70, 80]
+        : [40, 50, 60, 70, 80, 90, 95];
 
-      input.addEventListener("input", () => {
-        if (!draft) return;
-        draft[field] = Number(input.value);
-        validateDraft();
-      });
+      pillRow = document.createElement("div");
+      pillRow.className = "policy-percentage-row";
+      const pillButtons: { btn: HTMLButtonElement; pct: number }[] = [];
 
-      label.append(pillRow, input);
-      updatePillHighlight();
-      return label;
+      if (capacity && capacity > 0) {
+        for (const pct of percentages) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "policy-percentage-btn";
+          btn.textContent = `${pct}%`;
+          const calculatedTokens = Math.round(capacity * (pct / 100));
+          btn.title = formatTokenCount(calculatedTokens);
+
+          btn.addEventListener("click", () => {
+            if (!draft) return;
+            draft[field] = calculatedTokens;
+            input.value = String(calculatedTokens);
+            validateDraft();
+          });
+
+          pillButtons.push({ btn, pct });
+          pillRow.append(btn);
+        }
+      }
+
+      updatePillHighlight = () => {
+        if (!capacity || capacity <= 0 || !draft) return false;
+        const currentVal = draft[field];
+        const currentPct = (currentVal / capacity) * 100;
+        let hasMatch = false;
+        for (const { btn, pct } of pillButtons) {
+          const isMatch = Math.abs(currentPct - pct) < 2.5;
+          btn.classList.toggle("active", isMatch);
+          if (isMatch) hasMatch = true;
+        }
+        return hasMatch;
+      };
     }
 
-    const percentages = field === "token_threshold"
-      ? [20, 30, 40, 50, 60, 70, 80]
-      : [40, 50, 60, 70, 80, 90, 95];
-
-    const pillRow = document.createElement("div");
-    pillRow.className = "policy-percentage-row";
-    const pillButtons: { btn: HTMLButtonElement; pct: number }[] = [];
-
-    if (capacity && capacity > 0) {
-      for (const pct of percentages) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "policy-percentage-btn";
-        btn.textContent = `${pct}%`;
-        const calculatedTokens = Math.round(capacity * (pct / 100));
-        btn.title = formatTokenCount(calculatedTokens);
-
-        btn.addEventListener("click", () => {
-          if (!draft) return;
-          draft[field] = calculatedTokens;
-          input.value = String(calculatedTokens);
-          validateDraft();
-        });
-
-        pillButtons.push({ btn, pct });
-        pillRow.append(btn);
-      }
-    }
-
-    const updatePillHighlight = () => {
-      if (!capacity || capacity <= 0 || !draft) return;
-      const currentVal = draft[field];
-      const currentPct = (currentVal / capacity) * 100;
-      for (const { btn, pct } of pillButtons) {
-        const isMatch = Math.abs(currentPct - pct) < 1.5;
-        btn.classList.toggle("active", isMatch);
-      }
+    const setMode = (isPercentMode: boolean) => {
+      percentTab.classList.toggle("active", isPercentMode);
+      tokenTab.classList.toggle("active", !isPercentMode);
+      pillRow.hidden = !isPercentMode;
+      inputWrapper.hidden = isPercentMode;
     };
+
+    percentTab.addEventListener("click", () => setMode(true));
+    tokenTab.addEventListener("click", () => setMode(false));
 
     input.addEventListener("input", () => {
       if (!draft) return;
@@ -680,18 +706,20 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       validateDraft();
     });
 
-    if (capacity && capacity > 0) {
-      label.append(pillRow);
-    }
-    label.append(input);
-    updatePillHighlight();
-    return label;
+    const isMatched = updatePillHighlight();
+    setMode(isMatched);
+
+    fieldContainer.append(headerRow, modeTabs, pillRow, inputWrapper);
+    updateBadge();
+    return fieldContainer;
   };
 
-  const renderCapacityBarInForm = () => {
-    const existing = form.querySelector(".policy-capacity-bar-wrapper");
-    if (existing) existing.remove();
-    if (draft) renderCapacityBar(form, draft, options.capacity);
+  const renderMetricsInForm = () => {
+    const existingBar = form.querySelector(".policy-capacity-bar-wrapper");
+    if (existingBar) existingBar.remove();
+    const existingMetrics = form.querySelector(".policy-metric-grid");
+    if (existingMetrics) existingMetrics.remove();
+    if (draft) renderPolicyMetrics(form, draft, options.capacity);
   };
 
   const render = (): void => {
@@ -716,28 +744,11 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         createLimitInput(t("models.policyMaxOutput"), "max_output_tokens"),
       );
       form.append(limits);
-      renderCapacityBar(form, draft, options.capacity);
+      renderPolicyMetrics(form, draft, options.capacity);
     } else {
       renderPolicyMetrics(form, draft, options.capacity);
-      const editPresetButton = document.createElement("button");
-      editPresetButton.type = "button";
-      editPresetButton.className = "secondary compact-button policy-preset-edit";
-      editPresetButton.textContent = t("models.policyEditPreset");
-      editPresetButton.addEventListener("click", () => {
-        mode = "CUSTOM";
-        renderSegmented();
-        render();
-      });
-      form.append(editPresetButton);
     }
-    renderWorkerModelSelect(form, draft, () => {
-      error.hidden = true;
-    });
 
-    const workerHelp = document.createElement("p");
-    workerHelp.className = "field-hint policy-worker-help";
-    workerHelp.textContent = t("models.policyCheckpointModelHelp");
-    form.append(workerHelp);
   };
 
   renderSegmented();
@@ -764,7 +775,6 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
 
   modal = createModal({
     title: t("models.editPolicyTitle"),
-    subtitle: t("models.editPolicyDesc"),
     titleExtras,
     body,
     dialogClassName: "policy-editor-dialog",
@@ -780,7 +790,15 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       }
 
       setSaving(true);
-      void options.onSave(nextPolicy ? clonePolicy(nextPolicy) : null)
+      const resolvedPolicy = nextPolicy
+        ? resolveEffectiveCompressionPolicy(
+            clonePolicy(nextPolicy),
+            options.capacity,
+            options.outputTokenLimit,
+          )
+        : Promise.resolve(null);
+      void resolvedPolicy
+        .then((policy) => options.onSave(policy))
         .then(() => {
           modal.close();
         })

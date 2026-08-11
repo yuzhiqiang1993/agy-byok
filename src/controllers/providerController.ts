@@ -1,4 +1,4 @@
-import type { AppConfig, Provider } from "../types/config";
+import type { AppConfig, ModelCompressionPolicy, Provider } from "../types/config";
 import type { ModelConnectionTestResult } from "../types/proxy";
 import type { ProviderCatalogModel } from "../types/catalog";
 import type { ProviderCatalogDebugResult } from "../types/providerDebug";
@@ -87,6 +87,14 @@ export function fetchOfficialModels(): Promise<ProviderCatalogModel[]> {
 
 export function fetchOfficialModelsDebug(): Promise<OfficialModelsDebugResult> {
   return providerService.fetchOfficialModelsDebug();
+}
+
+export function resolveEffectiveCompressionPolicy(
+  policy: ModelCompressionPolicy,
+  capacity: number | null,
+  outputTokenLimit: number | null,
+): Promise<ModelCompressionPolicy> {
+  return providerService.resolveEffectiveCompressionPolicy(policy, capacity, outputTokenLimit);
 }
 
 export async function testVirtualModelConnection(virtualModelId: string): Promise<ModelConnectionTestResult> {

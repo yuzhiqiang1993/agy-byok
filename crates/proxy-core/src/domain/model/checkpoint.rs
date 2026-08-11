@@ -73,6 +73,42 @@ impl Default for ModelCompressionPolicy {
 }
 
 impl ModelCompressionPolicy {
+    pub fn resolve_effective(
+        &self,
+        capacity: Option<u32>,
+        output_token_limit: Option<u32>,
+    ) -> Option<Self> {
+        let capacity = capacity.unwrap_or(self.max_token_limit);
+        let output_token_limit = output_token_limit.unwrap_or(self.max_output_tokens);
+        if capacity < 2 || output_token_limit == 0 {
+            return None;
+        }
+
+        let max_token_limit = self.max_token_limit.min(capacity);
+        if max_token_limit < 2 {
+            return None;
+        }
+        let max_output_tokens = self
+            .max_output_tokens
+            .min(output_token_limit)
+            .min(max_token_limit.saturating_sub(1));
+        if max_output_tokens == 0 {
+            return None;
+        }
+        let token_threshold = self
+            .token_threshold
+            .min(max_token_limit.saturating_sub(max_output_tokens));
+        if token_threshold == 0 {
+            return None;
+        }
+
+        let mut resolved = self.clone();
+        resolved.token_threshold = token_threshold;
+        resolved.max_token_limit = max_token_limit;
+        resolved.max_output_tokens = max_output_tokens;
+        Some(resolved)
+    }
+
     pub fn validate(&self, scope: &str) -> Result<(), String> {
         if !SUPPORTED_CHECKPOINT_MODELS.contains(&self.checkpoint_model.as_str()) {
             return Err(format!(

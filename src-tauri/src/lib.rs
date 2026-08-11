@@ -105,6 +105,7 @@ pub fn run() {
                 commands::proxy::save_config,
                 commands::proxy::set_proxy_port,
                 commands::provider::test_model_connection,
+                commands::provider::resolve_effective_compression_policy,
                 commands::provider::fetch_provider_catalog,
                 commands::provider::fetch_provider_catalog_debug,
                 commands::provider::fetch_official_models,

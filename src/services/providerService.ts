@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Provider } from "../types/config";
+import type { ModelCompressionPolicy, Provider } from "../types/config";
 import type { ProviderCatalogModel } from "../types/catalog";
 import type { ReasoningLevel, ReasoningMapping } from "../types/reasoning";
 import type { ModelConnectionTestResult } from "../types/proxy";
@@ -14,6 +14,15 @@ export const providerService = {
   fetchOfficialModels: () => invoke<ProviderCatalogModel[]>("fetch_official_models"),
   fetchOfficialModelsDebug: () =>
     invoke<OfficialModelsDebugResult>("fetch_official_models_debug"),
+  resolveEffectiveCompressionPolicy: (
+    policy: ModelCompressionPolicy,
+    capacity: number | null,
+    outputTokenLimit: number | null,
+  ) => invoke<ModelCompressionPolicy>("resolve_effective_compression_policy", {
+    policy,
+    capacity,
+    outputTokenLimit,
+  }),
   testModelConnection: (virtualModelId: string) =>
     invoke<ModelConnectionTestResult>("test_model_connection", { virtualModelId }),
   testProviderModelConnection: (

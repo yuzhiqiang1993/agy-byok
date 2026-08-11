@@ -2,8 +2,8 @@ use super::checkpoint::{
     apply_model_compression_policy, canonical_model_id, official_checkpoint_output_limits,
     official_model_aliases,
 };
-use super::AntigravityModelDescriptor;
-use crate::domain::{ReasoningMapping, TokenLimitSource, UpstreamModel, VirtualModel};
+use super::{catalog_container_mut, AntigravityModelDescriptor};
+use crate::domain::{ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
@@ -101,26 +101,35 @@ impl AntigravityModelDescriptor {
         let aliases = official_model_aliases(models_json);
         let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
 
-        if let Some(catalog) = models_json.as_object_mut() {
-            if let Some(target) = catalog.get_mut("models") {
-                let catalog_keys = (!target.is_array()).then(|| {
-                    models
-                        .iter()
-                        .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
-                        .collect::<Vec<_>>()
-                });
-                inject_models(target, models, &checkpoint_output_limits, &aliases);
-                if let Some(catalog_keys) = catalog_keys {
-                    append_catalog_keys_to_model_sorts(
-                        catalog.get_mut("agentModelSorts"),
-                        &catalog_keys,
-                    );
-                }
-                return;
-            }
+        let catalog = catalog_container_mut(models_json);
+        if catalog.get("models").is_some() {
+            let model_sort_ids = {
+                let target = catalog
+                    .get("models")
+                    .expect("checked model catalog must exist");
+                models
+                    .iter()
+                    .map(|(virtual_model, _)| {
+                        if target.is_array() {
+                            virtual_model.id.clone()
+                        } else {
+                            virtual_model.catalog_key().into_owned()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+            inject_models(
+                catalog
+                    .get_mut("models")
+                    .expect("checked model catalog must exist"),
+                models,
+                &checkpoint_output_limits,
+                &aliases,
+            );
+            append_catalog_keys_to_model_sorts(catalog.get_mut("agentModelSorts"), &model_sort_ids);
+        } else {
+            inject_models(catalog, models, &checkpoint_output_limits, &aliases);
         }
-
-        inject_models(models_json, models, &checkpoint_output_limits, &aliases);
     }
 }
 
@@ -199,17 +208,10 @@ fn apply_custom_model_compression_policy(
     if !policy.enabled {
         return;
     }
-    let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
-    let capacity = if upstream_model.token_limits.context_window_source
-        == TokenLimitSource::Estimated
-        && matches!(
-            upstream_model.token_limits.input_token_limit_source,
-            TokenLimitSource::Catalog | TokenLimitSource::Configured
-        ) {
-        input_token_limit
-    } else {
-        context_window.min(input_token_limit)
-    };
+    let (_, _, output_token_limit) = token_limits(upstream_model);
+    let capacity = upstream_model
+        .token_limits
+        .effective_compression_capacity(DEFAULT_CONTEXT_WINDOW, DEFAULT_INPUT_TOKEN_LIMIT);
     let canonical_checkpoint = canonical_model_id(&policy.checkpoint_model, aliases);
     let effective_output_limit = checkpoint_output_limits
         .get(canonical_checkpoint)
@@ -218,7 +220,13 @@ fn apply_custom_model_compression_policy(
         .map_or(output_token_limit, |checkpoint_limit| {
             output_token_limit.min(checkpoint_limit)
         });
-    apply_model_compression_policy(descriptor, policy, capacity, effective_output_limit);
+    apply_model_compression_policy(
+        descriptor,
+        policy,
+        capacity,
+        effective_output_limit,
+        Some(policy),
+    );
 }
 
 fn custom_model_object(

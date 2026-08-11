@@ -1,4 +1,4 @@
-use super::AntigravityModelDescriptor;
+use super::{catalog_models, catalog_models_mut, AntigravityModelDescriptor};
 use crate::domain::ModelCompressionPolicy;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,18 +14,12 @@ impl AntigravityModelDescriptor {
     ) {
         let aliases = official_model_aliases(models_json);
         let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
-        if models_json.get("models").is_some() {
-            if let Some(models) = models_json.get_mut("models") {
-                apply_official_policies(models, policies, &aliases, &checkpoint_output_limits);
-            }
-        } else if let Some(models) = models_json
-            .get_mut("response")
-            .and_then(|response| response.get_mut("models"))
-        {
-            apply_official_policies(models, policies, &aliases, &checkpoint_output_limits);
-        } else {
-            apply_official_policies(models_json, policies, &aliases, &checkpoint_output_limits);
-        }
+        apply_official_policies(
+            catalog_models_mut(models_json),
+            policies,
+            &aliases,
+            &checkpoint_output_limits,
+        );
     }
 }
 
@@ -66,7 +60,7 @@ fn apply_official_policies(
 }
 
 pub(super) fn official_checkpoint_output_limits(models_json: &Value) -> BTreeMap<String, u32> {
-    let response = official_catalog_response(models_json);
+    let models = catalog_models(models_json);
     let mut limits = BTreeMap::new();
 
     let process_entry = |limits: &mut BTreeMap<String, u32>, model_id: &str, entry: &Value| {
@@ -83,39 +77,26 @@ pub(super) fn official_checkpoint_output_limits(models_json: &Value) -> BTreeMap
         }
     };
 
-    if let Some(models) = response.get("models") {
-        match models {
-            Value::Object(entries) => {
-                for (model_id, entry) in entries {
+    match models {
+        Value::Object(entries) => {
+            for (model_id, entry) in entries {
+                process_entry(&mut limits, model_id, entry);
+            }
+        }
+        Value::Array(entries) => {
+            for entry in entries {
+                if let Some(model_id) = entry
+                    .get("id")
+                    .or_else(|| entry.get("model"))
+                    .and_then(Value::as_str)
+                {
                     process_entry(&mut limits, model_id, entry);
                 }
             }
-            Value::Array(entries) => {
-                for entry in entries {
-                    if let Some(model_id) = entry
-                        .get("id")
-                        .or_else(|| entry.get("model"))
-                        .and_then(Value::as_str)
-                    {
-                        process_entry(&mut limits, model_id, entry);
-                    }
-                }
-            }
-            _ => {}
         }
-    } else if let Value::Object(entries) = response {
-        for (model_id, entry) in entries {
-            process_entry(&mut limits, model_id, entry);
-        }
+        _ => {}
     }
     limits
-}
-
-fn official_catalog_response(payload: &Value) -> &Value {
-    payload
-        .get("response")
-        .filter(|response| response.get("models").and_then(Value::as_object).is_some())
-        .unwrap_or(payload)
 }
 
 fn effective_policy<'a>(
@@ -192,15 +173,23 @@ fn apply_policy_with_entry_limits(
     let entry_output_limit =
         minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
             .unwrap_or(policy.max_output_tokens);
-    let canonical_checkpoint = canonical_model_id(&policy.checkpoint_model, aliases);
+    let checkpoint_model = existing_checkpoint_payload(entry)
+        .and_then(|payload| {
+            payload
+                .get("checkpoint_model")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| policy.checkpoint_model.clone());
+    let canonical_checkpoint = canonical_model_id(&checkpoint_model, aliases);
     let output_token_limit = checkpoint_output_limits
         .get(canonical_checkpoint)
-        .or_else(|| checkpoint_output_limits.get(&policy.checkpoint_model))
+        .or_else(|| checkpoint_output_limits.get(&checkpoint_model))
         .copied()
         .map_or(entry_output_limit, |checkpoint_limit| {
             entry_output_limit.min(checkpoint_limit)
         });
-    apply_model_compression_policy(entry, policy, capacity, output_token_limit);
+    apply_model_compression_policy(entry, policy, capacity, output_token_limit, None);
 }
 
 pub(super) fn apply_model_compression_policy(
@@ -208,18 +197,26 @@ pub(super) fn apply_model_compression_policy(
     policy: &ModelCompressionPolicy,
     capacity: u32,
     output_token_limit: u32,
+    fallback_template: Option<&ModelCompressionPolicy>,
 ) {
-    let Some((token_threshold, max_token_limit, max_output_tokens)) =
-        clamp_policy_limits(policy, capacity, output_token_limit)
-    else {
+    let Some(resolved) = policy.resolve_effective(Some(capacity), Some(output_token_limit)) else {
         return;
     };
+    let token_threshold = resolved.token_threshold;
+    let max_token_limit = resolved.max_token_limit;
+    let max_output_tokens = resolved.max_output_tokens;
 
-    let mut payload =
-        serde_json::to_value(policy).expect("model compression policy serialization cannot fail");
-    let payload = payload
-        .as_object_mut()
-        .expect("model compression policy must serialize as an object");
+    let mut payload = match existing_checkpoint_payload(entry) {
+        Some(payload) => payload,
+        None if fallback_template.is_some() => serde_json::to_value(
+            fallback_template.expect("checked fallback compression policy must exist"),
+        )
+        .expect("fallback compression policy serialization cannot fail")
+        .as_object()
+        .expect("fallback compression policy must serialize as an object")
+        .clone(),
+        None => return,
+    };
     payload.insert(
         "token_threshold".to_string(),
         Value::String(token_threshold.to_string()),
@@ -258,36 +255,21 @@ pub(super) fn apply_model_compression_policy(
     experiment.insert(
         "stringValue".to_string(),
         Value::String(
-            serde_json::to_string(payload)
+            serde_json::to_string(&payload)
                 .expect("model compression policy payload serialization cannot fail"),
         ),
     );
 }
 
-fn clamp_policy_limits(
-    policy: &ModelCompressionPolicy,
-    capacity: u32,
-    output_token_limit: u32,
-) -> Option<(u32, u32, u32)> {
-    if capacity < 2 || output_token_limit == 0 {
-        return None;
-    }
-
-    let max_token_limit = policy.max_token_limit.min(capacity);
-    if max_token_limit < 2 {
-        return None;
-    }
-    let max_output_tokens = policy
-        .max_output_tokens
-        .min(output_token_limit)
-        .min(max_token_limit.saturating_sub(1));
-    if max_output_tokens == 0 {
-        return None;
-    }
-    let token_threshold = policy
-        .token_threshold
-        .min(max_token_limit.saturating_sub(max_output_tokens));
-    (token_threshold > 0).then_some((token_threshold, max_token_limit, max_output_tokens))
+fn existing_checkpoint_payload(entry: &Value) -> Option<serde_json::Map<String, Value>> {
+    entry
+        .get("modelExperiments")
+        .and_then(|model_experiments| model_experiments.get("experiments"))
+        .and_then(|experiments| experiments.get(CHECKPOINTER_EXPERIMENT))
+        .and_then(|experiment| experiment.get("stringValue"))
+        .and_then(Value::as_str)
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|payload| payload.as_object().cloned())
 }
 
 fn minimum_positive_field(entry: &Value, fields: &[&str]) -> Option<u32> {

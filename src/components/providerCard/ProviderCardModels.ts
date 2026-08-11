@@ -1,4 +1,5 @@
 import { updateConfig } from "../../controllers/configController";
+import { effectiveCompressionCapacity } from "../../features/providers/modelTokenLimits";
 import { renderConnectionTestState } from "../../features/providers/providerConnectionTests";
 import { connectionTestResults } from "../../features/providers/providerState";
 import { t } from "../../i18n";
@@ -87,10 +88,7 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
   const policyCol = document.createElement("div");
   policyCol.className = "provider-policy-col";
 
-  const capacity = positiveMinimum(
-    upstream.token_limits.context_window,
-    upstream.token_limits.input_token_limit,
-  );
+  const capacity = effectiveCompressionCapacity(upstream.token_limits);
   const outputTokenLimit = upstream.token_limits.output_token_limit_source === "estimated"
     ? null
     : positiveMinimum(upstream.token_limits.output_token_limit);
@@ -122,7 +120,6 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
       defaultLabel: t("models.presetUpstreamDefault"),
       defaultHelp: t("models.policyCustomUnconfiguredHelp"),
       emptyNotice: t("models.policyEmptyNoticeCustom"),
-      preferCurrentWorker: true,
       focusKey: `upstream:${upstream.id}`,
       onSave: async (policy) => {
         await updateConfig((current) => ({

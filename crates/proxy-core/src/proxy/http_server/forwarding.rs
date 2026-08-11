@@ -5,6 +5,7 @@ use super::responses::{
     is_hop_by_hop_header, with_response_summary,
 };
 use super::types::{HttpResponse, HttpServerOptions, LOCAL_TOKEN_HEADER};
+use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::{ErrorCategory, ProxyError};
 use crate::proxy::activity::ActivityErrorCategory;
 use crate::proxy::server::ProxyServer;
@@ -122,22 +123,11 @@ pub(super) async fn handle_fetch_models_request(
     if let Some(obj) = upstream_models.as_object_mut() {
         obj.remove("error");
     }
-    let models = proxy.handle_model_list(upstream_models);
-    let catalog_count = models
-        .get("models")
-        .and_then(serde_json::Value::as_object)
-        .map_or_else(
-            || {
-                models
-                    .get("models")
-                    .and_then(serde_json::Value::as_array)
-                    .map_or(0, Vec::len)
-            },
-            serde_json::Map::len,
-        );
-    let models_str = models.to_string();
     let proxy_target = get_proxy_target_host(&parts, &proxy);
-    let rewritten_models_str = rewrite_official_urls_str(&models_str, &proxy_target);
+    let rewritten_models_str = proxy.prepare_model_catalog_response(upstream_models, &proxy_target);
+    let catalog_count = serde_json::from_str::<serde_json::Value>(&rewritten_models_str)
+        .map(|models| AntigravityModelDescriptor::model_count(&models))
+        .unwrap_or(0);
     with_response_summary(
         full_response(StatusCode::OK, "application/json", rewritten_models_str),
         format!("catalog_models={catalog_count}; source=official"),
@@ -288,7 +278,7 @@ fn rewrite_official_urls(
     }
 }
 
-fn rewrite_official_urls_str(text: &str, proxy_target: &str) -> String {
+pub(crate) fn rewrite_official_urls_str(text: &str, proxy_target: &str) -> String {
     text.replace("https://daily-cloudcode-pa.googleapis.com", proxy_target)
         .replace("https://cloudcode-pa.googleapis.com", proxy_target)
         .replace(

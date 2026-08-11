@@ -1,4 +1,3 @@
-import type { ProviderCatalogModel } from "./catalog";
 
 export interface OfficialModelsDebugResult {
   success: boolean;
@@ -9,5 +8,5 @@ export interface OfficialModelsDebugResult {
   errorCategory: string | null;
   errorMessage: string | null;
   rawResponse: string | null;
-  normalizedModels: ProviderCatalogModel[];
+  modifiedResponse: string | null;
 }

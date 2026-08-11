@@ -7,7 +7,7 @@ const ERROR_TRANSLATIONS: Partial<Record<string, TranslationKey>> = {
   provider_catalog_failed: "models.catalogFetchFailed",
   official_models_host_not_installed: "models.officialHostNotInstalled",
   official_models_host_not_running: "models.officialHostNotRunning",
-  official_models_proxy_required: "models.officialProxyRequired",
+
   official_models_fetch_failed: "models.officialSourcesFailed",
   config_save_failed: "errors.configSaveFailed",
   proxy_reconfigure_failed: "errors.proxyReconfigureFailed",

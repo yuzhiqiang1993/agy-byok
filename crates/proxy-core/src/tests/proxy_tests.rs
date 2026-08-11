@@ -173,6 +173,43 @@ mod tests {
     }
 
     #[test]
+    fn prepared_model_catalog_preserves_response_envelope_and_runs_full_pipeline() {
+        let config = connection_test_config("http://localhost/chat".to_string());
+        let catalog_key = config.virtual_models[0].catalog_key().into_owned();
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let response = server.prepare_model_catalog_response(
+            json!({
+                "requestId": "request-1",
+                "response": {
+                    "models": {
+                        "official": {
+                            "endpoint": "https://daily-cloudcode-pa.googleapis.com/generate"
+                        }
+                    },
+                    "agentModelSorts": [{
+                        "groups": [{ "modelIds": ["official"] }]
+                    }]
+                }
+            }),
+            "http://127.0.0.1:12345",
+        );
+        let catalog: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(catalog["requestId"], "request-1");
+        assert_eq!(
+            catalog["response"]["models"]["official"]["endpoint"],
+            "http://127.0.0.1:12345/generate"
+        );
+        assert!(catalog["response"]["models"][catalog_key.as_str()].is_object());
+        assert_eq!(
+            catalog["response"]["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!(["official", catalog_key])
+        );
+        assert_eq!(AntigravityModelDescriptor::model_count(&catalog), 2);
+    }
+
+    #[test]
     fn custom_and_official_model_compression_policies_are_independent() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].token_limits = ModelTokenLimits {
@@ -205,7 +242,21 @@ mod tests {
                     "model": "MODEL_GEMINI_2_5_PRO",
                     "displayName": "Gemini Pro",
                     "maxTokens": 1_048_576,
-                    "maxOutputTokens": 65_536
+                    "maxOutputTokens": 65_536,
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": serde_json::to_string(&json!({
+                                    "enabled": true,
+                                    "checkpoint_model": "MODEL_PLACEHOLDER_M71",
+                                    "strategy": "UPSTREAM_STRATEGY",
+                                    "token_threshold": "100000",
+                                    "max_token_limit": "128000",
+                                    "max_output_tokens": "8192"
+                                })).unwrap()
+                            }
+                        }
+                    }
                 }
             }
         }));
@@ -1018,7 +1069,7 @@ mod tests {
         assert_eq!(models_arr[1]["supportsThinking"], true);
         assert_eq!(
             injected["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["gemini-pro"])
+            json!(["gemini-pro", "vm-claude"])
         );
     }
 

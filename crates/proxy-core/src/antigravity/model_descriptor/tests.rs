@@ -46,6 +46,28 @@ fn policy(threshold: u32, limit: u32, output: u32) -> ModelCompressionPolicy {
     }
 }
 
+fn checkpoint_experiments() -> Value {
+    checkpoint_experiments_with_model("UPSTREAM_WORKER")
+}
+
+fn checkpoint_experiments_with_model(checkpoint_model: &str) -> Value {
+    json!({
+        "experiments": {
+            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                "stringValue": serde_json::to_string(&json!({
+                    "enabled": false,
+                    "checkpoint_model": checkpoint_model,
+                    "strategy": "UPSTREAM_STRATEGY",
+                    "retry_config": { "max_retries": 7 },
+                    "token_threshold": "123",
+                    "max_token_limit": "456",
+                    "max_output_tokens": "78"
+                })).unwrap()
+            }
+        }
+    })
+}
+
 fn checkpoint(descriptor: &Value) -> Value {
     let raw = descriptor["modelExperiments"]["experiments"]["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]
         ["stringValue"]
@@ -146,7 +168,8 @@ fn official_policy_map_matches_object_key_and_array_id() {
         "models": {
             "official-object": {
                 "maxTokens": 90_000,
-                "maxOutputTokens": 8_000
+                "maxOutputTokens": 8_000,
+                "modelExperiments": checkpoint_experiments()
             }
         }
     });
@@ -154,7 +177,8 @@ fn official_policy_map_matches_object_key_and_array_id() {
         "models": [{
             "id": "official-array",
             "maxTokens": "80_000".replace('_', ""),
-            "maxOutputTokens": 6_000
+            "maxOutputTokens": 6_000,
+            "modelExperiments": checkpoint_experiments()
         }]
     });
 
@@ -184,7 +208,8 @@ fn official_policy_output_is_clamped_to_checkpoint_model_limit() {
             "gemini-3.6-flash-high": {
                 "model": "MODEL_PLACEHOLDER_M71",
                 "maxTokens": 1_048_576,
-                "maxOutputTokens": 65_536
+                "maxOutputTokens": 65_536,
+                "modelExperiments": checkpoint_experiments_with_model("MODEL_PLACEHOLDER_M50")
             }
         }
     });
@@ -206,11 +231,13 @@ fn deprecated_official_policy_is_applied_to_both_mapped_model_entries() {
         "models": {
             "gemini-3.1-pro-high": {
                 "maxTokens": 1_048_576,
-                "maxOutputTokens": 65_535
+                "maxOutputTokens": 65_535,
+                "modelExperiments": checkpoint_experiments()
             },
             "gemini-pro-agent": {
                 "maxTokens": 1_048_576,
-                "maxOutputTokens": 65_535
+                "maxOutputTokens": 65_535,
+                "modelExperiments": checkpoint_experiments()
             }
         },
         "deprecatedModelIds": {
@@ -250,6 +277,84 @@ fn deprecated_official_policy_is_applied_to_both_mapped_model_entries() {
 }
 
 #[test]
+fn official_policy_only_replaces_three_token_fields() {
+    let mut catalog = json!({
+        "response": {
+            "models": {
+                "official-default": {
+                    "maxTokens": 128_000,
+                    "maxOutputTokens": 16_384,
+                    "modelExperiments": checkpoint_experiments()
+                }
+            }
+        }
+    });
+    let original = checkpoint(&catalog["response"]["models"]["official-default"]);
+    let policies = BTreeMap::from([(
+        "official-default".to_string(),
+        policy(50_000, 100_000, 10_000),
+    )]);
+
+    AntigravityModelDescriptor::apply_official_model_overrides(&mut catalog, &policies);
+
+    let modified = checkpoint(&catalog["response"]["models"]["official-default"]);
+    assert_eq!(modified["token_threshold"], "50000");
+    assert_eq!(modified["max_token_limit"], "100000");
+    assert_eq!(modified["max_output_tokens"], "10000");
+    for field in ["enabled", "checkpoint_model", "strategy", "retry_config"] {
+        assert_eq!(modified[field], original[field]);
+    }
+}
+
+#[test]
+fn model_injection_supports_root_and_response_object_and_array_catalogs() {
+    let (virtual_model, upstream_model) = models();
+    let sorts = || {
+        json!([{
+            "groups": [{ "modelIds": ["official"] }]
+        }])
+    };
+    let mut catalogs = [
+        json!({ "models": {}, "agentModelSorts": sorts() }),
+        json!({ "response": { "models": {}, "agentModelSorts": sorts() } }),
+        json!({ "models": [], "agentModelSorts": sorts() }),
+        json!({ "response": { "models": [], "agentModelSorts": sorts() } }),
+    ];
+
+    for catalog in &mut catalogs {
+        AntigravityModelDescriptor::inject_into_model_list(
+            catalog,
+            std::slice::from_ref(&virtual_model),
+            std::slice::from_ref(&upstream_model),
+        );
+    }
+
+    assert!(catalogs[0]["models"]["custom-model"].is_object());
+    assert!(catalogs[1]["response"]["models"]["custom-model"].is_object());
+    assert_eq!(catalogs[2]["models"][0]["id"], "custom-model");
+    assert_eq!(catalogs[3]["response"]["models"][0]["id"], "custom-model");
+    assert_eq!(
+        catalogs[0]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
+        "custom-model"
+    );
+    assert_eq!(
+        catalogs[1]["response"]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
+        "custom-model"
+    );
+    assert_eq!(
+        catalogs[2]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
+        "custom-model"
+    );
+    assert_eq!(
+        catalogs[3]["response"]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
+        "custom-model"
+    );
+    for catalog in &catalogs {
+        assert_eq!(AntigravityModelDescriptor::model_count(catalog), 1);
+    }
+}
+
+#[test]
 fn official_model_without_policy_keeps_upstream_checkpointer_unchanged() {
     let original = r#"{"enabled":false,"token_threshold":"123"}"#;
     let mut catalog = json!({
@@ -283,7 +388,8 @@ fn official_placeholder_m400_entry_is_not_skipped() {
                 "id": "official-placeholder",
                 "model": "MODEL_PLACEHOLDER_M400",
                 "maxTokens": 100_000,
-                "maxOutputTokens": 20_000
+                "maxOutputTokens": 20_000,
+                "modelExperiments": checkpoint_experiments()
             }
         }
     });

@@ -1,6 +1,5 @@
 import { fetchOfficialModelsDebug } from "../controllers/providerController";
 import { t } from "../i18n";
-import type { ProviderCatalogModel } from "../types/catalog";
 import type { OfficialModelsDebugResult } from "../types/officialModelsDebug";
 import { errorMessage } from "../utils/errorUtils";
 import { withBusy } from "../utils/domUtils";
@@ -10,16 +9,7 @@ import { showNotice } from "./NoticeBar";
 function formatJson(value: string): string {
   if (!value.trim()) return "";
   try {
-    const parsed: unknown = JSON.parse(value);
-    // GetAvailableModels 使用 RPC 信封承载真正的模型目录；IDE 使用的是其中的 response 数据。
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const response = (parsed as Record<string, unknown>).response;
-      if (response && typeof response === "object" && !Array.isArray(response)
-        && "models" in response) {
-        return JSON.stringify(response, null, 2);
-      }
-    }
-    return JSON.stringify(parsed, null, 2);
+    return JSON.stringify(JSON.parse(value), null, 2);
   } catch {
     // 非 JSON 错误正文仍保持原文，避免调试信息被吞掉或重组。
     return value;
@@ -28,17 +18,26 @@ function formatJson(value: string): string {
 
 function showOfficialModelsDebug(
   result: OfficialModelsDebugResult,
-  displayedModels: ProviderCatalogModel[],
   focus: "raw" | "modified",
 ): void {
   const source = focus === "raw"
-    ? result.rawResponse ?? ""
-    : JSON.stringify(displayedModels.length > 0 ? displayedModels : result.normalizedModels);
+    ? (result.rawResponse ?? "")
+    : (result.modifiedResponse ?? "");
   const output = formatJson(source)
     || result.errorMessage
     || t("models.debugOfficialEmpty");
   const body = document.createElement("div");
   body.className = "raw-config-body";
+  if (!result.success) {
+    const metadata = document.createElement("pre");
+    metadata.className = "raw-config-json official-debug-json";
+    metadata.textContent = JSON.stringify({
+      statusCode: result.statusCode,
+      errorCategory: result.errorCategory,
+      errorMessage: result.errorMessage,
+    }, null, 2);
+    body.append(metadata);
+  }
   const pre = document.createElement("pre");
   pre.className = "raw-config-json official-debug-json";
   pre.tabIndex = 0;
@@ -67,7 +66,6 @@ function showOfficialModelsDebug(
 function createDebugButton(
   labelKey: "models.debugOfficialRawButton" | "models.debugOfficialModifiedButton",
   focus: "raw" | "modified",
-  getDisplayedModels: () => ProviderCatalogModel[],
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -78,7 +76,7 @@ function createDebugButton(
     void withBusy(button, async () => {
       try {
         const result = await fetchOfficialModelsDebug();
-        showOfficialModelsDebug(result, getDisplayedModels(), focus);
+        showOfficialModelsDebug(result, focus);
       } catch (error) {
         showNotice(errorMessage(error), "error");
       }
@@ -87,12 +85,10 @@ function createDebugButton(
   return button;
 }
 
-export function createOfficialModelsDebugButtons(
-  getDisplayedModels: () => ProviderCatalogModel[],
-): HTMLButtonElement[] {
+export function createOfficialModelsDebugButtons(): HTMLButtonElement[] {
   if (!import.meta.env.DEV) return [];
   return [
-    createDebugButton("models.debugOfficialRawButton", "raw", getDisplayedModels),
-    createDebugButton("models.debugOfficialModifiedButton", "modified", getDisplayedModels),
+    createDebugButton("models.debugOfficialRawButton", "raw"),
+    createDebugButton("models.debugOfficialModifiedButton", "modified"),
   ];
 }
