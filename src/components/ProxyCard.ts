@@ -37,6 +37,8 @@ export function renderProxy(status: ProxyStatus): void {
   }
 
   const stopProxyButton = element<HTMLButtonElement>("#stop-proxy");
+  // 同步动态翻译键，避免异步操作结束后恢复成旧状态文案。
+  stopProxyButton.dataset.i18n = running ? "overview.stopProxy" : "overview.startProxy";
   stopProxyButton.textContent = running ? t("overview.stopProxy") : t("overview.startProxy");
   stopProxyButton.className = running ? "secondary compact-button" : "primary compact-button";
   stopProxyButton.title = "";

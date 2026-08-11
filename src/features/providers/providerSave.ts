@@ -1,7 +1,7 @@
 import type { ProviderChangeSummary, ProviderSavePlan } from "../../types/proxy";
 import type { Provider } from "../../types/config";
 import { store } from "../../store/appStore";
-import { persistConfig } from "../../controllers/providerController";
+import { persistProviderConfig } from "../../controllers/providerController";
 import {
   connectionTestResults,
   providerTestSessions,
@@ -100,7 +100,7 @@ async function executeProviderSave(
   const connectionResultIds = store.config.virtual_models
     .filter((virtualModel) => currentUpstreamIds.has(virtualModel.upstream_model_id))
     .map((virtualModel) => virtualModel.id);
-  await persistConfig(plan.nextConfig);
+  await persistProviderConfig(plan.provider.id, plan.nextConfig);
   for (const virtualModelId of connectionResultIds) {
     connectionTestResults.delete(virtualModelId);
   }

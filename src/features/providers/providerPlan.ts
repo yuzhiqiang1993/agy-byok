@@ -69,11 +69,10 @@ export function buildProviderSavePlan(input: ProviderSavePlanInput): ProviderSav
       }))
     : modelPlan.virtuals;
   const nextConfig: AppConfig = {
-    proxy_port: currentConfig.proxy_port,
+    ...currentConfig,
     providers,
     upstream_models: [...remainingUpstreams, ...modelPlan.upstreams],
     virtual_models: [...remainingVirtuals, ...providerVirtuals],
-    model_compression_policies: currentConfig.model_compression_policies,
   };
   const summary = summarizeProviderChanges(
     currentConfig,

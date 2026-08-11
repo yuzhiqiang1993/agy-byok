@@ -255,6 +255,18 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+.policy-output-controls {
+  display: flex;
+  gap: 8px;
+}
+.policy-output-controls select,
+.policy-output-controls input {
+  min-width: 0;
+  flex: 1 1 0;
+}
+.policy-output-controls input[hidden] {
+  display: none;
+}
 .policy-metric {
   display: flex;
   min-width: 0;
@@ -342,16 +354,16 @@ html[data-theme="dark"] .policy-editor-error {
 .raw-config-dialog {
   width: min(820px, calc(100vw - 32px));
 }
+.agy-modal-body.raw-config-modal-body {
+  padding: 0;
+  overflow: hidden;
+}
 .raw-config-body {
   display: flex;
   min-height: 0;
   flex-direction: column;
   gap: 10px;
   padding: 20px 24px;
-}
-.raw-config-section-title {
-  color: var(--text-main);
-  font-size: 12px;
 }
 .raw-config-json {
   min-height: 240px;
@@ -385,5 +397,8 @@ html[data-theme="dark"] .policy-editor-error {
   }
   .policy-worker-row select {
     width: 100%;
+  }
+  .policy-output-controls {
+    flex-direction: column;
   }
 }

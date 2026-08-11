@@ -8,6 +8,7 @@ import { errorMessage } from "../utils/errorUtils";
 import { reasoningLevelLabel } from "../utils/reasoningUtils";
 import { getPolicyPillStatus, showPolicyEditorModal } from "./PolicyEditorModal";
 import { buildModelCardUI } from "./providerCard/ModelCardUI";
+import { createOfficialModelsDebugButtons } from "./OfficialModelsDebug";
 
 
 function positiveMinimum(...values: Array<number | undefined>): number | null {
@@ -250,6 +251,9 @@ export function renderOfficialProviderCard(options: {
   });
 
   toolbarRight.append(testBtn, refreshBtn);
+  toolbarRight.append(...createOfficialModelsDebugButtons(() => (
+    cachedOfficialModels ? filterMainAgentModels([...cachedOfficialModels]) : []
+  )));
   toolbar.append(toolbarLeft, toolbarRight);
   card.append(toolbar);
 

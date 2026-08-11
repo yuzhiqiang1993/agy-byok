@@ -4,6 +4,7 @@ import { element, visibleFocusableElements } from "../../utils/domUtils";
 import * as providerCatalog from "../../features/providers/providerCatalog";
 import * as providerForm from "../../features/providers/providerForm";
 import { isProviderEditorDirty } from "../../features/providers/providerState";
+import { setupProviderCatalogDebug } from "./ProviderCatalogDebug";
 
 interface ProviderEditorBindings {
   setDirty: (dirty: boolean) => void;
@@ -229,5 +230,9 @@ export function setupProviderEditorBindings(bindings: ProviderEditorBindings): v
   bindModalEvents(bindings);
   bindKeyboardNavigation(bindings);
   bindLanguageRefresh(bindings);
+  setupProviderCatalogDebug({
+    providerFromForm: catalogContext.providerFromForm,
+    withBusy: bindings.withBusy,
+  });
   providerForm.syncApiKeyToggle();
 }

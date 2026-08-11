@@ -4,13 +4,7 @@ import type { ModelCompressionPolicy } from "../types/config";
 import { errorMessage } from "../utils/errorUtils";
 import { createModal, type ModalInstance } from "./common/Modal";
 
-type CompressionPresetId =
-  | "EXTREMELY_CONSERVATIVE"
-  | "CONSERVATIVE"
-  | "SLIGHTLY_CONSERVATIVE"
-  | "BALANCED"
-  | "AGGRESSIVE"
-  | "EXTREMELY_AGGRESSIVE";
+type CompressionPresetId = "CONTEXT_128K" | "CONTEXT_200K" | "CONTEXT_256K" | "CONTEXT_372K" | "CONTEXT_1M";
 
 type PolicyMode = "NONE" | CompressionPresetId | "CUSTOM";
 type CompressionWorkerMode =
@@ -24,10 +18,16 @@ interface CompressionWorkerPolicy {
   useLastPlannerModel: boolean;
 }
 
-interface PresetRatio {
-  threshold: number;
-  limit: number;
-  output: number;
+interface CompressionPreset {
+  id: CompressionPresetId;
+  labelKey:
+    | "models.presetContext128K"
+    | "models.presetContext200K"
+    | "models.presetContext256K"
+    | "models.presetContext372K"
+    | "models.presetContext1M";
+  minCapacity: number;
+  values: Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens">;
 }
 
 interface PolicyEditorModalOptions {
@@ -45,6 +45,8 @@ interface PolicyEditorModalOptions {
 }
 
 const DEFAULT_OUTPUT_RESERVE = 16_384;
+const MAX_OUTPUT_RESERVE = 65_535;
+const OUTPUT_RESERVE_OPTIONS = [DEFAULT_OUTPUT_RESERVE, MAX_OUTPUT_RESERVE] as const;
 const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M71";
 const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
   "MODEL_PLACEHOLDER_M71",
@@ -52,53 +54,66 @@ const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
   "MODEL_PLACEHOLDER_M50",
 ];
 const DEFAULT_POLICY_LIMITS = {
-  token_threshold: 61_000,
-  max_token_limit: 73_000,
-  max_output_tokens: 2_000,
+  token_threshold: 50_000,
+  max_token_limit: 128_000,
+  max_output_tokens: DEFAULT_OUTPUT_RESERVE,
 };
 
-const PRESET_RATIOS: Record<CompressionPresetId, PresetRatio> = {
-  EXTREMELY_CONSERVATIVE: { threshold: 0.3, limit: 0.5, output: 0.15 },
-  CONSERVATIVE: { threshold: 0.4, limit: 0.6, output: 0.12 },
-  SLIGHTLY_CONSERVATIVE: { threshold: 0.5, limit: 0.7, output: 0.10 },
-  BALANCED: { threshold: 0.6, limit: 0.8, output: 0.08 },
-  AGGRESSIVE: { threshold: 0.7, limit: 0.85, output: 0.05 },
-  EXTREMELY_AGGRESSIVE: { threshold: 0.8, limit: 0.95, output: 0.02 },
-};
+const COMPRESSION_PRESETS: readonly CompressionPreset[] = [
+  {
+    id: "CONTEXT_128K",
+    labelKey: "models.presetContext128K",
+    minCapacity: 128_000,
+    values: { token_threshold: 50_000, max_token_limit: 128_000, max_output_tokens: 16_384 },
+  },
+  {
+    id: "CONTEXT_200K",
+    labelKey: "models.presetContext200K",
+    minCapacity: 200_000,
+    values: { token_threshold: 50_000, max_token_limit: 160_000, max_output_tokens: 16_384 },
+  },
+  {
+    id: "CONTEXT_256K",
+    labelKey: "models.presetContext256K",
+    minCapacity: 256_000,
+    values: { token_threshold: 140_000, max_token_limit: 256_000, max_output_tokens: 16_384 },
+  },
+  {
+    id: "CONTEXT_372K",
+    labelKey: "models.presetContext372K",
+    minCapacity: 372_000,
+    values: { token_threshold: 148_800, max_token_limit: 223_200, max_output_tokens: 44_640 },
+  },
+  {
+    id: "CONTEXT_1M",
+    labelKey: "models.presetContext1M",
+    minCapacity: 1_000_000,
+    values: { token_threshold: 419_430, max_token_limit: 629_145, max_output_tokens: MAX_OUTPUT_RESERVE },
+  },
+];
 
-const PRESET_IDS = Object.keys(PRESET_RATIOS) as CompressionPresetId[];
+const PRESET_IDS = COMPRESSION_PRESETS.map((preset) => preset.id);
 
-function presetLabel(id: CompressionPresetId): string {
-  switch (id) {
-    case "EXTREMELY_CONSERVATIVE":
-      return t("models.presetExtremelyConservative");
-    case "CONSERVATIVE":
-      return t("models.presetConservative");
-    case "SLIGHTLY_CONSERVATIVE":
-      return t("models.presetSlightlyConservative");
-    case "BALANCED":
-      return t("models.presetBalanced");
-    case "AGGRESSIVE":
-      return t("models.presetAggressive");
-    case "EXTREMELY_AGGRESSIVE":
-      return t("models.presetExtremelyAggressive");
-  }
+function presetById(id: CompressionPresetId): CompressionPreset {
+  return COMPRESSION_PRESETS.find((preset) => preset.id === id) ?? COMPRESSION_PRESETS[0];
 }
 
-function presetValues(
-  id: CompressionPresetId,
-  capacity: number,
+function presetLabel(id: CompressionPresetId): string {
+  return t(presetById(id).labelKey);
+}
+
+function presetSupported(
+  preset: CompressionPreset,
+  capacity: number | null,
   outputTokenLimit: number | null,
-): Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens"> {
-  const ratio = PRESET_RATIOS[id];
-  const outputLimit = outputTokenLimit && outputTokenLimit > 0
-    ? outputTokenLimit
-    : DEFAULT_OUTPUT_RESERVE;
-  return {
-    token_threshold: Math.floor(capacity * ratio.threshold),
-    max_token_limit: Math.floor(capacity * ratio.limit),
-    max_output_tokens: Math.floor(Math.min(capacity * ratio.output, outputLimit)),
-  };
+): boolean {
+  if (capacity == null || capacity < preset.minCapacity) return false;
+  return outputTokenLimit == null || preset.values.max_output_tokens <= outputTokenLimit;
+}
+
+function recommendedPresetForCapacity(capacity: number | null): CompressionPreset | null {
+  if (capacity == null || capacity <= 0) return null;
+  return [...COMPRESSION_PRESETS].reverse().find((preset) => capacity >= preset.minCapacity) ?? null;
 }
 
 function createPolicy(
@@ -131,11 +146,9 @@ function createPolicy(
 
 function createPresetPolicy(
   id: CompressionPresetId,
-  capacity: number,
-  outputTokenLimit: number | null,
   worker: CompressionWorkerPolicy,
 ): ModelCompressionPolicy {
-  return createPolicy(presetValues(id, capacity, outputTokenLimit), worker);
+  return createPolicy(presetById(id).values, worker);
 }
 
 function matchingPreset(
@@ -144,12 +157,12 @@ function matchingPreset(
   outputTokenLimit: number | null,
 ): CompressionPresetId | null {
   if (!capacity || capacity <= 0) return null;
-  return PRESET_IDS.find((id) => {
-    const values = presetValues(id, capacity, outputTokenLimit);
-    return policy.token_threshold === values.token_threshold
-      && policy.max_token_limit === values.max_token_limit
-      && policy.max_output_tokens === values.max_output_tokens;
-  }) ?? null;
+  return COMPRESSION_PRESETS.find((preset) => (
+    presetSupported(preset, capacity, outputTokenLimit)
+      && policy.token_threshold === preset.values.token_threshold
+      && policy.max_token_limit === preset.values.max_token_limit
+      && policy.max_output_tokens === preset.values.max_output_tokens
+  ))?.id ?? null;
 }
 
 function initialMode(
@@ -238,15 +251,23 @@ function formatTokenCount(value: number): string {
   return value.toLocaleString();
 }
 
-function isValidPolicy(policy: ModelCompressionPolicy): boolean {
+function isValidPolicy(
+  policy: ModelCompressionPolicy,
+  capacity: number | null,
+  outputTokenLimit: number | null,
+): boolean {
   const { token_threshold: threshold, max_token_limit: limit, max_output_tokens: output } = policy;
   return [threshold, limit, output].every((value) => Number.isSafeInteger(value) && value > 0)
+    && output >= DEFAULT_OUTPUT_RESERVE
+    && output <= MAX_OUTPUT_RESERVE
     && threshold < limit
     && output < limit
-    && threshold + output <= limit;
+    && threshold + output <= limit
+    && (capacity == null || limit <= capacity)
+    && (outputTokenLimit == null || output <= outputTokenLimit);
 }
 
-function createMetric(label: string, value: number, ratio?: number): HTMLDivElement {
+function createMetric(label: string, value: number): HTMLDivElement {
   const metric = document.createElement("div");
   metric.className = "policy-metric";
 
@@ -258,12 +279,6 @@ function createMetric(label: string, value: number, ratio?: number): HTMLDivElem
   count.textContent = value.toLocaleString();
   valueRow.append(count);
 
-  if (ratio !== undefined) {
-    const badge = document.createElement("small");
-    badge.textContent = `${Math.round(ratio * 100)}%`;
-    valueRow.append(badge);
-  }
-
   metric.append(name, valueRow);
   return metric;
 }
@@ -271,14 +286,13 @@ function createMetric(label: string, value: number, ratio?: number): HTMLDivElem
 function renderPolicyMetrics(
   container: HTMLElement,
   policy: ModelCompressionPolicy,
-  ratio?: PresetRatio,
 ): void {
   const metrics = document.createElement("div");
   metrics.className = "policy-metric-grid";
   metrics.append(
-    createMetric(t("models.policyThreshold"), policy.token_threshold, ratio?.threshold),
-    createMetric(t("models.policyMaxLimit"), policy.max_token_limit, ratio?.limit),
-    createMetric(t("models.policyMaxOutput"), policy.max_output_tokens, ratio?.output),
+    createMetric(t("models.policyThreshold"), policy.token_threshold),
+    createMetric(t("models.policyMaxLimit"), policy.max_token_limit),
+    createMetric(t("models.policyMaxOutput"), policy.max_output_tokens),
   );
   container.append(metrics);
 }
@@ -359,13 +373,13 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   presetSelect.append(noneOption);
 
   for (const id of PRESET_IDS) {
-    const ratio = PRESET_RATIOS[id];
+    const preset = presetById(id);
     const option = document.createElement("option");
     option.value = id;
-    option.textContent = `${presetLabel(id)} · ${Math.round(ratio.threshold * 100)}% / ${Math.round(ratio.limit * 100)}% / ${Math.round(ratio.output * 100)}%`;
-    if (!options.capacity || options.capacity <= 0) {
+    option.textContent = presetLabel(id);
+    if (!presetSupported(preset, options.capacity, options.outputTokenLimit)) {
       option.disabled = true;
-      option.textContent = `${option.textContent} · ${t("models.presetUnknownLimit")}`;
+      option.textContent = `${option.textContent} · ${options.capacity == null ? t("models.presetUnknownLimit") : t("models.presetUnsupported")}`;
     }
     presetSelect.append(option);
   }
@@ -407,15 +421,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
           ? upstream.maxOutputTokens
           : DEFAULT_OUTPUT_RESERVE,
       }, defaultWorker);
-      const capacity = options.capacity && options.capacity > 0 ? options.capacity : null;
-      const ratios = capacity
-        ? {
-            threshold: policy.token_threshold / capacity,
-            limit: policy.max_token_limit / capacity,
-            output: policy.max_output_tokens / capacity,
-          }
-        : undefined;
-      renderPolicyMetrics(form, policy, ratios);
+      renderPolicyMetrics(form, policy);
       renderWorkerModel(form, workerModeLabel(workerMode(policy)));
       return;
     }
@@ -433,6 +439,55 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     const label = document.createElement("label");
     const text = document.createElement("span");
     text.textContent = labelText;
+    if (field === "max_output_tokens") {
+      const controls = document.createElement("div");
+      controls.className = "policy-output-controls";
+      const select = document.createElement("select");
+      const currentValue = draft?.[field] ?? DEFAULT_OUTPUT_RESERVE;
+      for (const value of OUTPUT_RESERVE_OPTIONS) {
+        const option = document.createElement("option");
+        option.value = String(value);
+        option.textContent = value.toLocaleString();
+        select.append(option);
+      }
+      const customOption = document.createElement("option");
+      customOption.value = "CUSTOM";
+      customOption.textContent = t("models.presetCustom");
+      select.append(customOption);
+
+      const customInput = document.createElement("input");
+      customInput.type = "number";
+      customInput.min = String(DEFAULT_OUTPUT_RESERVE);
+      customInput.max = String(MAX_OUTPUT_RESERVE);
+      customInput.step = "1";
+      customInput.inputMode = "numeric";
+      customInput.value = String(currentValue);
+      const isPresetValue = OUTPUT_RESERVE_OPTIONS.includes(
+        currentValue as (typeof OUTPUT_RESERVE_OPTIONS)[number],
+      );
+      select.value = isPresetValue ? String(currentValue) : "CUSTOM";
+      customInput.hidden = isPresetValue;
+      select.addEventListener("change", () => {
+        if (!draft) return;
+        if (select.value === "CUSTOM") {
+          customInput.hidden = false;
+          draft[field] = Number(customInput.value);
+        } else {
+          customInput.hidden = true;
+          draft[field] = Number(select.value);
+        }
+        error.hidden = true;
+      });
+      customInput.addEventListener("input", () => {
+        if (!draft) return;
+        draft[field] = Number(customInput.value);
+        error.hidden = true;
+      });
+      controls.append(select, customInput);
+      label.append(text, controls);
+      return label;
+    }
+
     const input = document.createElement("input");
     input.type = "number";
     input.min = "1";
@@ -471,7 +526,17 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       );
       form.append(limits);
     } else {
-      renderPolicyMetrics(form, draft, PRESET_RATIOS[mode]);
+      renderPolicyMetrics(form, draft);
+      const editPresetButton = document.createElement("button");
+      editPresetButton.type = "button";
+      editPresetButton.className = "secondary compact-button policy-preset-edit";
+      editPresetButton.textContent = t("models.policyEditPreset");
+      editPresetButton.addEventListener("click", () => {
+        mode = "CUSTOM";
+        presetSelect.value = mode;
+        render();
+      });
+      form.append(editPresetButton);
     }
     renderWorkerModelSelect(form, draft, () => {
       error.hidden = true;
@@ -487,19 +552,15 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     mode = presetSelect.value as PolicyMode;
     if (mode !== "NONE" && mode !== "CUSTOM") {
       const capacity = options.capacity;
-      if (capacity && capacity > 0) {
+      const preset = presetById(mode);
+      if (presetSupported(preset, capacity, options.outputTokenLimit)) {
         const worker = draft ? workerPolicyFrom(draft) : defaultWorker;
-        draft = createPresetPolicy(mode, capacity, options.outputTokenLimit, worker);
+        draft = createPresetPolicy(mode, worker);
       }
     } else if (mode === "CUSTOM" && !draft) {
-      const capacity = options.capacity;
-      draft = capacity && capacity > 0
-        ? createPresetPolicy(
-            "SLIGHTLY_CONSERVATIVE",
-            capacity,
-            options.outputTokenLimit,
-            defaultWorker,
-          )
+      const preset = recommendedPresetForCapacity(options.capacity);
+      draft = preset && presetSupported(preset, options.capacity, options.outputTokenLimit)
+        ? createPresetPolicy(preset.id, defaultWorker)
         : createPolicy(DEFAULT_POLICY_LIMITS, defaultWorker);
     }
     render();
@@ -535,7 +596,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     onOk: () => {
       error.hidden = true;
       const nextPolicy = mode === "NONE" ? null : draft;
-      if (nextPolicy && !isValidPolicy(nextPolicy)) {
+      if (nextPolicy && !isValidPolicy(nextPolicy, options.capacity, options.outputTokenLimit)) {
         error.textContent = t("models.policyInvalid");
         error.hidden = false;
         return;

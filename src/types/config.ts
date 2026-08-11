@@ -111,10 +111,16 @@ export interface VirtualModel {
   enabled: boolean;
 }
 
+export interface CustomHostPaths {
+  app?: string | null;
+  ide?: string | null;
+}
+
 export interface AppConfig {
   proxy_port: number;
   providers: Provider[];
   upstream_models: UpstreamModel[];
   virtual_models: VirtualModel[];
   model_compression_policies: Record<string, ModelCompressionPolicy>;
+  custom_host_paths: CustomHostPaths;
 }

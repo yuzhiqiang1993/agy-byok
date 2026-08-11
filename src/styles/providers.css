@@ -12,6 +12,11 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.byok-models-debug-button {
+  white-space: nowrap;
 }
 
 .models-tab-header button {

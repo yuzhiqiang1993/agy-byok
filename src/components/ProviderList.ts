@@ -15,6 +15,7 @@ import { showNotice } from "./NoticeBar";
 import { renderSingleProviderCard } from "./ProviderCard";
 import { renderOfficialProviderCard, getCachedOfficialModelCount } from "./OfficialProviderCard";
 import { openProviderEditor } from "./ProviderEditor";
+import { createByokModelsDebugButton } from "./ByokModelsDebug";
 
 let disposeActiveProviderCard: (() => void) | null = null;
 
@@ -107,6 +108,13 @@ function createProviderTabs(activeId: string): DocumentFragment {
 
 let cachedOfficialModelCount: number | null = null;
 
+function renderDebugAction(): void {
+  if (!import.meta.env.DEV) return;
+  const header = document.querySelector<HTMLElement>(".models-header-left");
+  if (!header || header.querySelector(".byok-models-debug-button")) return;
+  header.append(createByokModelsDebugButton());
+}
+
 export function renderProviders(): void {
   const providerCount = document.querySelector<HTMLSpanElement>("#provider-count");
   const providerTabsBar = document.querySelector<HTMLDivElement>("#provider-tabs-bar");
@@ -115,6 +123,7 @@ export function renderProviders(): void {
   disposeActiveProviderCard?.();
   disposeActiveProviderCard = null;
   providerList.replaceChildren();
+  renderDebugAction();
 
   if (!store.configLoaded) {
     if (providerCount) providerCount.textContent = "—";
