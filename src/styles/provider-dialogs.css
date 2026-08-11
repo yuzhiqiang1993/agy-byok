@@ -207,15 +207,17 @@
 .policy-model-badge,
 .policy-capacity-badge {
   display: inline-flex;
-  min-height: 24px;
+  height: 22px;
   align-items: center;
-  padding: 3px 8px;
+  padding: 0 8px;
   border: 1px solid var(--surface-border);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--surface-inner);
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 11.5px;
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
 }
 .policy-capacity-badge {
   border-color: rgba(16, 185, 129, 0.24);

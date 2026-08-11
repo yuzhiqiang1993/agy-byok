@@ -34,7 +34,7 @@
 }
 
 .agy-modal-header {
-  padding: 16px 20px 14px;
+  padding: 18px 24px 14px;
   border-bottom: 1px solid var(--border-color, #e2e8f0);
   display: flex;
   align-items: flex-start;
@@ -45,13 +45,21 @@
 .agy-modal-heading {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
+.agy-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+
 .agy-modal-title {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 650;
   color: var(--text-primary, #0f172a);
   line-height: 1.35;
@@ -59,7 +67,7 @@
 }
 
 .agy-modal-subtitle {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 400;
   color: var(--text-secondary, #64748b);
   line-height: 1.45;
