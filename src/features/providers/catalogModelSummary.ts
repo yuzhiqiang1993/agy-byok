@@ -1,7 +1,6 @@
 import { t } from "../../i18n";
 import type { ProviderCatalogModel } from "../../types/catalog";
 import {
-  catalogReasoningMetadataLabel,
   reasoningLevelLabel,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
@@ -79,16 +78,7 @@ export function createModelCopy(
     nameLine.append(unavailableBadge);
   }
 
-  const id = document.createElement("code");
-  id.textContent = model.id;
-  copy.append(nameLine, id);
-  const reasoningMetadata = catalogReasoningMetadataLabel(model);
-  if (reasoningMetadata) {
-    const reasoningHint = document.createElement("span");
-    reasoningHint.className = `catalog-reasoning-hint${model.reasoning?.supported === false ? " unsupported" : ""}`;
-    reasoningHint.textContent = reasoningMetadata;
-    copy.append(reasoningHint);
-  }
+  copy.append(nameLine);
 
   const summary = createModelSummary(rowState, state);
   copy.append(summary.element);

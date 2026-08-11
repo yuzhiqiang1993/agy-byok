@@ -6,12 +6,6 @@ import {
   reasoningLevelLabel,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
-import {
-  hasMimeTypeCategory,
-  normalizeMediaMimeTypes,
-  normalizeSupportedMimeTypes,
-  supportsVideoInput,
-} from "./modelMediaCapabilities";
 import type { CatalogModelRowState } from "./catalogModelRowState";
 import type {
   CatalogModelListState,
@@ -136,18 +130,6 @@ function catalogCapabilityToggle(
   return { element: toggle, checkbox };
 }
 
-function selectedMimeTypes(
-  modelId: string,
-  context: ProviderCatalogContext,
-  state: CatalogModelListState,
-): string[] {
-  return normalizeMediaMimeTypes(state.catalogSupportedMimeTypesByModel.get(modelId) ?? [], {
-    supportsImages: state.catalogVisionEnabledModelIds.has(modelId),
-    supportsVideo: state.catalogVideoEnabledModelIds.has(modelId),
-    videoAvailable: supportsVideoInput(context.selectedProtocol()),
-  });
-}
-
 export function createCatalogModelCapabilities(
   rowState: CatalogModelRowState,
   context: ProviderCatalogContext,
@@ -157,82 +139,32 @@ export function createCatalogModelCapabilities(
   const { model, selected } = rowState;
   const capabilities = document.createElement("div");
   capabilities.className = "catalog-model-capabilities";
-  const videoAvailable = supportsVideoInput(context.selectedProtocol());
   const markChanged = () => {
     state.changedCatalogCapabilityModelIds.add(model.id);
     context.setProviderEditorDirty(true);
   };
-  let refreshMimeTypeInput: () => void = () => undefined;
   const imageToggle = catalogCapabilityToggle(
     model.id,
     t("models.visionInput"),
     state.catalogVisionEnabledModelIds,
     () => {
-      refreshMimeTypeInput();
       markChanged();
+      rerender();
     },
-  );
-  const videoToggle = catalogCapabilityToggle(
-    model.id,
-    t("models.videoInput"),
-    state.catalogVideoEnabledModelIds,
-    () => {
-      refreshMimeTypeInput();
-      markChanged();
-    },
-    !videoAvailable,
-    videoAvailable ? undefined : t("models.videoInputUnavailable"),
   );
   const toolsToggle = catalogCapabilityToggle(
     model.id,
     t("models.toolCalling"),
     state.catalogToolsEnabledModelIds,
-    () => markChanged(),
+    () => {
+      markChanged();
+      rerender();
+    },
   );
-  const mimeTypeField = document.createElement("label");
-  mimeTypeField.className = "catalog-token-field";
-  const mimeTypeLabel = document.createElement("span");
-  mimeTypeLabel.textContent = t("models.supportedMimeTypes");
-  const mimeTypeInput = document.createElement("input");
-  mimeTypeInput.type = "text";
-  mimeTypeInput.className = "catalog-token-input";
-  mimeTypeInput.size = 34;
-  mimeTypeInput.placeholder = t("models.supportedMimeTypesPlaceholder");
-  mimeTypeInput.title = videoAvailable
-    ? t("models.supportedMimeTypesHint")
-    : t("models.supportedMimeTypesImageOnly");
-  mimeTypeInput.disabled = !selected;
-  refreshMimeTypeInput = () => {
-    const mimeTypes = selectedMimeTypes(model.id, context, state);
-    state.catalogSupportedMimeTypesByModel.set(model.id, new Set(mimeTypes));
-    mimeTypeInput.value = mimeTypes.join(", ");
-  };
-  refreshMimeTypeInput();
-  mimeTypeInput.addEventListener("change", () => {
-    const parsedMimeTypes = normalizeSupportedMimeTypes(mimeTypeInput.value.split(/[,\n]+/));
-    if (hasMimeTypeCategory(parsedMimeTypes, "image")) {
-      state.catalogVisionEnabledModelIds.add(model.id);
-    } else {
-      state.catalogVisionEnabledModelIds.delete(model.id);
-    }
-    if (videoAvailable && hasMimeTypeCategory(parsedMimeTypes, "video")) {
-      state.catalogVideoEnabledModelIds.add(model.id);
-    } else {
-      state.catalogVideoEnabledModelIds.delete(model.id);
-    }
-    state.catalogSupportedMimeTypesByModel.set(model.id, new Set(parsedMimeTypes));
-    refreshMimeTypeInput();
-    imageToggle.checkbox.checked = state.catalogVisionEnabledModelIds.has(model.id);
-    videoToggle.checkbox.checked = state.catalogVideoEnabledModelIds.has(model.id);
-    markChanged();
-    rerender();
-  });
-  mimeTypeField.append(mimeTypeLabel, mimeTypeInput);
+
   capabilities.append(
     imageToggle.element,
-    videoToggle.element,
     toolsToggle.element,
-    mimeTypeField,
     createReasoningButton(rowState, context, state, rerender),
   );
   if (!selected) {

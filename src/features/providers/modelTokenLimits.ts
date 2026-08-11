@@ -17,6 +17,8 @@ interface TokenLimitPreset {
 }
 
 export const DEFAULT_TOKEN_LIMIT = 128_000;
+export const DEFAULT_INPUT_TOKEN_LIMIT = 128_000;
+export const DEFAULT_OUTPUT_TOKEN_LIMIT = 65_536;
 export const DEFAULT_CONTEXT_WINDOW = 128_000;
 
 export const CONTEXT_WINDOW_OPTIONS = [
@@ -48,8 +50,8 @@ export const TOKEN_OUTPUT_LIMIT_OPTIONS = [
 export const TOKEN_LIMIT_PRESETS: readonly TokenLimitPreset[] = [
   {
     id: "estimated_default",
-    input_token_limit: DEFAULT_TOKEN_LIMIT,
-    output_token_limit: DEFAULT_TOKEN_LIMIT,
+    input_token_limit: DEFAULT_INPUT_TOKEN_LIMIT,
+    output_token_limit: DEFAULT_OUTPUT_TOKEN_LIMIT,
   },
   {
     id: "chatgpt_default",
@@ -108,13 +110,13 @@ export function resolveCatalogTokenLimits(
       existing?.context_window,
       existing?.context_window_source,
     ),
-    input_token_limit: model.inputTokenLimit ?? existing?.input_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    input_token_limit: model.inputTokenLimit ?? existing?.input_token_limit ?? DEFAULT_INPUT_TOKEN_LIMIT,
     input_token_limit_source: tokenLimitSource(
       model.inputTokenLimit,
       existing?.input_token_limit,
       existing?.input_token_limit_source,
     ),
-    output_token_limit: model.outputTokenLimit ?? existing?.output_token_limit ?? DEFAULT_TOKEN_LIMIT,
+    output_token_limit: model.outputTokenLimit ?? existing?.output_token_limit ?? DEFAULT_OUTPUT_TOKEN_LIMIT,
     output_token_limit_source: tokenLimitSource(
       model.outputTokenLimit,
       existing?.output_token_limit,

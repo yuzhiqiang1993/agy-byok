@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 // 只要目录返回了模型级限制，token_limits() 就会优先使用真实值。
 pub(super) const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
 pub(super) const DEFAULT_INPUT_TOKEN_LIMIT: u32 = 128_000;
-pub(super) const DEFAULT_OUTPUT_TOKEN_LIMIT: u32 = 128_000;
+pub(super) const DEFAULT_OUTPUT_TOKEN_LIMIT: u32 = 65_536;
 
 impl AntigravityModelDescriptor {
     pub fn build_model_object(

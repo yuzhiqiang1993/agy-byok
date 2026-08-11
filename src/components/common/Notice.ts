@@ -87,9 +87,16 @@ class NoticeManager {
       if (isClosed) return;
       isClosed = true;
       toast.classList.add("agy-notice-closing");
-      toast.addEventListener("animationend", () => {
+      
+      let removed = false;
+      const removeNode = () => {
+        if (removed) return;
+        removed = true;
         toast.remove();
-      });
+      };
+
+      toast.addEventListener("animationend", removeNode);
+      setTimeout(removeNode, 220);
     };
 
     this.container!.append(toast);

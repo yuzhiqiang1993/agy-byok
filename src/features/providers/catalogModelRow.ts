@@ -2,42 +2,18 @@ import { t } from "../../i18n";
 import type { ProviderCatalogModel } from "../../types/catalog";
 import type { ConfigurableReasoningLevel } from "../../types/reasoning";
 import { createCatalogModelCapabilities } from "./catalogModelCapabilities";
-import { createModelCopy, type CatalogModelSummary } from "./catalogModelSummary";
+import {
+  formatTokenLimit,
+  resolveCatalogTokenLimits,
+  TOKEN_INPUT_LIMIT_OPTIONS,
+  TOKEN_OUTPUT_LIMIT_OPTIONS,
+} from "./modelTokenLimits";
 import { resolveCatalogModelRowState, type CatalogModelRowState } from "./catalogModelRowState";
-import { createTokenLimitControls } from "./catalogTokenControls";
 import type {
   CatalogModelListState,
   ProviderCatalogContext,
 } from "./providerCatalogTypes";
 import { runCatalogModelTests } from "./providerTesting";
-
-function createSelectionControl(
-  rowState: CatalogModelRowState,
-  context: ProviderCatalogContext,
-  state: CatalogModelListState,
-  rerender: () => void,
-): { element: HTMLLabelElement; summary: CatalogModelSummary } {
-  const { model, selected } = rowState;
-  const select = document.createElement("label");
-  select.className = "catalog-model-select";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = selected;
-  checkbox.addEventListener("change", () => {
-    if (checkbox.checked) {
-      state.selectedCatalogModelIds.add(model.id);
-      state.expandedCatalogModelIds.add(model.id);
-    } else {
-      state.selectedCatalogModelIds.delete(model.id);
-      state.expandedCatalogModelIds.delete(model.id);
-    }
-    context.setProviderEditorDirty(true);
-    rerender();
-  });
-  const copy = createModelCopy(rowState, state);
-  select.append(checkbox, copy.element);
-  return { element: select, summary: copy.summary };
-}
 
 function createTestArea(
   rowState: CatalogModelRowState,
@@ -73,52 +49,127 @@ function createTestArea(
   return area;
 }
 
-function createExpandButton(
-  rowState: CatalogModelRowState,
-  state: CatalogModelListState,
-  rerender: () => void,
-): HTMLButtonElement {
-  const { model, selected, expanded } = rowState;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "catalog-model-expand";
-  button.textContent = t(expanded ? "models.collapseModelSettings" : "models.expandModelSettings");
-  button.disabled = !selected;
-  button.setAttribute("aria-expanded", String(expanded));
-  button.addEventListener("click", () => {
-    if (expanded) state.expandedCatalogModelIds.delete(model.id);
-    else state.expandedCatalogModelIds.add(model.id);
-    rerender();
-  });
-  return button;
-}
-
-function createModelActions(
+function createTokenLimitsControl(
   rowState: CatalogModelRowState,
   context: ProviderCatalogContext,
   state: CatalogModelListState,
-  refreshSummary: () => void,
-  rerender: () => void,
-): HTMLDivElement {
-  const { model, selected, expanded } = rowState;
-  const capabilityGroup = document.createElement("div");
-  capabilityGroup.className = "catalog-capability-group";
-  const title = document.createElement("span");
-  title.className = "catalog-capability-title";
-  title.textContent = t("models.capabilityColumn");
-  capabilityGroup.append(
-    title,
-    createCatalogModelCapabilities(rowState, context, state, rerender),
-  );
+): HTMLSpanElement {
+  const { model, selected } = rowState;
+  const tokenLimits = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
+  const container = document.createElement("span");
+  container.className = "catalog-token-badge";
 
-  const actions = document.createElement("div");
-  actions.className = "catalog-model-actions";
-  actions.hidden = !expanded;
-  actions.append(
-    createTokenLimitControls(model, selected, context, state, refreshSummary),
-    capabilityGroup,
-  );
-  return actions;
+  // Case 1: Both reported directly by upstream catalog -> Readonly verified badge
+  if (model.inputTokenLimit !== undefined && model.outputTokenLimit !== undefined) {
+    container.textContent = t("models.tokenLimitSummary", {
+      input: formatTokenLimit(model.inputTokenLimit),
+      output: formatTokenLimit(model.outputTokenLimit),
+    });
+    container.title = t("models.tokenLimitCatalogValue");
+    return container;
+  }
+
+  // Case 2: Not reported -> Editable inline select controls
+  container.classList.add("editable");
+
+  // Input Limit
+  const inputLabel = document.createElement("span");
+  inputLabel.className = "catalog-token-inline-field";
+  const inputPrefix = document.createElement("span");
+  inputPrefix.textContent = `${t("models.tokenInputLimit")} `;
+  inputLabel.append(inputPrefix);
+
+  if (model.inputTokenLimit !== undefined) {
+    const inputVal = document.createElement("span");
+    inputVal.textContent = formatTokenLimit(model.inputTokenLimit);
+    inputVal.title = t("models.tokenLimitCatalogValue");
+    inputLabel.append(inputVal);
+  } else {
+    const inputSelect = document.createElement("select");
+    inputSelect.className = "catalog-token-select";
+    inputSelect.disabled = !selected;
+    for (const val of TOKEN_INPUT_LIMIT_OPTIONS) {
+      const opt = document.createElement("option");
+      opt.value = String(val);
+      opt.textContent = formatTokenLimit(val);
+      inputSelect.append(opt);
+    }
+    const currentInput = tokenLimits.input_token_limit ?? 128_000;
+    if (!TOKEN_INPUT_LIMIT_OPTIONS.includes(currentInput as any)) {
+      const customOpt = document.createElement("option");
+      customOpt.value = String(currentInput);
+      customOpt.textContent = formatTokenLimit(currentInput);
+      inputSelect.append(customOpt);
+    }
+    inputSelect.value = String(currentInput);
+    inputSelect.title = t("models.tokenLimitExperienceHint");
+    inputSelect.addEventListener("change", () => {
+      const num = Number(inputSelect.value);
+      if (!Number.isInteger(num) || num <= 0) return;
+      const current = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
+      state.catalogTokenLimitsByModel.set(model.id, {
+        ...current,
+        input_token_limit: num,
+        input_token_limit_source: "configured",
+      });
+      state.changedCatalogTokenLimitModelIds.add(model.id);
+      context.setProviderEditorDirty(true);
+    });
+    inputLabel.append(inputSelect);
+  }
+
+  const separator = document.createElement("span");
+  separator.className = "catalog-token-separator";
+  separator.textContent = "·";
+
+  // Output Limit
+  const outputLabel = document.createElement("span");
+  outputLabel.className = "catalog-token-inline-field";
+  const outputPrefix = document.createElement("span");
+  outputPrefix.textContent = `${t("models.tokenOutputLimit")} `;
+  outputLabel.append(outputPrefix);
+
+  if (model.outputTokenLimit !== undefined) {
+    const outputVal = document.createElement("span");
+    outputVal.textContent = formatTokenLimit(model.outputTokenLimit);
+    outputVal.title = t("models.tokenLimitCatalogValue");
+    outputLabel.append(outputVal);
+  } else {
+    const outputSelect = document.createElement("select");
+    outputSelect.className = "catalog-token-select";
+    outputSelect.disabled = !selected;
+    for (const val of TOKEN_OUTPUT_LIMIT_OPTIONS) {
+      const opt = document.createElement("option");
+      opt.value = String(val);
+      opt.textContent = formatTokenLimit(val);
+      outputSelect.append(opt);
+    }
+    const currentOutput = tokenLimits.output_token_limit ?? 65_536;
+    if (!TOKEN_OUTPUT_LIMIT_OPTIONS.includes(currentOutput as any)) {
+      const customOpt = document.createElement("option");
+      customOpt.value = String(currentOutput);
+      customOpt.textContent = formatTokenLimit(currentOutput);
+      outputSelect.append(customOpt);
+    }
+    outputSelect.value = String(currentOutput);
+    outputSelect.title = t("models.tokenLimitExperienceHint");
+    outputSelect.addEventListener("change", () => {
+      const num = Number(outputSelect.value);
+      if (!Number.isInteger(num) || num <= 0) return;
+      const current = state.catalogTokenLimitsByModel.get(model.id) ?? resolveCatalogTokenLimits(model);
+      state.catalogTokenLimitsByModel.set(model.id, {
+        ...current,
+        output_token_limit: num,
+        output_token_limit_source: "configured",
+      });
+      state.changedCatalogTokenLimitModelIds.add(model.id);
+      context.setProviderEditorDirty(true);
+    });
+    outputLabel.append(outputSelect);
+  }
+
+  container.append(inputLabel, separator, outputLabel);
+  return container;
 }
 
 export function createCatalogModelRow(
@@ -128,22 +179,56 @@ export function createCatalogModelRow(
   rerender: () => void,
 ): HTMLDivElement {
   const rowState = resolveCatalogModelRowState(model, context, state);
-  const { selected, expanded } = rowState;
+  const { selected } = rowState;
   const row = document.createElement("div");
-  row.className = `catalog-model-row${selected ? " selected" : " unselected"}${expanded ? " expanded" : ""}${state.unavailableCatalogModelIds.has(model.id) ? " unavailable" : ""}`;
-  const selection = createSelectionControl(rowState, context, state, rerender);
-  const headerActions = document.createElement("div");
-  headerActions.className = "catalog-model-header-actions";
-  headerActions.append(
-    createTestArea(rowState, context, state),
-    createExpandButton(rowState, state, rerender),
-  );
-  const header = document.createElement("div");
-  header.className = "catalog-model-header";
-  header.append(selection.element, headerActions);
-  row.append(
-    header,
-    createModelActions(rowState, context, state, selection.summary.refreshToken, rerender),
-  );
+  row.className = `catalog-model-row${selected ? " selected" : " unselected"}${state.unavailableCatalogModelIds.has(model.id) ? " unavailable" : ""}`;
+
+  // Top Row: Selection (Checkbox + Model Name + Unavailable Badge) + Test Area
+  const topRow = document.createElement("div");
+  topRow.className = "catalog-model-top-row";
+
+  const select = document.createElement("label");
+  select.className = "catalog-model-select";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = selected;
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) {
+      state.selectedCatalogModelIds.add(model.id);
+    } else {
+      state.selectedCatalogModelIds.delete(model.id);
+    }
+    context.setProviderEditorDirty(true);
+    rerender();
+  });
+
+  const nameLine = document.createElement("span");
+  nameLine.className = "catalog-model-name-line";
+  const name = document.createElement("strong");
+  name.textContent = model.displayName;
+  nameLine.append(name);
+  if (state.unavailableCatalogModelIds.has(model.id)) {
+    const unavailableBadge = document.createElement("span");
+    unavailableBadge.className = "unavailable-badge";
+    unavailableBadge.textContent = t("models.currentCatalogMissing");
+    unavailableBadge.title = t("models.currentCatalogMissingHint");
+    nameLine.append(unavailableBadge);
+  }
+  select.append(checkbox, nameLine);
+
+  const testArea = createTestArea(rowState, context, state);
+  topRow.append(select, testArea);
+
+  // Bottom Row: Token Limits + Capabilities (Vision, Video, Tools, Reasoning)
+  const bottomRow = document.createElement("div");
+  bottomRow.className = "catalog-model-bottom-row";
+
+  const tokenLimitsControl = createTokenLimitsControl(rowState, context, state);
+  bottomRow.append(tokenLimitsControl);
+
+  const capabilities = createCatalogModelCapabilities(rowState, context, state, rerender);
+  bottomRow.append(capabilities);
+
+  row.append(topRow, bottomRow);
   return row;
 }
