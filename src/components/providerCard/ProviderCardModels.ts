@@ -8,6 +8,7 @@ import {
   reasoningLevelLabel,
   sortVirtualModelsByReasoningLevel,
 } from "../../utils/reasoningUtils";
+import { buildModelCardUI } from "./ModelCardUI";
 
 export interface ProviderModelLink {
   upstream: UpstreamModel;
@@ -16,9 +17,9 @@ export interface ProviderModelLink {
 
 function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElement {
   const icons = {
-    vision: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
-    tools: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
-    reasoning: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`,
+    vision: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+    tools: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+    reasoning: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`,
   };
   const labels = {
     vision: t("models.vision"),
@@ -26,9 +27,10 @@ function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElemen
     reasoning: t("models.reasoning"),
   };
   const badge = document.createElement("span");
-  badge.className = "capability-badge";
+  badge.className = `capability-badge cap-${type}`;
   badge.title = labels[type];
-  badge.innerHTML = `${icons[type]}${labels[type]}`;
+  badge.setAttribute("aria-label", labels[type]);
+  badge.innerHTML = icons[type];
   return badge;
 }
 
@@ -40,17 +42,11 @@ function positiveMinimum(...values: Array<number | null>): number | null {
 }
 
 function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]): HTMLElement {
-  const item = document.createElement("article");
-  item.className = "provider-model-item";
-
-  // 第一列：上游模型
-  const main = document.createElement("div");
-  main.className = "provider-model-main";
+  // --- Header ---
   const name = document.createElement("h4");
+  name.className = "model-card-title";
   name.textContent = upstream.display_name;
-  main.append(name);
 
-  // 第二列：能力 Badge
   const capabilities = document.createElement("div");
   capabilities.className = "capability-list";
   if (upstream.capabilities.vision) capabilities.append(capabilityBadge("vision"));
@@ -59,16 +55,11 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
     capabilities.append(capabilityBadge("reasoning"));
   }
 
-  // 第三列：推理档位 (基于模型数据或默认)
+  // --- Body ---
   const reasoningCol = document.createElement("div");
   reasoningCol.className = "provider-model-variants-inline";
   
-  // 第四列：压缩策略
-  const policyCol = document.createElement("div");
-  policyCol.className = "provider-model-variants-inline";
-
   for (const virtualModel of sortVirtualModelsByReasoningLevel(virtualModels)) {
-    // 渲染推理档位 Pill
     const variant = document.createElement("div");
     variant.className = "model-variant-pill provider-model-variant";
     variant.dataset.virtualModelId = virtualModel.id;
@@ -92,7 +83,10 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
     reasoningCol.append(variant);
   }
 
-  // 渲染压缩策略 (模型维度，仅需渲染一个)
+  // --- Footer ---
+  const policyCol = document.createElement("div");
+  policyCol.className = "provider-policy-col";
+
   const capacity = positiveMinimum(
     upstream.token_limits.context_window,
     upstream.token_limits.input_token_limit,
@@ -142,15 +136,22 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
   });
 
   policyCol.append(policyButton);
-
-  item.append(main, capabilities, reasoningCol, policyCol);
-  return item;
+  
+  return buildModelCardUI({
+    titleNode: name,
+    capabilitiesNode: capabilities,
+    variantsNode: reasoningCol,
+    policyNode: policyCol,
+  });
 }
 
 export function createProviderModels(
   upstreams: UpstreamModel[],
   modelLinks: ProviderModelLink[],
 ): HTMLDivElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "provider-table-wrapper";
+
   const models = document.createElement("div");
   models.className = "provider-models";
   if (modelLinks.length === 0) {
@@ -158,21 +159,9 @@ export function createProviderModels(
     empty.className = "provider-model-empty";
     empty.textContent = t("models.emptyTitle");
     models.append(empty);
-    return models;
+    wrapper.append(models);
+    return wrapper;
   }
-  const header = document.createElement("div");
-  header.className = "provider-models-header";
-  for (const label of [
-    t("models.upstreamModels"),
-    t("models.capabilityColumn"),
-    t("models.reasoningLevelColumn"),
-    t("models.virtualModels"),
-  ]) {
-    const column = document.createElement("span");
-    column.textContent = label;
-    header.append(column);
-  }
-  models.append(header);
 
   const virtualsByUpstreamId = new Map<string, VirtualModel[]>();
   for (const { upstream, virtualModel } of modelLinks) {
@@ -187,5 +176,6 @@ export function createProviderModels(
     models.append(createModelGroup(upstream, virtualModels));
   }
 
-  return models;
+  wrapper.append(models);
+  return wrapper;
 }

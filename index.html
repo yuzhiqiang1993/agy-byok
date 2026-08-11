@@ -208,15 +208,14 @@
       </div>
 
       <div id="tab-models" class="tab-pane">
-        <section class="panel providers-panel">
-          <div class="panel-heading heading-actions-only">
-            <div class="heading-actions">
-              <span id="provider-count" class="count-badge">0</span>
-              <button id="open-provider-form" class="primary compact-button" type="button" data-i18n="models.addProvider">添加上游服务</button>
-            </div>
+        <div class="models-tab-header">
+          <div class="models-header-left">
+            <span id="provider-count" class="visually-hidden">0</span>
+            <div id="provider-tabs-bar" class="provider-tabs-bar"></div>
           </div>
-          <div id="provider-list" class="provider-list"></div>
-        </section>
+          <button id="open-provider-form" class="primary" type="button" data-i18n="models.addProvider">+ 添加上游服务</button>
+        </div>
+        <div id="provider-list" class="provider-list"></div>
 
         <div id="provider-form-panel" class="provider-modal" hidden>
           <div id="provider-modal-backdrop" class="provider-modal-backdrop"></div>

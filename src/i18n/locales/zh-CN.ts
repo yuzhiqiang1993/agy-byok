@@ -162,10 +162,7 @@ export const zhCN = {
   },
   // Model Management Tab
   models: {
-    viewRawConfig: "查看原始配置",
-    viewRawConfigForModel: "查看 {model} 的原始配置",
-    rawConfigDescription: "以下内容是官方模型目录返回的完整原始 JSON，未删除或清洗任何字段。",
-    rawConfigFullJson: "完整原始 JSON",
+
     editPolicyTitle: "编辑压缩策略",
     editPolicyForModel: "编辑 {model} 的压缩策略，当前为 {status}",
     editPolicyDesc: "为当前模型选择一档压缩策略，保存后立即写入模型级配置。",
@@ -251,9 +248,6 @@ export const zhCN = {
     processing: "处理中…",
     reasoningConfig: "推理强度配置",
     officialTabName: "官方原生",
-    officialTitle: "官方原生",
-    officialMetaTag: "系统内置 · Cloud Code",
-    officialStatusOk: "已加载 {count} 个官方模型",
     officialStatusFailed: "获取失败",
     officialFetching: "正在按 IDE → App → CLI 的优先级检测已运行的客户端并获取官方模型…",
     officialEmpty: "已连接 Antigravity 客户端，但返回结果中没有可显示的官方模型，请稍后刷新重试。",
@@ -283,9 +277,11 @@ export const zhCN = {
     connectionInvalidConfiguration: "连接预检配置无效",
     connectionUnknownError: "连接测试失败",
     connectionHttpStatus: "{message}（HTTP {status}）",
-    vision: "图像",
+    vision: "视觉",
     tools: "工具",
-    reasoning: "思考",
+    reasoning: "推理",
+    variants: "推理等级",
+    policy: "压缩策略",
     emptyTitle: "暂无已配置的模型",
     emptyDesc: "点击“添加上游服务”开始接入自定义大语言模型 API",
     protocolOpenAI: "OpenAI · Chat Completions",
@@ -295,10 +291,8 @@ export const zhCN = {
     backToConfig: "返回修改",
     editProvider: "编辑配置",
     deleteProvider: "删除提供商",
-    upstreamModels: "模型",
 
-    reasoningLevelColumn: "推理等级",
-    virtualModels: "压缩策略",
+
 
     reasoningSummary: "推理强度：{levels}",
     reasoningBudgetSummary: "思考预算：{budget}",
@@ -380,7 +374,7 @@ export const zhCN = {
     confirmSaveRemoval: "确认保存并移除 {count} 个模型入口",
     editorBusy: "上游服务配置正在处理中，请稍候",
     discardChanges: "当前有未保存的上游服务修改，确定放弃吗？",
-    copyEndpoint: "复制接口地址",
+
     defaultVariant: "默认",
     retryFailed: "重试失败项（{count}）",
     testsOk: "{passed}/{total} 通过",

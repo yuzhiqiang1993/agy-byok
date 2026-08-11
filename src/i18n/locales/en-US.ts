@@ -202,10 +202,8 @@ export const enUS: TranslationDict = {
   },
   // Models Tab
   models: {
-    viewRawConfig: "View Raw Configuration",
-    viewRawConfigForModel: "View raw configuration for {model}",
-    rawConfigDescription: "This is the complete raw JSON returned by the official model catalog. No fields have been removed or cleaned.",
-    rawConfigFullJson: "Complete Raw JSON",
+
+
     editPolicyTitle: "Edit Compression Policy",
     editPolicyForModel: "Edit compression policy for {model}; current policy: {status}",
     editPolicyDesc: "Choose a compression preset for this model. Saving writes it directly to the model-level configuration.",
@@ -292,9 +290,6 @@ export const enUS: TranslationDict = {
     processing: "Processing...",
     reasoningConfig: "Reasoning Strength Configuration",
     officialTabName: "Official Native",
-    officialTitle: "Official Native",
-    officialMetaTag: "Built-in · Cloud Code",
-    officialStatusOk: "Loaded {count} official models",
     officialStatusFailed: "Fetch failed",
     officialFetching: "Checking running clients and fetching official models in IDE → App → CLI priority order...",
     officialEmpty: "An Antigravity client responded, but no displayable official models were returned. Refresh and try again later.",
@@ -327,6 +322,8 @@ export const enUS: TranslationDict = {
     vision: "Vision",
     tools: "Tools",
     reasoning: "Thinking",
+    variants: "REASONING LEVELS",
+    policy: "COMPRESSION POLICY",
     emptyTitle: "No Models Configured",
     emptyDesc: "Click 'Add Upstream Service' to start connecting custom LLM APIs",
     protocolOpenAI: "OpenAI · Chat Completions",
@@ -336,10 +333,8 @@ export const enUS: TranslationDict = {
     backToConfig: "Back to configuration",
     editProvider: "Edit Config",
     deleteProvider: "Delete Provider",
-    upstreamModels: "Models",
 
-    reasoningLevelColumn: "Reasoning Level",
-    virtualModels: "Compression Policy",
+
 
     reasoningSummary: "Reasoning levels: {levels}",
     reasoningBudgetSummary: "Thinking budget: {budget}",
@@ -421,7 +416,7 @@ export const enUS: TranslationDict = {
     confirmSaveRemoval: "Confirm Save and Remove {count} Model Entries",
     editorBusy: "The upstream service configuration is being processed. Please wait.",
     discardChanges: "Discard unsaved upstream service changes?",
-    copyEndpoint: "Copy Endpoint",
+
     defaultVariant: "Default",
     retryFailed: "Retry Failed ({count})",
     testsOk: "{passed}/{total} passed",

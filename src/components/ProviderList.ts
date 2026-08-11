@@ -92,7 +92,7 @@ function createProviderTabs(activeId: string): HTMLDivElement {
 
     const badge = document.createElement("span");
     badge.className = "provider-tab-badge";
-    badge.textContent = isOfficial ? "—" : String(modelCounts.get(provider.id) ?? 0);
+    badge.textContent = isOfficial ? (cachedOfficialModelCount !== null ? String(cachedOfficialModelCount) : "—") : String(modelCounts.get(provider.id) ?? 0);
 
     tab.append(icon, title, badge);
     tab.addEventListener("click", () => {
@@ -105,8 +105,11 @@ function createProviderTabs(activeId: string): HTMLDivElement {
   return tabs;
 }
 
+let cachedOfficialModelCount: number | null = null;
+
 export function renderProviders(): void {
-  const providerCount = element<HTMLSpanElement>("#provider-count");
+  const providerCount = document.querySelector<HTMLSpanElement>("#provider-count");
+  const providerTabsBar = document.querySelector<HTMLDivElement>("#provider-tabs-bar");
   const providerList = element<HTMLDivElement>("#provider-list");
   element<HTMLButtonElement>("#open-provider-form").disabled = !store.configLoaded;
   disposeActiveProviderCard?.();
@@ -114,22 +117,26 @@ export function renderProviders(): void {
   providerList.replaceChildren();
 
   if (!store.configLoaded) {
-    providerCount.textContent = "—";
+    if (providerCount) providerCount.textContent = "—";
+    providerTabsBar?.replaceChildren();
     renderConfigUnavailable(providerList);
     return;
   }
 
   const providers = store.config.providers;
-  providerCount.textContent = String(providers.length);
+  if (providerCount) providerCount.textContent = String(providers.length);
   const activeId = activeProviderId();
-  providerList.append(createProviderTabs(activeId));
+
+  // 将服务商 Tab 切换轨挂载在顶部同行容器中
+  providerTabsBar?.replaceChildren(createProviderTabs(activeId));
 
   if (activeId === OFFICIAL_PROVIDER_ID) {
-    const officialTabBadge = providerList.querySelector<HTMLSpanElement>(
+    const officialTabBadge = providerTabsBar?.querySelector<HTMLSpanElement>(
       ".official-tab .provider-tab-badge",
     );
     const activeCard = renderOfficialProviderCard({
       onModelCountChange: (count) => {
+        cachedOfficialModelCount = count;
         if (officialTabBadge) officialTabBadge.textContent = count === null ? "—" : String(count);
       },
     });
