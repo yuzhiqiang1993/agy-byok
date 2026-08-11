@@ -34,77 +34,63 @@
   }
 }
 
-.readiness-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.hero-service-panel {
   margin-bottom: 20px;
-  padding: 24px 28px;
+  padding: 16px 22px;
   border: 1px solid rgba(59, 130, 246, 0.22);
-  border-radius: 20px;
+  border-radius: 18px;
   background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
-  box-shadow: 0 10px 30px -5px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.07);
   backdrop-filter: blur(18px);
 }
-.readiness-copy {
+
+.hero-service-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
 }
-.readiness-text-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.readiness-title-row {
+
+.hero-service-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  row-gap: 10px;
+  column-gap: 32px;
 }
-.readiness-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-.hero-service-widget {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 320px;
-  padding: 12px 16px;
-  border: 1px solid rgba(37, 99, 235, 0.15);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.04);
-}
-.service-widget-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
+
 .service-widget-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
-.service-widget-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+
+.service-title-text {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
-.inline-header {
+
+.service-address-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
 }
+
 .inline-address-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 10px;
   background: var(--surface-inner);
+}
+
+.hero-service-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }

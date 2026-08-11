@@ -36,6 +36,161 @@ function capabilityBadge(type: "vision" | "tools" | "reasoning"): HTMLSpanElemen
   return badge;
 }
 
+let cachedOfficialModels: ProviderCatalogModel[] | null = null;
+let cachedModelAliases: Map<string, string> = new Map();
+
+export function getCachedOfficialModelCount(): number | null {
+  return cachedOfficialModels ? filterMainAgentModels(cachedOfficialModels).length : null;
+}
+
+function buildOfficialModelCards(
+  models: ProviderCatalogModel[],
+  modelAliases: ReadonlyMap<string, string>,
+): HTMLElement[] {
+  const mainModels = filterMainAgentModels(models);
+  if (!mainModels || mainModels.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "provider-model-empty";
+    empty.textContent = t("models.officialEmpty");
+    return [empty];
+  }
+
+  // 极简单行 Pill Card 矩阵行：自动将带括号的相同前缀模型聚类
+  interface GroupedOfficialModel {
+    baseName: string;
+    baseItem: ProviderCatalogModel;
+    variants: { label: string; item: ProviderCatalogModel }[];
+  }
+  const groupMap = new Map<string, GroupedOfficialModel>();
+  const groups: GroupedOfficialModel[] = [];
+
+  for (const item of mainModels) {
+    const displayName = item.displayName || item.id;
+    const match = displayName.match(/^(.*?)(?:\s*\((.*?)\))?$/);
+    const baseName = match?.[1] || displayName;
+
+    let label = match?.[2];
+    if (!label && item.reasoning?.levels && item.reasoning.levels.length > 0 && item.reasoning.levels[0] !== "off") {
+      label = reasoningLevelLabel(item.reasoning.levels[0]);
+    }
+    if (!label) label = t("models.defaultVariant");
+
+    let group = groupMap.get(baseName);
+    if (!group) {
+      group = { baseName, baseItem: item, variants: [] };
+      groupMap.set(baseName, group);
+      groups.push(group);
+    }
+    group.variants.push({ label, item });
+  }
+
+  const cards: HTMLElement[] = [];
+
+  for (const group of groups) {
+    const { baseName, baseItem: item, variants: groupVariants } = group;
+
+    // 第一区：模型名称
+    const name = document.createElement("h4");
+    name.className = "model-card-title";
+    name.textContent = baseName;
+
+    const titleNode: HTMLElement = name;
+
+    // 第二区：能力 Badge
+    const capabilities = document.createElement("div");
+    capabilities.className = "capability-list";
+    const capObj = item.capabilities as Record<string, unknown> | undefined;
+    const caps = capObj as Record<string, boolean> | undefined;
+    if (caps?.vision) capabilities.append(capabilityBadge("vision"));
+    if (caps?.tools) capabilities.append(capabilityBadge("tools"));
+    if (caps?.reasoning) capabilities.append(capabilityBadge("reasoning"));
+
+    // 第三区：变体 / 推理档位
+    const variantsNode = document.createElement("div");
+    variantsNode.className = "provider-model-variants-inline";
+    for (const variant of groupVariants) {
+      const pill = document.createElement("div");
+      pill.className = "model-variant-pill provider-model-variant";
+      const statusDot = document.createElement("span");
+      statusDot.className = "connection-result success";
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "model-variant-label";
+      labelSpan.textContent = variant.label;
+      pill.append(statusDot, labelSpan);
+      variantsNode.append(pill);
+    }
+
+    // 第四区：压缩策略 (根据当前模型动态获取)
+    const policyCol = document.createElement("div");
+    policyCol.className = "provider-policy-col";
+    const capacity = positiveMinimum(item.inputTokenLimit, item.maxTokens, item.contextWindow);
+    const outputTokenLimit = positiveMinimum(item.outputTokenLimit);
+    const policyModelId = canonicalOfficialModelId(item.id, modelAliases);
+    const currentPolicy = store.config.model_compression_policies[policyModelId]
+      ?? store.config.model_compression_policies[item.id]
+      ?? null;
+    const status = getPolicyPillStatus(
+      currentPolicy,
+      capacity,
+      outputTokenLimit,
+      t("models.presetOfficialDefault"),
+    );
+
+    const policyButton = document.createElement("button");
+    policyButton.type = "button";
+    policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
+    policyButton.dataset.policyFocusKey = `official:${item.id}`;
+    policyButton.title = t("models.editPolicyTitle");
+    policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
+      model: baseName,
+      status: status.label,
+    }));
+    const policyLabel = document.createElement("span");
+    policyLabel.textContent = status.label;
+    policyButton.append(policyLabel);
+    policyButton.insertAdjacentHTML("beforeend", `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`);
+    policyButton.addEventListener("click", () => {
+      showPolicyEditorModal({
+        modelName: baseName,
+        currentPolicy,
+        capacity,
+        outputTokenLimit,
+        defaultLabel: t("models.presetOfficialDefault"),
+        defaultHelp: t("models.policyOfficialDefaultHelp"),
+        emptyNotice: t("models.policyEmptyNotice"),
+        upstreamCompression: item.upstreamCompression,
+        preferCurrentWorker: false,
+        focusKey: `official:${item.id}`,
+        onSave: async (policy) => {
+          await updateConfig((current) => {
+            const policies = { ...current.model_compression_policies };
+            for (const variant of groupVariants) {
+              const relatedModelIds = officialRelatedModelIds(variant.item.id, modelAliases);
+              for (const relatedModelId of relatedModelIds) {
+                if (policy) policies[relatedModelId] = policy;
+                else delete policies[relatedModelId];
+              }
+            }
+            return { ...current, model_compression_policies: policies };
+          });
+        },
+      });
+    });
+    policyCol.append(policyButton);
+
+    const card = buildModelCardUI({
+      titleNode,
+      capabilitiesNode: capabilities,
+      variantsNode,
+      policyNode: policyCol,
+    });
+
+    cards.push(card);
+  }
+
+  return cards;
+}
+
 export function renderOfficialProviderCard(options: {
   onModelCountChange?: (count: number | null) => void;
 } = {}): { element: HTMLElement; dispose: () => void } {
@@ -89,7 +244,7 @@ export function renderOfficialProviderCard(options: {
     refreshBtn.disabled = true;
     summary.className = "provider-test-summary";
     summary.textContent = "";
-    loadOfficialModels().finally(() => {
+    loadOfficialModels(true).finally(() => {
       refreshBtn.disabled = false;
     });
   });
@@ -105,190 +260,65 @@ export function renderOfficialProviderCard(options: {
   const modelsContainer = document.createElement("div");
   modelsContainer.className = "provider-models";
 
-  const loadingState = document.createElement("p");
-  loadingState.className = "provider-model-empty";
-  loadingState.textContent = t("models.officialFetching");
-  modelsContainer.append(loadingState);
+  // 1. 若已有缓存数据：立即同步渲染已有模型，杜绝空白与 Loading 闪烁
+  if (cachedOfficialModels && cachedOfficialModels.length > 0) {
+    const mainModels = filterMainAgentModels(cachedOfficialModels);
+    options.onModelCountChange?.(mainModels.length);
+    modelsContainer.replaceChildren(...buildOfficialModelCards(cachedOfficialModels, cachedModelAliases));
+  } else {
+    // 首次进入无缓存时展示 Loading 提示
+    const loadingState = document.createElement("p");
+    loadingState.className = "provider-model-empty";
+    loadingState.textContent = t("models.officialFetching");
+    modelsContainer.append(loadingState);
+  }
 
   tableWrapper.append(modelsContainer);
   card.append(tableWrapper);
 
   let isDisposed = false;
 
-  const loadOfficialModels = () => {
-    options.onModelCountChange?.(null);
-    loadingState.textContent = t("models.officialFetching");
-    modelsContainer.replaceChildren(loadingState);
-    return fetchOfficialModels()
-    .then((models) => {
-      if (isDisposed) return;
-      modelsContainer.replaceChildren();
-
-      const modelAliases = officialModelAliases(models);
-      void synchronizeOfficialModelPolicies(modelAliases).catch((error: unknown) => {
-        console.warn("同步官方模型策略失败，代理运行时仍会按目录映射兼容", error);
-      });
-      const mainModels = filterMainAgentModels(models);
-      options.onModelCountChange?.(mainModels.length);
-      summary.className = "provider-test-summary";
-      summary.textContent = "";
-
-      if (!mainModels || mainModels.length === 0) {
-        const empty = document.createElement("p");
-        empty.className = "provider-model-empty";
-        empty.textContent = t("models.officialEmpty");
-        modelsContainer.append(empty);
-        return;
-      }
-
-      // 极简单行 Pill Card 矩阵行：自动将带括号的相同前缀模型聚类
-      interface GroupedOfficialModel {
-        baseName: string;
-        baseItem: ProviderCatalogModel;
-        variants: { label: string; item: ProviderCatalogModel }[];
-      }
-      const groupMap = new Map<string, GroupedOfficialModel>();
-      const groups: GroupedOfficialModel[] = [];
-
-      for (const item of mainModels) {
-        const displayName = item.displayName || item.id;
-        const match = displayName.match(/^(.*?)(?:\s*\((.*?)\))?$/);
-        const baseName = match?.[1] || displayName;
-        
-        let label = match?.[2];
-        if (!label && item.reasoning?.levels && item.reasoning.levels.length > 0 && item.reasoning.levels[0] !== "off") {
-          label = reasoningLevelLabel(item.reasoning.levels[0]);
-        }
-        if (!label) label = t("models.defaultVariant");
-
-        let group = groupMap.get(baseName);
-        if (!group) {
-          group = { baseName, baseItem: item, variants: [] };
-          groupMap.set(baseName, group);
-          groups.push(group);
-        }
-        group.variants.push({ label, item });
-      }
-
-      for (const group of groups) {
-        const { baseName, baseItem: item, variants: groupVariants } = group;
-
-        // 第一区：模型名称
-        const name = document.createElement("h4");
-        name.className = "model-card-title";
-        name.textContent = baseName;
-        
-        let titleNode: HTMLElement = name;
-
-        // 第二区：能力 Badge
-        const capabilities = document.createElement("div");
-        capabilities.className = "capability-list";
-        const capObj = item.capabilities as Record<string, unknown> | undefined;
-        const caps = capObj as Record<string, boolean> | undefined;
-        if (caps?.vision) capabilities.append(capabilityBadge("vision"));
-        if (caps?.tools) capabilities.append(capabilityBadge("tools"));
-        if (caps?.reasoning) capabilities.append(capabilityBadge("reasoning"));
-
-
-
-        // 第三区：变体 / 推理档位
-        const variantsNode = document.createElement("div");
-        variantsNode.className = "provider-model-variants-inline";
-        for (const variant of groupVariants) {
-          const pill = document.createElement("div");
-          pill.className = "model-variant-pill provider-model-variant";
-          const statusDot = document.createElement("span");
-          statusDot.className = "connection-result success";
-          const labelSpan = document.createElement("span");
-          labelSpan.className = "model-variant-label";
-          labelSpan.textContent = variant.label;
-          pill.append(statusDot, labelSpan);
-          variantsNode.append(pill);
-        }
-
-        // 第四区：压缩策略 (根据当前模型动态获取)
-        const policyCol = document.createElement("div");
-        policyCol.className = "provider-policy-col";
-        const capacity = positiveMinimum(item.inputTokenLimit, item.maxTokens, item.contextWindow);
-        const outputTokenLimit = positiveMinimum(item.outputTokenLimit);
-        const policyModelId = canonicalOfficialModelId(item.id, modelAliases);
-        const currentPolicy = store.config.model_compression_policies[policyModelId]
-          ?? store.config.model_compression_policies[item.id]
-          ?? null;
-        const status = getPolicyPillStatus(
-          currentPolicy,
-          capacity,
-          outputTokenLimit,
-          t("models.presetOfficialDefault"),
-        );
-
-        const policyButton = document.createElement("button");
-        policyButton.type = "button";
-        policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
-        policyButton.dataset.policyFocusKey = `official:${item.id}`;
-        policyButton.title = t("models.editPolicyTitle");
-        policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
-          model: baseName,
-          status: status.label,
-        }));
-        const policyLabel = document.createElement("span");
-        policyLabel.textContent = status.label;
-        policyButton.append(policyLabel);
-        policyButton.insertAdjacentHTML("beforeend", `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`);
-        policyButton.addEventListener("click", () => {
-          showPolicyEditorModal({
-            modelName: baseName,
-            currentPolicy,
-            capacity,
-            outputTokenLimit,
-            defaultLabel: t("models.presetOfficialDefault"),
-            defaultHelp: t("models.policyOfficialDefaultHelp"),
-            emptyNotice: t("models.policyEmptyNotice"),
-            upstreamCompression: item.upstreamCompression,
-            preferCurrentWorker: false,
-            focusKey: `official:${item.id}`,
-            onSave: async (policy) => {
-              await updateConfig((current) => {
-                const policies = { ...current.model_compression_policies };
-                for (const variant of groupVariants) {
-                  const relatedModelIds = officialRelatedModelIds(variant.item.id, modelAliases);
-                  for (const relatedModelId of relatedModelIds) {
-                    if (policy) policies[relatedModelId] = policy;
-                    else delete policies[relatedModelId];
-                  }
-                }
-                return { ...current, model_compression_policies: policies };
-              });
-            },
-          });
-        });
-        policyCol.append(policyButton);
-
-        const card = buildModelCardUI({
-          titleNode,
-          capabilitiesNode: capabilities,
-          variantsNode,
-          policyNode: policyCol,
-        });
-
-        modelsContainer.append(card);
-      }
-    })
-    .catch((err: unknown) => {
-      if (isDisposed) return;
-      const message = errorMessage(err);
-      summary.className = "provider-test-summary error";
-      summary.textContent = t("models.officialStatusFailed");
+  const loadOfficialModels = (isManualRefresh = false) => {
+    if (!cachedOfficialModels && !isManualRefresh) {
       options.onModelCountChange?.(null);
-      modelsContainer.replaceChildren();
-      const errorMsg = document.createElement("p");
-      errorMsg.className = "provider-model-empty";
-      errorMsg.textContent = t("models.officialFetchFailed", { message });
-      modelsContainer.append(errorMsg);
-    });
+    }
+    return fetchOfficialModels()
+      .then((models) => {
+        if (isDisposed) return;
+        cachedOfficialModels = models;
+        cachedModelAliases = officialModelAliases(models);
+
+        void synchronizeOfficialModelPolicies(cachedModelAliases).catch((error: unknown) => {
+          console.warn("同步官方模型策略失败，代理运行时仍会按目录映射兼容", error);
+        });
+        const mainModels = filterMainAgentModels(models);
+        options.onModelCountChange?.(mainModels.length);
+        summary.className = "provider-test-summary";
+        summary.textContent = "";
+
+        // 平滑就地替换卡片
+        modelsContainer.replaceChildren(...buildOfficialModelCards(models, cachedModelAliases));
+      })
+      .catch((err: unknown) => {
+        if (isDisposed) return;
+        const message = errorMessage(err);
+        summary.className = "provider-test-summary error";
+        summary.textContent = t("models.officialStatusFailed");
+
+        // 关键防护：已有展示数据时，绝不清空破坏已有视图！
+        if (!cachedOfficialModels || cachedOfficialModels.length === 0) {
+          options.onModelCountChange?.(null);
+          modelsContainer.replaceChildren();
+          const errorMsg = document.createElement("p");
+          errorMsg.className = "provider-model-empty";
+          errorMsg.textContent = t("models.officialFetchFailed", { message });
+          modelsContainer.append(errorMsg);
+        }
+      });
   };
 
-  void loadOfficialModels();
+  // 后台静默刷新（若已有缓存则无感知校验，若无缓存则拉取初始数据）
+  void loadOfficialModels(false);
 
   return {
     element: card,

@@ -13,7 +13,7 @@ import {
 import { t } from "../i18n";
 import { showNotice } from "./NoticeBar";
 import { renderSingleProviderCard } from "./ProviderCard";
-import { renderOfficialProviderCard } from "./OfficialProviderCard";
+import { renderOfficialProviderCard, getCachedOfficialModelCount } from "./OfficialProviderCard";
 import { openProviderEditor } from "./ProviderEditor";
 
 let disposeActiveProviderCard: (() => void) | null = null;
@@ -91,7 +91,8 @@ function createProviderTabs(activeId: string): DocumentFragment {
 
     const badge = document.createElement("span");
     badge.className = "provider-tab-badge";
-    badge.textContent = isOfficial ? (cachedOfficialModelCount !== null ? String(cachedOfficialModelCount) : "—") : String(modelCounts.get(provider.id) ?? 0);
+    const officialCount = cachedOfficialModelCount ?? getCachedOfficialModelCount();
+    badge.textContent = isOfficial ? (officialCount !== null ? String(officialCount) : "—") : String(modelCounts.get(provider.id) ?? 0);
 
     tab.append(icon, title, badge);
     tab.addEventListener("click", () => {

@@ -51,10 +51,13 @@
   }
   html[data-theme="dark"] .notice-dismiss { color: #94a3b8; }
   html[data-theme="dark"] .notice-dismiss:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: #ffffff; }
-  html[data-theme="dark"] .readiness-panel {
+  html[data-theme="dark"] .hero-service-panel {
     border-color: rgba(59, 130, 246, 0.25);
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%);
     box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.3);
+  }
+  html[data-theme="dark"] .service-title-text {
+    color: #f1f5f9;
   }
   html[data-theme="dark"] .ide-integration-summary {
     border-color: rgba(255, 255, 255, 0.06);
@@ -64,17 +67,12 @@
     border-color: rgba(255, 255, 255, 0.08);
     background: rgba(15, 23, 42, 0.8);
   }
-  html[data-theme="dark"] .hero-service-widget {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(15, 23, 42, 0.6);
-  }
   html[data-theme="dark"] .status-pill.success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
   html[data-theme="dark"] .status-pill.accent { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
   html[data-theme="dark"] .status-pill.error { background: rgba(239, 68, 68, 0.2); color: #f87171; }
   html[data-theme="dark"] .status-pill.warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
   html[data-theme="dark"] .muted,
   html[data-theme="dark"] .section-label,
-  html[data-theme="dark"] .readiness-copy .muted,
   html[data-theme="dark"] footer { color: #94a3b8; }
   html[data-theme="dark"] .detail-label { color: #cbd5e1; }
   html[data-theme="dark"] .provider-card,

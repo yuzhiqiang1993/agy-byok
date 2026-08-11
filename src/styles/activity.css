@@ -100,7 +100,6 @@
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.activity-privacy { line-height: 1.5; }
 .activity-list {
   display: grid;
   max-height: 560px;
