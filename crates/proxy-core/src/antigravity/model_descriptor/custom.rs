@@ -1,4 +1,7 @@
-use super::checkpoint::apply_model_compression_policy;
+use super::checkpoint::{
+    apply_model_compression_policy, canonical_model_id, official_checkpoint_output_limits,
+    official_model_aliases,
+};
 use super::AntigravityModelDescriptor;
 use crate::domain::{ReasoningMapping, TokenLimitSource, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
@@ -95,6 +98,9 @@ impl AntigravityModelDescriptor {
             })
             .collect::<Vec<_>>();
 
+        let aliases = official_model_aliases(models_json);
+        let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
+
         if let Some(catalog) = models_json.as_object_mut() {
             if let Some(target) = catalog.get_mut("models") {
                 let catalog_keys = (!target.is_array()).then(|| {
@@ -103,7 +109,7 @@ impl AntigravityModelDescriptor {
                         .map(|(virtual_model, _)| virtual_model.catalog_key().into_owned())
                         .collect::<Vec<_>>()
                 });
-                inject_models(target, models);
+                inject_models(target, models, &checkpoint_output_limits, &aliases);
                 if let Some(catalog_keys) = catalog_keys {
                     append_catalog_keys_to_model_sorts(
                         catalog.get_mut("agentModelSorts"),
@@ -114,7 +120,7 @@ impl AntigravityModelDescriptor {
             }
         }
 
-        inject_models(models_json, models);
+        inject_models(models_json, models, &checkpoint_output_limits, &aliases);
     }
 }
 
@@ -181,10 +187,18 @@ fn apply_reasoning_metadata(
     }
 }
 
-fn apply_custom_model_compression_policy(descriptor: &mut Value, upstream_model: &UpstreamModel) {
+fn apply_custom_model_compression_policy(
+    descriptor: &mut Value,
+    upstream_model: &UpstreamModel,
+    checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
+    aliases: &std::collections::BTreeMap<String, String>,
+) {
     let Some(policy) = upstream_model.compression_policy.as_ref() else {
         return;
     };
+    if !policy.enabled {
+        return;
+    }
     let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
     let capacity = if upstream_model.token_limits.context_window_source
         == TokenLimitSource::Estimated
@@ -196,38 +210,78 @@ fn apply_custom_model_compression_policy(descriptor: &mut Value, upstream_model:
     } else {
         context_window.min(input_token_limit)
     };
-    apply_model_compression_policy(descriptor, policy, capacity, output_token_limit);
+    let canonical_checkpoint = canonical_model_id(&policy.checkpoint_model, aliases);
+    let effective_output_limit = checkpoint_output_limits
+        .get(canonical_checkpoint)
+        .or_else(|| checkpoint_output_limits.get(&policy.checkpoint_model))
+        .copied()
+        .map_or(output_token_limit, |checkpoint_limit| {
+            output_token_limit.min(checkpoint_limit)
+        });
+    apply_model_compression_policy(descriptor, policy, capacity, effective_output_limit);
 }
 
-fn custom_model_object(virtual_model: &VirtualModel, upstream_model: &UpstreamModel) -> Value {
+fn custom_model_object(
+    virtual_model: &VirtualModel,
+    upstream_model: &UpstreamModel,
+    checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
+    aliases: &std::collections::BTreeMap<String, String>,
+) -> Value {
     let mut descriptor =
         AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model);
-    apply_custom_model_compression_policy(&mut descriptor, upstream_model);
+    apply_custom_model_compression_policy(
+        &mut descriptor,
+        upstream_model,
+        checkpoint_output_limits,
+        aliases,
+    );
     descriptor
 }
 
 fn custom_cloud_code_catalog_entry(
     virtual_model: &VirtualModel,
     upstream_model: &UpstreamModel,
+    checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
+    aliases: &std::collections::BTreeMap<String, String>,
 ) -> Value {
     let mut descriptor =
         AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model);
-    apply_custom_model_compression_policy(&mut descriptor, upstream_model);
+    apply_custom_model_compression_policy(
+        &mut descriptor,
+        upstream_model,
+        checkpoint_output_limits,
+        aliases,
+    );
     descriptor
 }
 
-fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)>) {
+fn inject_models(
+    target: &mut Value,
+    models: Vec<(&VirtualModel, &UpstreamModel)>,
+    checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
+    aliases: &std::collections::BTreeMap<String, String>,
+) {
     match target {
         Value::Array(entries) => {
             entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
-                custom_model_object(virtual_model, upstream_model)
+                custom_model_object(
+                    virtual_model,
+                    upstream_model,
+                    checkpoint_output_limits,
+                    aliases,
+                )
             }));
         }
         Value::Object(entries) => {
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
+                    custom_cloud_code_catalog_entry(
+                        virtual_model,
+                        upstream_model,
+                        checkpoint_output_limits,
+                        aliases,
+                    ),
                 );
             }
         }
@@ -236,7 +290,12 @@ fn inject_models(target: &mut Value, models: Vec<(&VirtualModel, &UpstreamModel)
             for (virtual_model, upstream_model) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
-                    custom_cloud_code_catalog_entry(virtual_model, upstream_model),
+                    custom_cloud_code_catalog_entry(
+                        virtual_model,
+                        upstream_model,
+                        checkpoint_output_limits,
+                        aliases,
+                    ),
                 );
             }
             *target = Value::Object(entries);

@@ -157,12 +157,21 @@ function matchingPreset(
   outputTokenLimit: number | null,
 ): CompressionPresetId | null {
   if (!capacity || capacity <= 0) return null;
-  return COMPRESSION_PRESETS.find((preset) => (
+  const exact = COMPRESSION_PRESETS.find((preset) => (
     presetSupported(preset, capacity, outputTokenLimit)
       && policy.token_threshold === preset.values.token_threshold
       && policy.max_token_limit === preset.values.max_token_limit
       && policy.max_output_tokens === preset.values.max_output_tokens
-  ))?.id ?? null;
+  ))?.id;
+  if (exact) return exact;
+  if (
+    policy.token_threshold === 61_000
+    && policy.max_token_limit === 73_000
+    && presetSupported(presetById("CONTEXT_128K"), capacity, outputTokenLimit)
+  ) {
+    return "CONTEXT_128K";
+  }
+  return null;
 }
 
 function initialMode(

@@ -16,30 +16,15 @@ impl AntigravityModelDescriptor {
         let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
         if models_json.get("models").is_some() {
             if let Some(models) = models_json.get_mut("models") {
-                apply_official_policies(
-                    models,
-                    policies,
-                    &aliases,
-                    &checkpoint_output_limits,
-                );
+                apply_official_policies(models, policies, &aliases, &checkpoint_output_limits);
             }
         } else if let Some(models) = models_json
             .get_mut("response")
             .and_then(|response| response.get_mut("models"))
         {
-            apply_official_policies(
-                models,
-                policies,
-                &aliases,
-                &checkpoint_output_limits,
-            );
+            apply_official_policies(models, policies, &aliases, &checkpoint_output_limits);
         } else {
-            apply_official_policies(
-                models_json,
-                policies,
-                &aliases,
-                &checkpoint_output_limits,
-            );
+            apply_official_policies(models_json, policies, &aliases, &checkpoint_output_limits);
         }
     }
 }
@@ -56,7 +41,10 @@ fn apply_official_policies(
                 let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
-                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits);
+                if !policy.enabled {
+                    continue;
+                }
+                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits, aliases);
             }
         }
         Value::Array(entries) => {
@@ -67,30 +55,57 @@ fn apply_official_policies(
                 let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
-                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits);
+                if !policy.enabled {
+                    continue;
+                }
+                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits, aliases);
             }
         }
         _ => {}
     }
 }
 
-fn official_checkpoint_output_limits(models_json: &Value) -> BTreeMap<String, u32> {
+pub(super) fn official_checkpoint_output_limits(models_json: &Value) -> BTreeMap<String, u32> {
     let response = official_catalog_response(models_json);
-    let Some(models) = response.get("models").and_then(Value::as_object) else {
-        return BTreeMap::new();
-    };
-
     let mut limits = BTreeMap::new();
-    for (model_id, entry) in models {
-        let Some(output_limit) = minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
+
+    let process_entry = |limits: &mut BTreeMap<String, u32>, model_id: &str, entry: &Value| {
+        let Some(output_limit) =
+            minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
         else {
-            continue;
+            return;
         };
-        limits.insert(model_id.clone(), output_limit);
+        limits.insert(model_id.to_string(), output_limit);
         for field in ["id", "model"] {
             if let Some(identifier) = entry.get(field).and_then(Value::as_str) {
                 limits.insert(identifier.to_string(), output_limit);
             }
+        }
+    };
+
+    if let Some(models) = response.get("models") {
+        match models {
+            Value::Object(entries) => {
+                for (model_id, entry) in entries {
+                    process_entry(&mut limits, model_id, entry);
+                }
+            }
+            Value::Array(entries) => {
+                for entry in entries {
+                    if let Some(model_id) = entry
+                        .get("id")
+                        .or_else(|| entry.get("model"))
+                        .and_then(Value::as_str)
+                    {
+                        process_entry(&mut limits, model_id, entry);
+                    }
+                }
+            }
+            _ => {}
+        }
+    } else if let Value::Object(entries) = response {
+        for (model_id, entry) in entries {
+            process_entry(&mut limits, model_id, entry);
         }
     }
     limits
@@ -125,7 +140,10 @@ fn effective_policy<'a>(
         })
 }
 
-fn canonical_model_id<'a>(model_id: &'a str, aliases: &'a BTreeMap<String, String>) -> &'a str {
+pub(super) fn canonical_model_id<'a>(
+    model_id: &'a str,
+    aliases: &'a BTreeMap<String, String>,
+) -> &'a str {
     let mut current = model_id;
     let mut visited = BTreeSet::new();
     while let Some(next) = aliases.get(current) {
@@ -137,7 +155,7 @@ fn canonical_model_id<'a>(model_id: &'a str, aliases: &'a BTreeMap<String, Strin
     current
 }
 
-fn official_model_aliases(models_json: &Value) -> BTreeMap<String, String> {
+pub(super) fn official_model_aliases(models_json: &Value) -> BTreeMap<String, String> {
     let mut aliases = BTreeMap::new();
     let containers = models_json
         .get("response")
@@ -166,6 +184,7 @@ fn apply_policy_with_entry_limits(
     entry: &mut Value,
     policy: &ModelCompressionPolicy,
     checkpoint_output_limits: &BTreeMap<String, u32>,
+    aliases: &BTreeMap<String, String>,
 ) {
     let capacity =
         minimum_positive_field(entry, &["maxTokens", "inputTokenLimit", "contextWindow"])
@@ -173,8 +192,10 @@ fn apply_policy_with_entry_limits(
     let entry_output_limit =
         minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
             .unwrap_or(policy.max_output_tokens);
+    let canonical_checkpoint = canonical_model_id(&policy.checkpoint_model, aliases);
     let output_token_limit = checkpoint_output_limits
-        .get(&policy.checkpoint_model)
+        .get(canonical_checkpoint)
+        .or_else(|| checkpoint_output_limits.get(&policy.checkpoint_model))
         .copied()
         .map_or(entry_output_limit, |checkpoint_limit| {
             entry_output_limit.min(checkpoint_limit)

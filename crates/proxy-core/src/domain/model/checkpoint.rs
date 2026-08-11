@@ -65,9 +65,9 @@ impl Default for ModelCompressionPolicy {
             include_subagent_snapshots: true,
             include_artifact_snapshots: true,
             retry_config: CustomModelCheckpointRetryConfig::default(),
-            token_threshold: 61_000,
-            max_token_limit: 73_000,
-            max_output_tokens: 2_000,
+            token_threshold: 50_000,
+            max_token_limit: 128_000,
+            max_output_tokens: 16_384,
         }
     }
 }
