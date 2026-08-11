@@ -10,7 +10,8 @@ import {
 import { t } from "../../i18n";
 import { store } from "../../store/appStore";
 import type { Provider, VirtualModel } from "../../types/config";
-import { armDestructiveButton, element, withBusy } from "../../utils/domUtils";
+import { element, withBusy } from "../../utils/domUtils";
+import { confirmHostAction } from "../ConfirmModal";
 import { showNotice } from "../NoticeBar";
 import type { ProviderModelLink } from "./ProviderCardModels";
 
@@ -83,17 +84,30 @@ function createEditActions(
   remove.className = "danger-text";
   remove.dataset.i18n = "models.deleteProvider";
   remove.textContent = t("models.deleteProvider");
-  const dispose = armDestructiveButton(
-    remove,
-    () => `${t("models.deleteProvider")} (${modelLinks.length})`,
-    () => removeProvider(provider.id, remove),
-    showNotice,
-    () => isProviderEditorDirty()
+
+  remove.addEventListener("click", () => {
+    const blocker = isProviderEditorDirty()
       ? t("models.unsavedChangesBlocker")
-      : fallbackRemovalBlocker(new Set(modelLinks.map(({ virtualModel }) => virtualModel.id))),
-  );
+      : fallbackRemovalBlocker(new Set(modelLinks.map(({ virtualModel }) => virtualModel.id)));
+    if (blocker) {
+      showNotice(blocker, "error");
+      return;
+    }
+
+    void confirmHostAction(
+      t("models.deleteProviderConfirmMessage", { name: provider.name, count: String(modelLinks.length) }),
+      t("models.deleteProviderConfirmTitle"),
+      t("models.deleteProvider"),
+      t("models.cancel")
+    ).then((confirmed) => {
+      if (confirmed) {
+        removeProvider(provider.id, remove);
+      }
+    });
+  });
+
   container.append(manage, remove);
-  return { element: container, dispose };
+  return { element: container, dispose: () => {} };
 }
 
 function matchingTestSession(providerId: string, virtualModels: VirtualModel[]) {

@@ -64,9 +64,8 @@ function providerVirtualModelCounts(): Map<string, number> {
   return counts;
 }
 
-function createProviderTabs(activeId: string): HTMLDivElement {
-  const tabs = document.createElement("div");
-  tabs.className = "provider-tabs-bar";
+function createProviderTabs(activeId: string): DocumentFragment {
+  const fragment = document.createDocumentFragment();
   const modelCounts = providerVirtualModelCounts();
   const allProviders = [OFFICIAL_PROVIDER, ...store.config.providers];
 
@@ -100,9 +99,9 @@ function createProviderTabs(activeId: string): HTMLDivElement {
       setActiveProviderTabId(provider.id);
       renderProviders();
     });
-    tabs.append(tab);
+    fragment.append(tab);
   }
-  return tabs;
+  return fragment;
 }
 
 let cachedOfficialModelCount: number | null = null;

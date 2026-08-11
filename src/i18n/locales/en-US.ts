@@ -246,8 +246,6 @@ export const enUS: TranslationDict = {
     stepPreset: "Select Provider",
     stepConfig: "Connection",
     stepCatalog: "Select Models",
-    quickPresets: "Select Provider",
-    quickPresetsDesc: "Quickly pick from 30+ official and proxy services, or configure custom service from scratch",
     backToPresets: "← Re-select Provider",
     tagOfficial: "Official",
     tagAggregator: "Gateway",
@@ -269,8 +267,6 @@ export const enUS: TranslationDict = {
     apiKey: "API Key",
     optional: "Optional",
     apiKeyPlaceholder: "Enter API Key (leave empty if unauthenticated)",
-    pasteKey: "Paste",
-    apiKeyPasted: "API Key pasted from clipboard",
     showKey: "Show",
     hideKey: "Hide",
     advancedSettings: "Advanced Settings (Custom Endpoint URLs)",
@@ -333,7 +329,8 @@ export const enUS: TranslationDict = {
     backToConfig: "Back to configuration",
     editProvider: "Edit Config",
     deleteProvider: "Delete Provider",
-
+    deleteProviderConfirmTitle: "Confirm Delete Provider",
+    deleteProviderConfirmMessage: "Are you sure you want to delete the provider '{name}'?\nThis will permanently remove the provider and its {count} associated custom models.",
 
 
     reasoningSummary: "Reasoning levels: {levels}",

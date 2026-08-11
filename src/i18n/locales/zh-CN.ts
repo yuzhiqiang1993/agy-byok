@@ -204,8 +204,6 @@ export const zhCN = {
     stepPreset: "选择服务",
     stepConfig: "连接配置",
     stepCatalog: "选择模型",
-    quickPresets: "选择服务",
-    quickPresetsDesc: "从 30+ 官方与主流服务中快速挑选，或从零开始自定义服务",
     backToPresets: "← 重新选择服务",
     tagOfficial: "官方",
     tagAggregator: "网关",
@@ -227,8 +225,6 @@ export const zhCN = {
     apiKey: "API Key",
     optional: "选填",
     apiKeyPlaceholder: "输入 API Key（无鉴权则留空）",
-    pasteKey: "粘贴",
-    apiKeyPasted: "已从剪贴板粘贴 API Key",
     showKey: "显示",
     hideKey: "隐藏",
     advancedSettings: "高级设置（自定义端点 URL）",
@@ -291,7 +287,8 @@ export const zhCN = {
     backToConfig: "返回修改",
     editProvider: "编辑配置",
     deleteProvider: "删除提供商",
-
+    deleteProviderConfirmTitle: "确认删除提供商",
+    deleteProviderConfirmMessage: "确定要删除提供商 “{name}” 吗？\n这将会永久移除该提供商以及它关联的 {count} 个自定义模型。",
 
 
     reasoningSummary: "推理强度：{levels}",

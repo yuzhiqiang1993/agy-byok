@@ -1,0 +1,98 @@
+.agy-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.agy-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background-color: var(--backdrop-bg, rgba(23, 23, 23, 0.4));
+  backdrop-filter: blur(8px);
+}
+
+.agy-modal-dialog {
+  position: relative;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-color, #d1d9d4);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px -10px rgba(0,0,0,0.1), 0 10px 20px -5px rgba(0,0,0,0.04);
+  width: 90vw;
+  max-width: 500px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  animation: agyModalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.agy-modal-dialog:focus {
+  outline: none;
+}
+
+.agy-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #d1d9d4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agy-modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin: 0;
+}
+
+.agy-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, #6b7280);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+
+.agy-modal-close:hover {
+  background: var(--bg-hover, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.agy-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  font-size: 0.95rem;
+  color: var(--text-secondary, #374151);
+  line-height: 1.5;
+}
+
+.agy-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color, #d1d9d4);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  background: var(--bg-secondary, #f9fafb);
+}
+
+@keyframes agyModalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

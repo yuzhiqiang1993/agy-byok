@@ -229,7 +229,7 @@ body {
   width: 100%;
   transition: all 140ms ease;
 }
-.side-nav-button:hover:not(:disabled) { background: var(--sidebar-nav-hover); color: var(--accent); }
+.side-nav-button:hover:not(.active):not(:disabled) { background: var(--sidebar-nav-hover); color: var(--accent); }
 .notice-bar-info { background: #1a1a1a; color: #ffffff; }
 .notice-bar-error { background: #991b1b; color: #ffffff; }
 .notice-bar-warning { background: #92400e; color: #ffffff; }
@@ -340,8 +340,9 @@ body {
   gap: 12px;
 }
 
-.side-nav-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.64); color: #27476f; }
-.side-nav-button.active { background: #dce7ff; color: #2460d6; box-shadow: inset 0 0 0 1px rgba(68, 112, 207, 0.08); }
+.side-nav-button:hover:not(.active):not(:disabled) { background: rgba(255, 255, 255, 0.64); color: #27476f; }
+.side-nav-button.active,
+.side-nav-button.active:hover { background: #dce7ff; color: #2460d6; box-shadow: inset 0 0 0 1px rgba(68, 112, 207, 0.08); }
 .main-stage { min-width: 0; }
 
 button, input, select { font: inherit; }
@@ -442,6 +443,18 @@ code {
 }
 .tab-pane.active {
   display: block;
+  animation: mainTabFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mainTabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .visually-hidden {
   position: absolute;

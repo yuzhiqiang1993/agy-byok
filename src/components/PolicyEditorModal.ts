@@ -1,8 +1,8 @@
 import { t } from "../i18n";
 import type { UpstreamCompressionPolicy } from "../types/catalog";
 import type { ModelCompressionPolicy } from "../types/config";
-import { visibleFocusableElements } from "../utils/domUtils";
 import { errorMessage } from "../utils/errorUtils";
+import { createModal } from "./common/Modal";
 
 type CompressionPresetId =
   | "EXTREMELY_CONSERVATIVE"
@@ -343,58 +343,9 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   const returnFocus = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  const overlay = document.createElement("div");
-  overlay.className = "provider-modal";
-
-  const backdrop = document.createElement("div");
-  backdrop.className = "provider-modal-backdrop";
-
-  const dialog = document.createElement("section");
-  dialog.className = "provider-modal-dialog policy-editor-dialog";
-  dialog.setAttribute("role", "dialog");
-  dialog.setAttribute("aria-modal", "true");
-  dialog.tabIndex = -1;
-  dialog.setAttribute("aria-labelledby", "policy-editor-title");
-  dialog.setAttribute("aria-describedby", "policy-editor-description");
-
-  const header = document.createElement("header");
-  header.className = "provider-modal-header";
-
-  const heading = document.createElement("div");
-  heading.className = "policy-editor-heading";
-
-  const titleRow = document.createElement("div");
-  titleRow.className = "policy-editor-title-row";
-  const title = document.createElement("strong");
-  title.id = "policy-editor-title";
-  title.textContent = t("models.editPolicyTitle");
-  const modelBadge = document.createElement("span");
-  modelBadge.className = "policy-model-badge";
-  modelBadge.textContent = options.modelName;
-  titleRow.append(title, modelBadge);
-
-  if (options.capacity && options.capacity > 0) {
-    const capacityBadge = document.createElement("span");
-    capacityBadge.className = "policy-capacity-badge";
-    capacityBadge.textContent = `${t("models.policyContextWindow")} · ${formatTokenCount(options.capacity)}`;
-    titleRow.append(capacityBadge);
-  }
-
-  const description = document.createElement("p");
-  description.id = "policy-editor-description";
-  description.textContent = t("models.editPolicyDesc");
-  heading.append(titleRow, description);
-
-  const closeButton = document.createElement("button");
-  closeButton.type = "button";
-  closeButton.className = "provider-modal-close";
-  closeButton.setAttribute("aria-label", t("modal.close"));
-  closeButton.title = t("modal.closeWithShortcut");
-  closeButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
-  header.append(heading, closeButton);
 
   const body = document.createElement("div");
-  body.className = "provider-modal-body policy-editor-body";
+  body.className = "policy-editor-body";
 
   const presetField = document.createElement("label");
   presetField.className = "policy-preset-field";
@@ -439,39 +390,11 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
 
   body.append(presetField, help, form, error);
 
-  const footer = document.createElement("footer");
-  footer.className = "reasoning-modal-footer";
-  const cancelButton = document.createElement("button");
-  cancelButton.type = "button";
-  cancelButton.className = "secondary";
-  cancelButton.textContent = t("common.cancel");
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.className = "primary";
-  saveButton.textContent = t("common.save");
-  footer.append(cancelButton, saveButton);
-
-  dialog.append(header, body, footer);
-  overlay.append(backdrop, dialog);
-
   const defaultWorker = defaultWorkerPolicy(options);
   let mode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
   let draft = options.currentPolicy ? clonePolicy(options.currentPolicy) : null;
-  let isSaving = false;
   presetSelect.value = mode;
 
-  const close = (): void => {
-    if (isSaving) return;
-    window.removeEventListener("keydown", handleKeyDown);
-    document.body.classList.remove("modal-open");
-    overlay.remove();
-    const replacement = [...document.querySelectorAll<HTMLElement>("[data-policy-focus-key]")]
-      .find((element) => element.dataset.policyFocusKey === options.focusKey);
-    const focusTarget = returnFocus?.isConnected
-      ? returnFocus
-      : replacement ?? document.querySelector<HTMLElement>(".provider-tab-card.active");
-    if (focusTarget?.isConnected) window.setTimeout(() => focusTarget.focus(), 0);
-  };
 
   const renderDefaultPolicy = (): void => {
     help.textContent = options.defaultHelp;
@@ -582,70 +505,72 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     render();
   });
 
+  let modal: any;
+
   const setSaving = (saving: boolean): void => {
-    isSaving = saving;
-    for (const control of dialog.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>("button, input, select")) {
+    for (const control of body.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>("button, input, select")) {
       control.disabled = saving;
     }
-    saveButton.textContent = saving ? t("models.saving") : t("common.save");
-    if (saving) dialog.focus();
+    const saveBtn = modal.element.querySelector(".agy-modal-footer .primary");
+    if (saveBtn) {
+       saveBtn.textContent = saving ? t("models.saving") : t("common.save");
+    }
   };
 
-  saveButton.addEventListener("click", () => {
-    error.hidden = true;
-    const nextPolicy = mode === "NONE" ? null : draft;
-    if (nextPolicy && !isValidPolicy(nextPolicy)) {
-      error.textContent = t("models.policyInvalid");
-      error.hidden = false;
-      return;
-    }
+  const titleExtras: HTMLElement[] = [];
+  const modelBadge = document.createElement("span");
+  modelBadge.className = "policy-model-badge";
+  modelBadge.textContent = options.modelName;
+  titleExtras.push(modelBadge);
 
-    setSaving(true);
-    void options.onSave(nextPolicy ? clonePolicy(nextPolicy) : null)
-      .then(() => {
-        isSaving = false;
-        close();
-      })
-      .catch((saveError: unknown) => {
-        setSaving(false);
-        error.textContent = t("models.policySaveFailed", { message: errorMessage(saveError) });
-        error.hidden = false;
-        error.focus();
-      });
-  });
-
-  cancelButton.addEventListener("click", close);
-  closeButton.addEventListener("click", close);
-  backdrop.addEventListener("click", close);
-
-  function handleKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = visibleFocusableElements(dialog);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      dialog.focus();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || !dialog.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
-      event.preventDefault();
-      first.focus();
-    }
+  if (options.capacity && options.capacity > 0) {
+    const capacityBadge = document.createElement("span");
+    capacityBadge.className = "policy-capacity-badge";
+    capacityBadge.textContent = `${t("models.policyContextWindow")} · ${formatTokenCount(options.capacity)}`;
+    titleExtras.push(capacityBadge);
   }
 
+  modal = createModal({
+    title: t("models.editPolicyTitle"),
+    subtitle: t("models.editPolicyDesc"),
+    titleExtras,
+    body,
+    dialogClassName: "policy-editor-dialog",
+    okLabel: t("common.save"),
+    cancelLabel: t("common.cancel"),
+    onOk: () => {
+      error.hidden = true;
+      const nextPolicy = mode === "NONE" ? null : draft;
+      if (nextPolicy && !isValidPolicy(nextPolicy)) {
+        error.textContent = t("models.policyInvalid");
+        error.hidden = false;
+        return;
+      }
+
+      setSaving(true);
+      void options.onSave(nextPolicy ? clonePolicy(nextPolicy) : null)
+        .then(() => {
+          modal.close();
+        })
+        .catch((saveError: unknown) => {
+          setSaving(false);
+          error.textContent = t("models.policySaveFailed", { message: errorMessage(saveError) });
+          error.hidden = false;
+          error.focus();
+        });
+    },
+    onCancel: () => {
+        // Just close
+    }
+  });
+
+  const originalClose = modal.close;
+  modal.close = () => {
+      originalClose();
+      if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus(), 0);
+  };
+
   render();
-  document.body.append(overlay);
-  document.body.classList.add("modal-open");
-  window.addEventListener("keydown", handleKeyDown);
   window.setTimeout(() => presetSelect.focus(), 0);
 }
+

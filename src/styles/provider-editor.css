@@ -47,17 +47,24 @@ body.modal-open { overflow: hidden; }
   position: sticky;
   z-index: 2;
   top: 0;
-  display: flex;
-  min-height: 58px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  min-height: 58px;
   gap: 16px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--surface-border);
   background: var(--surface);
 }
 
+.provider-modal-header .form-summary-copy {
+  grid-column: 1;
+  justify-self: start;
+}
+
 .wizard-stepper {
+  grid-column: 2;
+  justify-self: center;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -65,11 +72,17 @@ body.modal-open { overflow: hidden; }
   border: none;
   padding: 0;
 }
+
+.provider-modal-close {
+  grid-column: 3;
+  justify-self: end;
+}
+
 .wizard-step-node {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 9px;
+  padding: 4px 10px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -77,24 +90,24 @@ body.modal-open { overflow: hidden; }
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: color 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s ease;
 }
 .wizard-step-node:hover:not(:disabled) {
   color: var(--text-main);
-  background: rgba(0, 0, 0, 0.035);
+  background: rgba(0, 0, 0, 0.04);
 }
 .wizard-step-node .step-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 19px;
-  height: 19px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.07);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  transition: all 0.18s ease;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 html[data-theme="dark"] .wizard-step-node .step-num {
   background: rgba(255, 255, 255, 0.12);
@@ -106,7 +119,8 @@ html[data-theme="dark"] .wizard-step-node .step-num {
 .wizard-step-node.active .step-num {
   background: var(--accent);
   color: #ffffff;
-  box-shadow: 0 2px 6px var(--accent-soft);
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px var(--accent-soft);
 }
 .wizard-step-node:disabled {
   cursor: default;
@@ -264,6 +278,17 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { border-co
   font-size: 11px;
   line-height: 1.35;
 }
+.form-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field-label-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .password-field {
   display: flex;
   height: 36px;
@@ -272,54 +297,49 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { border-co
   border: 1px solid var(--input-border);
   border-radius: 8px;
   background: var(--input-bg);
-  padding-right: 4px;
-  gap: 4px;
+  padding: 0 4px 0 0;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .password-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.password-field input {
+.password-field input,
+.password-field input:not([type="checkbox"]):not([type="radio"]) {
   flex: 1;
   width: 0;
   min-width: 0;
   height: 100%;
   min-height: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+  padding: 7px 11px;
 }
-.password-field input:focus { box-shadow: none; }
-.password-toggle {
+.password-field input:focus { box-shadow: none !important; }
+.password-toggle-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
-  min-height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--surface-border);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
   flex-shrink: 0;
   cursor: pointer;
   transition: all 150ms ease;
+  margin-right: 2px;
 }
-.password-toggle:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.password-toggle.secondary-toggle {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-muted);
-}
-.password-toggle.secondary-toggle:hover:not(:disabled) {
-  background: var(--surface);
-  border-color: var(--surface-border);
+.password-toggle-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
   color: var(--text-main);
+}
+html[data-theme="dark"] .password-toggle-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
 }
 
 .endpoint-settings {
@@ -431,49 +451,65 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus { border-co
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .preset-tabs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 3px;
-  background: transparent;
-  padding: 0;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+html[data-theme="dark"] .preset-tabs {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .preset-tab {
-  padding: 4px 10px;
+  padding: 3px 9px;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
+  line-height: 1.35;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
 }
 
-.preset-tab:hover {
+.preset-tab:hover:not(.active) {
   color: var(--text-main);
   background: rgba(0, 0, 0, 0.04);
 }
-html[data-theme="dark"] .preset-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
+
+html[data-theme="dark"] .preset-tab:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .preset-tab.active {
-  background: var(--accent-soft);
+  background: #ffffff;
   color: var(--accent);
-  font-weight: 650;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+html[data-theme="dark"] .preset-tab.active {
+  background: rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .preset-search-wrapper {
   position: relative;
   display: flex;
   align-items: center;
-  width: 200px;
+  width: 190px;
   flex-shrink: 0;
 }
 
@@ -488,11 +524,11 @@ html[data-theme="dark"] .preset-tab:hover {
 
 .preset-search-input {
   width: 100%;
-  height: 30px;
-  min-height: 30px;
-  padding: 0 8px 0 28px !important;
+  height: 27px;
+  min-height: 27px;
+  padding: 0 8px 0 27px !important;
   border: 1px solid var(--surface-border);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--surface);
   font-size: 12px;
   color: var(--text-main);

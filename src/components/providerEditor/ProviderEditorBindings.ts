@@ -21,7 +21,6 @@ interface ProviderEditorBindings {
   createCatalogContext: () => providerCatalog.ProviderCatalogContext;
 }
 
-import { showNotice } from "../NoticeBar";
 
 export function switchToStep(step: "preset" | "config" | "catalog"): void {
   const presetStep = element<HTMLElement>("#provider-step-preset");
@@ -117,23 +116,6 @@ function bindFormEvents(bindings: ProviderEditorBindings): void {
     input.type = input.type === "text" ? "password" : "text";
     providerForm.syncApiKeyToggle();
   });
-  const pasteApiKeyBtn = document.querySelector<HTMLButtonElement>("#paste-api-key");
-  if (pasteApiKeyBtn) {
-    pasteApiKeyBtn.addEventListener("click", async () => {
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-          const input = element<HTMLInputElement>("#api-key");
-          input.value = text.trim();
-          providerCatalog.resetCatalogResults();
-          bindings.setDirty(true);
-          showNotice(t("models.apiKeyPasted"));
-        }
-      } catch (err) {
-        // clipboard permission denied or unsupported
-      }
-    });
-  }
 }
 
 function bindCatalogEvents(bindings: ProviderEditorBindings): void {
@@ -185,11 +167,10 @@ function bindModalEvents(bindings: ProviderEditorBindings): void {
 }
 
 function bindKeyboardNavigation(bindings: ProviderEditorBindings): void {
-  const confirmModal = element<HTMLDivElement>("#confirm-modal");
-  const reasoningModal = element<HTMLDivElement>("#reasoning-modal");
   const panel = element<HTMLElement>("#provider-form-panel");
   document.addEventListener("keydown", (event) => {
-    if (!confirmModal.hidden || !reasoningModal.hidden) return;
+    const hasModal = document.querySelector(".agy-modal");
+    if (hasModal) return;
     if (panel.hidden) return;
     if (event.key === "Escape") {
       event.preventDefault();

@@ -12,7 +12,6 @@ import { errorMessage } from "../utils/errorUtils";
 import { showNotice } from "./NoticeBar";
 import {
   openReleaseNotesModal,
-  setupReleaseNotesModal,
 } from "./settings/ReleaseNotesModal";
 import { switchSettingsPane } from "./settings/SettingsNavigation";
 import {
@@ -165,7 +164,7 @@ async function restartApp(): Promise<void> {
 
 export function setupUpdateManager(): void {
   if (!isTauriRuntime()) return;
-  setupReleaseNotesModal();
+
   const view = createUpdateView();
   const state: UpdateManagerState = {
     phase: "idle",

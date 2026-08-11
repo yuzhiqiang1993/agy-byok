@@ -97,9 +97,15 @@ export function syncApiKeyToggle(): void {
   const visible = element<HTMLInputElement>("#api-key").type === "text";
   const label = t(visible ? "models.hideKey" : "models.showKey");
   const button = element<HTMLButtonElement>("#toggle-api-key");
-  button.textContent = label;
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-pressed", String(visible));
+
+  const iconShow = button.querySelector<SVGElement>(".icon-show");
+  const iconHide = button.querySelector<SVGElement>(".icon-hide");
+  if (iconShow && iconHide) {
+    iconShow.toggleAttribute("hidden", visible);
+    iconHide.toggleAttribute("hidden", !visible);
+  }
 }
 
 export function resetProviderForm(context: ProviderFormContext): void {

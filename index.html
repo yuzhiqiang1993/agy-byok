@@ -67,17 +67,6 @@
             </div>
           </header>
 
-      <div id="notice" class="notice" role="status" aria-live="polite" hidden>
-        <div class="notice-status-icon" aria-hidden="true">
-          <svg class="icon-success" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-          <svg class="icon-error" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <span id="notice-text" class="notice-text"></span>
-        <button id="notice-action-btn" class="notice-action-btn" type="button" hidden></button>
-        <button id="dismiss-notice" class="notice-dismiss" type="button" aria-label="关闭通知" title="关闭通知" data-i18n-title="modal.dismissNotice" data-i18n-aria-label="modal.dismissNotice">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-        </button>
-      </div>
 
       <div id="tab-status" class="tab-pane active">
         <section class="panel readiness-panel" aria-labelledby="readiness-title">
@@ -260,13 +249,6 @@
                 <!-- 步骤 1：快捷预设服务市场 -->
                 <div id="provider-step-preset" class="wizard-step active">
                   <div class="step-content-scroll">
-                    <div class="presets-market-header">
-                      <div class="presets-market-title-group">
-                        <h3 class="presets-market-title" data-i18n="models.quickPresets">选择服务预设</h3>
-                        <span class="presets-market-desc" data-i18n="models.quickPresetsDesc">从 30+ 官方与主流中转预设中快速挑选，或从零开始自定义服务</span>
-                      </div>
-                    </div>
-
                     <div class="presets-toolbar">
                       <div class="preset-tabs" id="preset-tabs">
                         <button type="button" class="preset-tab active" data-category="all" data-i18n="presets.catAll">全部</button>
@@ -321,15 +303,17 @@
                           <p class="field-hint" data-i18n="models.apiUrlHint">输入根地址后系统将自动补全模型列表与生成接口，也可展开高级设置自定义。</p>
                         </div>
 
-                        <div class="wide">
-                          <label class="field-label" for="api-key">
-                            <span class="field-label-text" data-i18n="models.apiKey">API Key</span>
+                        <div class="wide form-field-group">
+                          <div class="field-label-row">
+                            <label for="api-key" class="field-label-text" data-i18n="models.apiKey">API Key</label>
                             <span class="optional-badge" data-i18n="models.optional">选填</span>
-                          </label>
+                          </div>
                           <div class="password-wrapper password-field">
                             <input id="api-key" name="apiKey" type="password" placeholder="输入 API Key（无鉴权则留空）" data-i18n-placeholder="models.apiKeyPlaceholder" autocomplete="off" />
-                            <button id="paste-api-key" class="password-toggle secondary-toggle" type="button" aria-label="粘贴" data-i18n="models.pasteKey" data-i18n-aria-label="models.pasteKey">粘贴</button>
-                            <button id="toggle-api-key" class="password-toggle" type="button" aria-pressed="false" aria-label="显示" data-i18n="models.showKey" data-i18n-aria-label="models.showKey">显示</button>
+                            <button id="toggle-api-key" class="password-toggle-btn" type="button" aria-pressed="false" aria-label="显示" data-i18n-aria-label="models.showKey">
+                              <svg class="eye-icon icon-show" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                              <svg class="eye-icon icon-hide" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -392,36 +376,6 @@
           </section>
         </div>
 
-        <div id="reasoning-modal" class="provider-modal" hidden>
-          <div id="reasoning-modal-backdrop" class="provider-modal-backdrop"></div>
-          <section
-            class="provider-modal-dialog reasoning-modal-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="reasoning-modal-title"
-          >
-            <header class="provider-modal-header">
-              <div class="form-summary-copy">
-                <div class="form-summary-title">
-                  <strong id="reasoning-modal-title" data-i18n="models.reasoningConfig">推理强度配置</strong>
-                </div>
-              </div>
-              <button id="close-reasoning-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.closeWithShortcut" data-i18n-aria-label="modal.close">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              </button>
-            </header>
-
-            <div class="reasoning-modal-body">
-              <p id="reasoning-modal-subtitle" class="form-intro" data-i18n="models.reasoningSubtitle">勾选需要暴露给 IDE、App 或 CLI 的推理/思考档位，并可针对每个档位独立测试上游响应。</p>
-              <div id="reasoning-modal-levels" class="reasoning-modal-levels"></div>
-            </div>
-
-            <div class="reasoning-modal-footer">
-              <button id="cancel-reasoning-modal" class="secondary" type="button" data-i18n="models.cancel">取消</button>
-              <button id="confirm-reasoning-modal" class="primary" type="button" data-i18n="models.confirm">确定</button>
-            </div>
-          </section>
-        </div>
       </div>
 
       <div id="tab-activity" class="tab-pane">
@@ -725,40 +679,6 @@
         </section>
       </div>
 
-      <div id="release-notes-modal" class="provider-modal" hidden>
-        <div id="release-notes-modal-backdrop" class="provider-modal-backdrop"></div>
-        <section
-          class="provider-modal-dialog release-notes-modal-dialog"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="release-notes-modal-title"
-        >
-          <header class="provider-modal-header">
-            <div class="form-summary-copy">
-              <div class="form-summary-title">
-                <strong id="release-notes-modal-title" data-i18n="settings.releaseNotesTitle">版本更新说明</strong>
-                <span id="release-notes-modal-version" class="status-pill accent"></span>
-              </div>
-              <p id="release-notes-modal-subtitle" class="form-summary-desc"></p>
-            </div>
-            <button id="close-release-notes-modal" class="provider-modal-close" type="button" aria-label="关闭" title="关闭（Esc）" data-i18n-title="modal.closeWithShortcut" data-i18n-aria-label="modal.close">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
-          </header>
-
-          <div class="provider-modal-body release-notes-modal-body">
-            <div id="release-notes-modal-content" class="about-update-notes markdown-body"></div>
-          </div>
-
-          <div class="provider-modal-footer release-notes-modal-footer">
-            <button id="release-notes-github-link" type="button" class="release-github-btn" data-i18n="settings.viewOnGithub">在 GitHub 查看 ↗</button>
-            <div class="modal-footer-actions">
-              <button id="cancel-release-notes-modal" class="secondary" type="button" data-i18n="modal.close">关闭</button>
-              <button id="install-update-from-modal" class="primary" type="button" data-i18n="settings.installUpdate">安装更新</button>
-            </div>
-          </div>
-        </section>
-      </div>
 
         </main>
       </div>

@@ -1,6 +1,4 @@
-import { element } from "../utils/domUtils";
-
-let noticeTimer: number | null = null;
+import { Notice } from "./common/Notice";
 
 export interface NoticeAction {
   label: string;
@@ -12,44 +10,18 @@ export function showNotice(
   kind: "success" | "error" | "info" = "success",
   action?: NoticeAction,
 ): void {
-  const notice = element<HTMLDivElement>("#notice");
-  const noticeText = element<HTMLSpanElement>("#notice-text");
-  const actionBtn = element<HTMLButtonElement>("#notice-action-btn");
-  if (noticeTimer !== null) window.clearTimeout(noticeTimer);
-  noticeText.textContent = message;
-  notice.className = `notice ${kind}`;
-
-  if (action) {
-    actionBtn.hidden = false;
-    actionBtn.textContent = action.label;
-    actionBtn.onclick = () => {
-      dismissNotice();
-      action.onClick();
-    };
-  } else {
-    actionBtn.hidden = true;
-    actionBtn.onclick = null;
-  }
-
-  notice.hidden = false;
-  noticeTimer = window.setTimeout(
-    () => {
-      dismissNotice();
-    },
-    action ? 10000 : kind === "error" ? 8000 : 4000,
-  );
+  Notice.show({
+    message,
+    kind,
+    action
+  });
 }
 
 export function dismissNotice(): void {
-  const notice = element<HTMLDivElement>("#notice");
-  const actionBtn = element<HTMLButtonElement>("#notice-action-btn");
-  if (noticeTimer !== null) window.clearTimeout(noticeTimer);
-  noticeTimer = null;
-  actionBtn.hidden = true;
-  actionBtn.onclick = null;
-  notice.hidden = true;
+  // Common notice automatically dismisses itself.
+  // There is no global dismissNotice for all toast notices since there can be multiple.
 }
 
 export function setupNoticeBar(): void {
-  element<HTMLButtonElement>("#dismiss-notice").addEventListener("click", dismissNotice);
+  // No-op. Notice.ts manages its own DOM automatically.
 }

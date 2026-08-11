@@ -1,5 +1,5 @@
-import "./styles.css";
 import { store } from "./store/appStore";
+import "./styles.css";
 import { configService } from "./services/configService";
 import { proxyService } from "./services/proxyService";
 
@@ -21,7 +21,7 @@ import { setupUpdateManager } from "./components/UpdateManager";
 import { isTauriRuntime } from "./services/updateService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { errorMessage } from "./utils/errorUtils";
-import { setupReasoningModal } from "./components/ReasoningModal";
+
 import { refreshApp, refreshCli, refreshHostStatuses, refreshIde } from "./controllers/hostController";
 import { hostService } from "./services/hostService";
 
@@ -127,7 +127,6 @@ window.addEventListener("pagehide", (event) => {
 initThemeManager();
 setupTabManager();
 setupSettingsView();
-setupReasoningModal();
 
 updateDOMTranslations();
 setupUpdateManager();
