@@ -1,4 +1,4 @@
-import { t, subscribeLanguage, isTranslationKey, type TranslationKey } from "../i18n";
+import { t, subscribeLanguage, isTranslationKey } from "../i18n";
 import type { ProviderCatalogModel } from "../types/catalog";
 import type { Provider, ProviderProtocol, UpstreamModel } from "../types/config";
 import type { ModelConnectionTestResult } from "../types/proxy";
@@ -79,44 +79,6 @@ subscribeLanguage(() => {
   });
 });
 
-function createBudgetField(
-  labelKey: TranslationKey,
-  value: number | null,
-  minimum: number,
-): { field: HTMLLabelElement; input: HTMLInputElement; label: HTMLSpanElement } {
-  const field = document.createElement("label");
-  field.className = "catalog-token-field";
-  const label = document.createElement("span");
-  label.dataset.reasoningBudgetLabel = labelKey;
-  label.textContent = t(labelKey);
-  const input = document.createElement("input");
-  input.type = "number";
-  input.className = "catalog-token-input";
-  input.min = String(minimum);
-  input.step = "1";
-  input.value = value == null ? "" : String(value);
-  input.addEventListener("input", () => input.setCustomValidity(""));
-  field.append(label, input);
-  return { field, input, label };
-}
-
-function readBudgetInput(
-  input: HTMLInputElement,
-  minimum: number,
-  invalidMessage: string,
-): number | null | undefined {
-  const raw = input.value.trim();
-  if (!raw) return null;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < minimum) {
-    input.setCustomValidity(invalidMessage);
-    input.reportValidity();
-    return undefined;
-  }
-  input.setCustomValidity("");
-  return value;
-}
-
 export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
   activeReasoningModel = model;
   activeContext = context;
@@ -136,31 +98,6 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
   const body = document.createElement("div");
   body.className = "reasoning-modal-levels";
 
-  const budgetEditable = context.providerProtocol === "gemini_generate_content";
-  let defaultBudget: ReturnType<typeof createBudgetField> | null = null;
-  let minimumBudget: ReturnType<typeof createBudgetField> | null = null;
-
-  if (budgetEditable) {
-    const budgetFields = document.createElement("div");
-    budgetFields.className = "catalog-token-fields";
-    defaultBudget = createBudgetField(
-      "models.thinkingBudget",
-      context.currentThinkingBudgets.thinkingBudget,
-      -1,
-    );
-    minimumBudget = createBudgetField(
-      "models.minThinkingBudget",
-      context.currentThinkingBudgets.minThinkingBudget,
-      1,
-    );
-    defaultBudget.input.title = t("models.thinkingBudgetHint");
-    minimumBudget.input.title = t("models.minThinkingBudgetHint");
-    
-    activeBudgetLabels.push(defaultBudget.label, minimumBudget.label);
-    budgetFields.append(defaultBudget.field, minimumBudget.field);
-    body.append(budgetFields);
-  }
-  
   for (const level of supportedLevels) {
     const row = document.createElement("div");
     row.className = "reasoning-modal-level-row";
@@ -231,41 +168,13 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
     okLabel: t("models.confirm"),
     cancelLabel: t("models.cancel"),
     onOk: () => {
-      let thinkingBudget: number | null | undefined = null;
-      let minThinkingBudget: number | null | undefined = null;
-
-      if (budgetEditable && defaultBudget && minimumBudget) {
-        thinkingBudget = readBudgetInput(
-          defaultBudget.input,
-          -1,
-          t("models.invalidThinkingBudget"),
-        );
-        if (thinkingBudget === undefined) return;
-        
-        minThinkingBudget = readBudgetInput(
-          minimumBudget.input,
-          1,
-          t("models.invalidMinThinkingBudget"),
-        );
-        if (minThinkingBudget === undefined) return;
-        
-        if (minThinkingBudget != null && (
-          thinkingBudget === 0
-          || (thinkingBudget != null && thinkingBudget > 0 && minThinkingBudget > thinkingBudget)
-        )) {
-          minimumBudget.input.setCustomValidity(t("models.minThinkingBudgetExceedsDefault"));
-          minimumBudget.input.reportValidity();
-          return;
-        }
-      } else {
-        thinkingBudget = context.currentThinkingBudgets.thinkingBudget;
-        minThinkingBudget = context.currentThinkingBudgets.minThinkingBudget;
-      }
-      
       context.onConfirm(
         model.id,
         new Set(sortReasoningLevels(draftReasoningLevels)),
-        { thinkingBudget, minThinkingBudget },
+        {
+          thinkingBudget: context.currentThinkingBudgets.thinkingBudget,
+          minThinkingBudget: context.currentThinkingBudgets.minThinkingBudget
+        },
       );
       currentModal?.close();
     },
