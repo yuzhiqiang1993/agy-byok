@@ -76,9 +76,11 @@ pub(super) async fn handle_fetch_models_request(
         Ok(request) => request,
         Err(response) => return response,
     };
-    let response = match send_forward_request(&parts, body, &proxy, endpoint).await {
-        Ok(response) => response,
-        Err(_) => {
+    let forward_fut = send_forward_request(&parts, body, &proxy, endpoint);
+    let response = match tokio::time::timeout(std::time::Duration::from_secs(4), forward_fut).await
+    {
+        Ok(Ok(response)) => response,
+        _ => {
             return fetch_models_fallback_response_with_summary(
                 &proxy,
                 "source=custom; official=unavailable",
@@ -142,9 +144,18 @@ pub(super) async fn forward_native_request(
     permit: OwnedSemaphorePermit,
     options: NativeForwardOptions,
 ) -> HttpResponse {
-    let response = match send_forward_request(&parts, body, &proxy, endpoint).await {
-        Ok(response) => response,
-        Err(response) => return response,
+    let forward_fut = send_forward_request(&parts, body, &proxy, endpoint);
+    let response = match tokio::time::timeout(std::time::Duration::from_secs(10), forward_fut).await
+    {
+        Ok(Ok(response)) => response,
+        Ok(Err(response)) => return response,
+        Err(_) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "Failed to forward request to official Cloud Code within timeout",
+                ActivityErrorCategory::NativeForwardingFailed,
+            );
+        }
     };
     let status = response.status();
     tracing::info!("NATIVE FORWARD STATUS: {}", status);
@@ -244,12 +255,11 @@ fn get_proxy_target_host(parts: &hyper::http::request::Parts, proxy: &ProxyServe
     if let Some(host_val) = parts.headers.get(hyper::header::HOST) {
         if let Ok(host_str) = host_val.to_str() {
             let host_str = host_str.trim();
-            if !host_str.is_empty() {
-                if host_str.ends_with(".googleapis.com") {
-                    return format!("https://{host_str}");
-                } else {
-                    return format!("http://{host_str}");
+            if !host_str.is_empty() && !host_str.ends_with(".googleapis.com") {
+                if host_str.starts_with("http://") || host_str.starts_with("https://") {
+                    return host_str.to_string();
                 }
+                return format!("http://{host_str}");
             }
         }
     }
@@ -332,4 +342,32 @@ pub(super) fn validate_official_endpoint(endpoint: &str) -> Result<(), ProxyErro
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::AppConfig;
+    use crate::storage::ConfigStore;
+    use hyper::header::HOST;
+
+    #[test]
+    fn get_proxy_target_host_ignores_upstream_google_hosts() {
+        let store = ConfigStore::in_memory(AppConfig::default());
+        let proxy = ProxyServer::new(store, 12345);
+
+        let (mut parts, _) = hyper::Request::builder().body(()).unwrap().into_parts();
+        parts
+            .headers
+            .insert(HOST, "daily-cloudcode-pa.googleapis.com".parse().unwrap());
+
+        let target = get_proxy_target_host(&parts, &proxy);
+        assert_eq!(target, "http://127.0.0.1:12345");
+
+        parts
+            .headers
+            .insert(HOST, "127.0.0.1:12345".parse().unwrap());
+        let target2 = get_proxy_target_host(&parts, &proxy);
+        assert_eq!(target2, "http://127.0.0.1:12345");
+    }
 }
