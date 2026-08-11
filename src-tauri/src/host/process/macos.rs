@@ -72,13 +72,7 @@ pub(super) fn launch_application_with_environment(
     label: &str,
     environment: &[(&str, &str)],
 ) -> Result<(), String> {
-    let mut command = Command::new("open");
-    command.arg("-a");
-    for (name, value) in environment {
-        command.arg("--env");
-        command.arg(format!("{name}={value}"));
-    }
-    command.arg(installation);
+    let mut command = build_open_command(installation, environment);
     let status = command
         .status()
         .map_err(|error| format!("无法启动 {label}：{error}"))?;
@@ -86,6 +80,17 @@ pub(super) fn launch_application_with_environment(
         .success()
         .then_some(())
         .ok_or_else(|| format!("启动 {label} 失败：{status}"))
+}
+
+fn build_open_command(installation: &Path, environment: &[(&str, &str)]) -> Command {
+    let mut command = Command::new("open");
+    command.arg("-a");
+    command.arg(installation);
+    for (name, value) in environment {
+        command.arg("--env");
+        command.arg(format!("{name}={value}"));
+    }
+    command
 }
 
 #[cfg(test)]
@@ -100,5 +105,25 @@ mod tests {
             Path::new("/Applications/Antigravity IDE.app/Contents/MacOS/Electron"),
         );
         assert_eq!(pids, vec![1465]);
+    }
+
+    #[test]
+    fn build_open_command_places_application_path_immediately_after_dash_a() {
+        let installation = Path::new("/Applications/Antigravity.app");
+        let environment = [("CLOUD_CODE_URL", "http://127.0.0.1:12345")];
+        let command = build_open_command(installation, &environment);
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "-a",
+                "/Applications/Antigravity.app",
+                "--env",
+                "CLOUD_CODE_URL=http://127.0.0.1:12345"
+            ]
+        );
     }
 }

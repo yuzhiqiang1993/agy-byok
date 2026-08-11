@@ -171,12 +171,12 @@ fn configuration_state(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn required_integration_files_exist(paths: &AppPaths) -> bool {
     paths.language_server.is_file()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn required_integration_files_exist(_paths: &AppPaths) -> bool {
     true
 }

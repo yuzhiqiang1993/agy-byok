@@ -33,13 +33,12 @@ pub(super) fn disable_integration(integration_root: &Path, _endpoint: &str) -> R
 }
 
 pub(super) fn request_app_exit(paths: &AppPaths) -> Result<(), String> {
-    let status = Command::new("/usr/bin/osascript")
-        .args(["-e", "tell application \"Antigravity\" to quit"])
-        .status()
-        .map_err(|error| format!("无法请求 Antigravity 退出：{error}"))?;
-    if !status.success() {
-        return Err(format!("请求 Antigravity 退出失败：{status}"));
-    }
+    let _ = Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            "tell application id \"com.google.antigravity\" to quit",
+        ])
+        .status();
     if let Err(error) = wait_for_process_state(&paths.executable, "Antigravity", false) {
         terminate_process(&paths.executable, "Antigravity")
             .map_err(|force_error| format!("{error}；强制结束 Antigravity 失败：{force_error}"))?;
