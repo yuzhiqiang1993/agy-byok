@@ -170,6 +170,17 @@ export const zhCN = {
     debugOfficialCopy: "复制 JSON",
     debugOfficialCopied: "JSON 已复制",
 
+    deleteModel: "删除模型",
+    deleteModelConfirmTitle: "确认删除模型",
+    deleteModelConfirmMessage: "确定要删除模型“{name}”吗？此操作无法撤销。",
+    modelDeleted: "模型已删除",
+    enabled: "已启用",
+    disabled: "已禁用",
+    enableModel: "启用该模型",
+    disableModel: "禁用该模型",
+    modelEnabledNotice: "已启用模型",
+    modelDisabledNotice: "已禁用模型",
+
     editPolicyTitle: "编辑压缩策略",
     editPolicyForModel: "编辑 {model} 的压缩策略，当前为 {status}",
     policyContextWindow: "可用上下文",

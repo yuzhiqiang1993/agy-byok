@@ -513,6 +513,7 @@ fn preview_model_config(
     let config = AppConfig {
         proxy_port: DEFAULT_PROXY_PORT,
         providers: vec![provider],
+        disabled_official_models: std::collections::HashSet::new(),
         upstream_models: vec![UpstreamModel {
             id: "preview-upstream".to_string(),
             provider_id,

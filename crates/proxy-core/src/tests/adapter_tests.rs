@@ -378,6 +378,7 @@ mod tests {
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
         let request = basic_request();
@@ -425,6 +426,7 @@ mod tests {
             ]))],
             virtual_models: vec![create_virtual_model(Some(ReasoningLevel::High))],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
         let mut request = basic_request();
@@ -446,6 +448,7 @@ mod tests {
             )]))],
             virtual_models: vec![create_virtual_model(None)],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
         let mut request = basic_request();

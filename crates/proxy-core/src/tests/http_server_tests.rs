@@ -22,6 +22,7 @@ mod tests {
     fn model_config(generate_endpoint: String) -> AppConfig {
         AppConfig {
             proxy_port: 51234,
+            disabled_official_models: std::collections::HashSet::new(),
             providers: vec![Provider {
                 id: "provider-1".to_string(),
                 name: "Mock Provider".to_string(),

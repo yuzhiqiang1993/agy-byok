@@ -18,6 +18,7 @@ fn compression_policy() -> ModelCompressionPolicy {
 fn sample_config() -> AppConfig {
     AppConfig {
         proxy_port: DEFAULT_PROXY_PORT,
+        disabled_official_models: std::collections::HashSet::new(),
         providers: vec![Provider {
             id: "provider-1".to_string(),
             name: "Provider".to_string(),

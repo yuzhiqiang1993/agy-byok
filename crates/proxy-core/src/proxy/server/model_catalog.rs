@@ -68,6 +68,10 @@ impl ProxyServer {
                 virtual_model
             })
             .collect::<Vec<_>>();
+        AntigravityModelDescriptor::remove_disabled_official_models(
+            &mut base_json,
+            &config.disabled_official_models,
+        );
         AntigravityModelDescriptor::apply_official_model_overrides(
             &mut base_json,
             &config.model_compression_policies,

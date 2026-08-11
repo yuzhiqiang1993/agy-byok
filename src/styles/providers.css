@@ -503,6 +503,34 @@ button.capability-badge.action-badge:hover {
   color: #374151;
 }
 
+button.capability-badge.danger-badge:hover {
+  background: rgba(225, 29, 72, 0.12);
+  border-color: rgba(225, 29, 72, 0.3);
+  color: #e11d48;
+}
+
+button.capability-badge.model-toggle-btn.disabled {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+button.capability-badge.model-toggle-btn.disabled:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #dc2626;
+}
+
+.disabled-official-card {
+  opacity: 0.55;
+  background: var(--surface-inner);
+  border-style: dashed;
+}
+
+.disabled-official-card:hover {
+  opacity: 0.85;
+}
+
 .connection-result {
   max-width: 340px;
   margin: 8px 0 0;

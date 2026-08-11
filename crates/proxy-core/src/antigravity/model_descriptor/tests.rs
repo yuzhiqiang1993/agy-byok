@@ -355,6 +355,28 @@ fn model_injection_supports_root_and_response_object_and_array_catalogs() {
 }
 
 #[test]
+fn disabled_official_models_are_removed_from_models_and_agent_sorts() {
+    let mut catalog = json!({
+        "models": {
+            "gemini-2.5-flash": { "displayName": "Gemini 2.5 Flash" },
+            "claude-3-5-sonnet": { "displayName": "Claude 3.5 Sonnet" }
+        },
+        "agentModelSorts": [{
+            "groups": [{ "modelIds": ["gemini-2.5-flash", "claude-3-5-sonnet"] }]
+        }]
+    });
+    let mut disabled = std::collections::HashSet::new();
+    disabled.insert("gemini-2.5-flash".to_string());
+
+    AntigravityModelDescriptor::remove_disabled_official_models(&mut catalog, &disabled);
+
+    assert!(catalog["models"].get("gemini-2.5-flash").is_none());
+    assert!(catalog["models"].get("claude-3-5-sonnet").is_some());
+    let remaining_sorts = &catalog["agentModelSorts"][0]["groups"][0]["modelIds"];
+    assert_eq!(remaining_sorts, &json!(["claude-3-5-sonnet"]));
+}
+
+#[test]
 fn official_model_without_policy_keeps_upstream_checkpointer_unchanged() {
     let original = r#"{"enabled":false,"token_threshold":"123"}"#;
     let mut catalog = json!({

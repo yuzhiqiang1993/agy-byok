@@ -18,6 +18,7 @@ mod tests {
     fn connection_test_config(generate_endpoint: String) -> AppConfig {
         AppConfig {
             proxy_port: 51234,
+            disabled_official_models: std::collections::HashSet::new(),
             providers: vec![Provider {
                 id: "p-connection".to_string(),
                 name: "Connection Provider".to_string(),
@@ -799,6 +800,7 @@ mod tests {
             upstream_models: vec![upstream_model],
             virtual_models: vec![virtual_model],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
 
@@ -944,6 +946,7 @@ mod tests {
                 enabled: true,
             }],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
@@ -1045,6 +1048,7 @@ mod tests {
                 enabled: true,
             }],
             model_compression_policies: Default::default(),
+            disabled_official_models: Default::default(),
             custom_host_paths: Default::default(),
         };
 

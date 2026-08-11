@@ -87,6 +87,8 @@ pub struct AppConfig {
     pub virtual_models: Vec<VirtualModel>,
     pub model_compression_policies: BTreeMap<String, ModelCompressionPolicy>,
     #[serde(default)]
+    pub disabled_official_models: HashSet<String>,
+    #[serde(default)]
     pub custom_host_paths: CustomHostPaths,
 }
 
@@ -98,6 +100,7 @@ impl Default for AppConfig {
             upstream_models: Vec::new(),
             virtual_models: Vec::new(),
             model_compression_policies: BTreeMap::new(),
+            disabled_official_models: HashSet::new(),
             custom_host_paths: CustomHostPaths::default(),
         }
     }

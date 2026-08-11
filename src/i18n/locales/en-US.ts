@@ -211,6 +211,17 @@ export const enUS: TranslationDict = {
     debugOfficialCopy: "Copy JSON",
     debugOfficialCopied: "JSON copied",
 
+    deleteModel: "Delete Model",
+    deleteModelConfirmTitle: "Confirm Delete Model",
+    deleteModelConfirmMessage: "Are you sure you want to delete model \"{name}\"? This action cannot be undone.",
+    modelDeleted: "Model deleted",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    enableModel: "Enable model",
+    disableModel: "Disable model",
+    modelEnabledNotice: "Model enabled",
+    modelDisabledNotice: "Model disabled",
+
     editPolicyTitle: "Edit Compression Policy",
     editPolicyForModel: "Edit compression policy for {model}; current policy: {status}",
     policyContextWindow: "Available Context",

@@ -33,7 +33,7 @@ export function renderSingleProviderCard(
   const cardActions = createProviderCardActions(provider, card, models.links, actions);
   card.append(
     cardActions.element,
-    createProviderModels(models.upstreams, models.links),
+    createProviderModels(models.upstreams, models.links, actions.onChanged),
   );
   return { element: card, dispose: cardActions.dispose };
 }

@@ -6,6 +6,70 @@ use std::collections::{BTreeMap, BTreeSet};
 const CHECKPOINTER_EXPERIMENT: &str = "CASCADE_USE_EXPERIMENT_CHECKPOINTER";
 
 impl AntigravityModelDescriptor {
+    pub fn remove_disabled_official_models(
+        models_json: &mut Value,
+        disabled_models: &std::collections::HashSet<String>,
+    ) {
+        if disabled_models.is_empty() {
+            return;
+        }
+        let aliases = official_model_aliases(models_json);
+        let container = super::catalog_container_mut(models_json);
+        if let Some(models) = container.get_mut("models") {
+            match models {
+                Value::Object(map) => {
+                    map.retain(|key, _| {
+                        let canonical = canonical_model_id(key, &aliases);
+                        !disabled_models.contains(key) && !disabled_models.contains(canonical)
+                    });
+                }
+                Value::Array(arr) => {
+                    arr.retain(|item| {
+                        let id = item
+                            .get("id")
+                            .or_else(|| item.get("model"))
+                            .and_then(Value::as_str);
+                        if let Some(id) = id {
+                            let clean_id = id.strip_prefix("models/").unwrap_or(id);
+                            let canonical = canonical_model_id(clean_id, &aliases);
+                            !disabled_models.contains(id)
+                                && !disabled_models.contains(clean_id)
+                                && !disabled_models.contains(canonical)
+                        } else {
+                            true
+                        }
+                    });
+                }
+                _ => {}
+            }
+
+            if let Some(model_sorts) = container
+                .get_mut("agentModelSorts")
+                .and_then(Value::as_array_mut)
+            {
+                for sort in model_sorts {
+                    if let Some(groups) = sort.get_mut("groups").and_then(Value::as_array_mut) {
+                        for group in groups {
+                            if let Some(model_ids) =
+                                group.get_mut("modelIds").and_then(Value::as_array_mut)
+                            {
+                                model_ids.retain(|mid| {
+                                    mid.as_str().map_or(true, |id| {
+                                        let clean_id = id.strip_prefix("models/").unwrap_or(id);
+                                        let canonical = canonical_model_id(clean_id, &aliases);
+                                        !disabled_models.contains(id)
+                                            && !disabled_models.contains(clean_id)
+                                            && !disabled_models.contains(canonical)
+                                    })
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Applies configured policies only to matching official catalog entries.
     /// Entries without a model-level policy remain byte-for-byte unchanged.
     pub fn apply_official_model_overrides(

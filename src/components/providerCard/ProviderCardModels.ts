@@ -3,7 +3,10 @@ import { effectiveCompressionCapacity } from "../../features/providers/modelToke
 import { renderConnectionTestState } from "../../features/providers/providerConnectionTests";
 import { connectionTestResults } from "../../features/providers/providerState";
 import { t } from "../../i18n";
+import { store } from "../../store/appStore";
 import type { UpstreamModel, VirtualModel } from "../../types/config";
+import { confirmHostAction } from "../ConfirmModal";
+import { showNotice } from "../NoticeBar";
 import { getPolicyPillStatus, showPolicyEditorModal } from "../PolicyEditorModal";
 import {
   reasoningLevelLabel,
@@ -42,7 +45,32 @@ function positiveMinimum(...values: Array<number | null>): number | null {
   return positiveValues.length > 0 ? Math.min(...positiveValues) : null;
 }
 
-function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]): HTMLElement {
+function checkModelFallbackBlocker(upstreamId: string): string | null {
+  const virtualModelIds = new Set(
+    store.config.virtual_models
+      .filter((model) => model.upstream_model_id === upstreamId)
+      .map((model) => model.id),
+  );
+  const source = store.config.virtual_models.find(
+    (model) => !virtualModelIds.has(model.id)
+      && model.fallback_virtual_model_id
+      && virtualModelIds.has(model.fallback_virtual_model_id),
+  );
+  if (!source?.fallback_virtual_model_id) return null;
+  const removed = store.config.virtual_models.find(
+    (model) => model.id === source.fallback_virtual_model_id,
+  );
+  return t("models.fallbackBlocker", {
+    source: source.display_name,
+    fallback: removed?.display_name ?? source.fallback_virtual_model_id,
+  });
+}
+
+function createModelGroup(
+  upstream: UpstreamModel,
+  virtualModels: VirtualModel[],
+  onChanged?: () => void,
+): HTMLElement {
   // --- Header ---
   const name = document.createElement("h4");
   name.className = "model-card-title";
@@ -55,6 +83,40 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
   if (Object.keys(upstream.capabilities.reasoning.levels).length > 0) {
     capabilities.append(capabilityBadge("reasoning"));
   }
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "capability-badge action-badge danger-badge model-delete-btn";
+  deleteBtn.title = t("models.deleteModel");
+  deleteBtn.setAttribute("aria-label", t("models.deleteModel"));
+  deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+  deleteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const blocker = checkModelFallbackBlocker(upstream.id);
+    if (blocker) {
+      showNotice(blocker, "error");
+      return;
+    }
+    void confirmHostAction(
+      t("models.deleteModelConfirmMessage", { name: upstream.display_name }),
+      t("models.deleteModelConfirmTitle"),
+      t("models.deleteModel"),
+      t("models.cancel"),
+    ).then(async (confirmed) => {
+      if (confirmed) {
+        await updateConfig((current) => ({
+          ...current,
+          upstream_models: current.upstream_models.filter((item) => item.id !== upstream.id),
+          virtual_models: current.virtual_models.filter(
+            (item) => item.upstream_model_id !== upstream.id,
+          ),
+        }));
+        showNotice(t("models.modelDeleted"));
+        onChanged?.();
+      }
+    });
+  });
+  capabilities.append(deleteBtn);
 
   // --- Body ---
   const reasoningCol = document.createElement("div");
@@ -145,6 +207,7 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
 export function createProviderModels(
   upstreams: UpstreamModel[],
   modelLinks: ProviderModelLink[],
+  onChanged?: () => void,
 ): HTMLDivElement {
   const wrapper = document.createElement("div");
   wrapper.className = "provider-table-wrapper";
@@ -170,7 +233,7 @@ export function createProviderModels(
   for (const upstream of upstreams) {
     const virtualModels = virtualsByUpstreamId.get(upstream.id);
     if (!virtualModels || virtualModels.length === 0) continue;
-    models.append(createModelGroup(upstream, virtualModels));
+    models.append(createModelGroup(upstream, virtualModels, onChanged));
   }
 
   wrapper.append(models);

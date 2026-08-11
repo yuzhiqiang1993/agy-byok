@@ -122,5 +122,6 @@ export interface AppConfig {
   upstream_models: UpstreamModel[];
   virtual_models: VirtualModel[];
   model_compression_policies: Record<string, ModelCompressionPolicy>;
+  disabled_official_models?: string[];
   custom_host_paths: CustomHostPaths;
 }

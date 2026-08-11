@@ -6,6 +6,7 @@ import type { ModelCompressionPolicy } from "../types/config";
 import type { ProviderCatalogModel } from "../types/catalog";
 import { errorMessage } from "../utils/errorUtils";
 import { reasoningLevelLabel } from "../utils/reasoningUtils";
+import { showNotice } from "./NoticeBar";
 import { getPolicyPillStatus, showPolicyEditorModal } from "./PolicyEditorModal";
 import { buildModelCardUI } from "./providerCard/ModelCardUI";
 import { createOfficialModelsDebugButtons } from "./OfficialModelsDebug";
@@ -47,12 +48,16 @@ function isOfficialSourceUnavailable(error: unknown): boolean {
 }
 
 export function getCachedOfficialModelCount(): number | null {
-  return cachedOfficialModels ? filterMainAgentModels(cachedOfficialModels).length : null;
+  if (!cachedOfficialModels) return null;
+  const mainModels = filterMainAgentModels(cachedOfficialModels);
+  const disabledSet = new Set(store.config.disabled_official_models ?? []);
+  return mainModels.filter((model) => !disabledSet.has(model.id)).length;
 }
 
 function buildOfficialModelCards(
   models: ProviderCatalogModel[],
   modelAliases: ReadonlyMap<string, string>,
+  onToggle?: () => void,
 ): HTMLElement[] {
   const mainModels = filterMainAgentModels(models);
   if (!mainModels || mainModels.length === 0) {
@@ -103,7 +108,7 @@ function buildOfficialModelCards(
 
     const titleNode: HTMLElement = name;
 
-    // 第二区：能力 Badge
+    // 第二区：能力 Badge & 启用禁用 Toggle
     const capabilities = document.createElement("div");
     capabilities.className = "capability-list";
     const capObj = item.capabilities as Record<string, unknown> | undefined;
@@ -111,6 +116,47 @@ function buildOfficialModelCards(
     if (caps?.vision) capabilities.append(capabilityBadge("vision"));
     if (caps?.tools) capabilities.append(capabilityBadge("tools"));
     if (caps?.reasoning) capabilities.append(capabilityBadge("reasoning"));
+
+    const groupRelatedModelIds = new Set<string>();
+    for (const variant of groupVariants) {
+      for (const relatedId of officialRelatedModelIds(variant.item.id, modelAliases)) {
+        groupRelatedModelIds.add(relatedId);
+      }
+    }
+    const disabledSet = new Set(store.config.disabled_official_models ?? []);
+    const isDisabled = Array.from(groupRelatedModelIds).some((id) => disabledSet.has(id));
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = `capability-badge action-badge model-toggle-btn ${isDisabled ? "disabled" : "enabled"}`;
+    toggleBtn.title = isDisabled
+      ? `${t("models.enableModel")} (${t("models.disabled")})`
+      : `${t("models.disableModel")} (${t("models.enabled")})`;
+    toggleBtn.setAttribute("aria-label", t(isDisabled ? "models.enableModel" : "models.disableModel"));
+    toggleBtn.innerHTML = isDisabled
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+      : `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void updateConfig((current) => {
+        const nextDisabled = new Set(current.disabled_official_models ?? []);
+        if (isDisabled) {
+          for (const id of groupRelatedModelIds) nextDisabled.delete(id);
+        } else {
+          for (const id of groupRelatedModelIds) nextDisabled.add(id);
+        }
+        return {
+          ...current,
+          disabled_official_models: Array.from(nextDisabled),
+        };
+      }).then(() => {
+        showNotice(t(isDisabled ? "models.modelEnabledNotice" : "models.modelDisabledNotice"));
+        onToggle?.();
+      });
+    });
+
+    capabilities.append(toggleBtn);
 
     // 第三区：变体 / 推理档位
     const variantsNode = document.createElement("div");
@@ -190,6 +236,9 @@ function buildOfficialModelCards(
       variantsNode,
       policyNode: policyCol,
     });
+    if (isDisabled) {
+      card.classList.add("disabled-official-card");
+    }
 
     cards.push(card);
   }
@@ -267,11 +316,17 @@ export function renderOfficialProviderCard(options: {
   const modelsContainer = document.createElement("div");
   modelsContainer.className = "provider-models";
 
+  const refreshCardList = () => {
+    if (!cachedOfficialModels) return;
+    options.onModelCountChange?.(getCachedOfficialModelCount());
+    modelsContainer.replaceChildren(
+      ...buildOfficialModelCards(cachedOfficialModels, cachedModelAliases, refreshCardList),
+    );
+  };
+
   // 1. 若已有缓存数据：立即同步渲染已有模型，杜绝空白与 Loading 闪烁
   if (cachedOfficialModels && cachedOfficialModels.length > 0) {
-    const mainModels = filterMainAgentModels(cachedOfficialModels);
-    options.onModelCountChange?.(mainModels.length);
-    modelsContainer.replaceChildren(...buildOfficialModelCards(cachedOfficialModels, cachedModelAliases));
+    refreshCardList();
   } else {
     // 首次进入无缓存时展示 Loading 提示
     const loadingState = document.createElement("p");
@@ -298,13 +353,14 @@ export function renderOfficialProviderCard(options: {
         void synchronizeOfficialModelPolicies(cachedModelAliases).catch((error: unknown) => {
           console.warn("同步官方模型策略失败，代理运行时仍会按目录映射兼容", error);
         });
-        const mainModels = filterMainAgentModels(models);
-        options.onModelCountChange?.(mainModels.length);
+        options.onModelCountChange?.(getCachedOfficialModelCount());
         summary.className = "provider-test-summary";
         summary.textContent = "";
 
         // 平滑就地替换卡片
-        modelsContainer.replaceChildren(...buildOfficialModelCards(models, cachedModelAliases));
+        modelsContainer.replaceChildren(
+          ...buildOfficialModelCards(models, cachedModelAliases, refreshCardList),
+        );
       })
       .catch((err: unknown) => {
         if (isDisposed) return;
