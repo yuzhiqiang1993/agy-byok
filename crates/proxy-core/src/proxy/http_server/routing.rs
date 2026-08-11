@@ -111,9 +111,14 @@ pub(super) async fn handle_request(
                 } else {
                     control_plane_semaphore
                 };
-                let permit = match semaphore.try_acquire_owned() {
-                    Ok(permit) => permit,
-                    Err(_) => {
+                let permit = match tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    semaphore.acquire_owned(),
+                )
+                .await
+                {
+                    Ok(Ok(permit)) => permit,
+                    _ => {
                         let response = error_response(
                             StatusCode::TOO_MANY_REQUESTS,
                             "Local proxy concurrency limit reached",
