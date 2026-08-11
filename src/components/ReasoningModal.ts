@@ -140,38 +140,29 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
   const body = document.createElement("div");
   body.className = "reasoning-modal-levels";
 
-  const budgetFields = document.createElement("div");
-  budgetFields.className = "catalog-token-fields";
-  const defaultBudget = createBudgetField(
-    "models.thinkingBudget",
-    context.currentThinkingBudgets.thinkingBudget,
-    -1,
-  );
-  const minimumBudget = createBudgetField(
-    "models.minThinkingBudget",
-    context.currentThinkingBudgets.minThinkingBudget,
-    1,
-  );
   const budgetEditable = context.providerProtocol === "gemini_generate_content";
-  defaultBudget.input.disabled = !budgetEditable;
-  minimumBudget.input.disabled = !budgetEditable;
-  defaultBudget.input.title = t("models.thinkingBudgetHint");
-  minimumBudget.input.title = t("models.minThinkingBudgetHint");
-  
-  activeBudgetLabels.push(defaultBudget.label, minimumBudget.label);
-  budgetFields.append(defaultBudget.field, minimumBudget.field);
-  body.append(budgetFields);
-  
-  const hasCatalogReasoningLevels =
-    (model.reasoning?.levels ?? []).some((level) => level !== "off" && level !== "auto")
-    || Object.keys(model.reasoning?.mappings ?? {}).some((level) => level !== "off" && level !== "auto");
+  let defaultBudget: ReturnType<typeof createBudgetField> | null = null;
+  let minimumBudget: ReturnType<typeof createBudgetField> | null = null;
+
+  if (budgetEditable) {
+    const budgetFields = document.createElement("div");
+    budgetFields.className = "catalog-token-fields";
+    defaultBudget = createBudgetField(
+      "models.thinkingBudget",
+      context.currentThinkingBudgets.thinkingBudget,
+      -1,
+    );
+    minimumBudget = createBudgetField(
+      "models.minThinkingBudget",
+      context.currentThinkingBudgets.minThinkingBudget,
+      1,
+    );
+    defaultBudget.input.title = t("models.thinkingBudgetHint");
+    minimumBudget.input.title = t("models.minThinkingBudgetHint");
     
-  if (hasCatalogReasoningLevels) {
-    const note = document.createElement("p");
-    note.className = "reasoning-modal-readonly-note";
-    note.textContent = t("models.reasoningLevelsReadOnly");
-    activeReadOnlyNote = note;
-    body.append(note);
+    activeBudgetLabels.push(defaultBudget.label, minimumBudget.label);
+    budgetFields.append(defaultBudget.field, minimumBudget.field);
+    body.append(budgetFields);
   }
   
   for (const level of supportedLevels) {
@@ -244,27 +235,35 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
     okLabel: t("models.confirm"),
     cancelLabel: t("models.cancel"),
     onOk: () => {
-      const thinkingBudget = readBudgetInput(
-        defaultBudget.input,
-        -1,
-        t("models.invalidThinkingBudget"),
-      );
-      if (thinkingBudget === undefined) return;
-      
-      const minThinkingBudget = readBudgetInput(
-        minimumBudget.input,
-        1,
-        t("models.invalidMinThinkingBudget"),
-      );
-      if (minThinkingBudget === undefined) return;
-      
-      if (minThinkingBudget != null && (
-        thinkingBudget === 0
-        || (thinkingBudget != null && thinkingBudget > 0 && minThinkingBudget > thinkingBudget)
-      )) {
-        minimumBudget.input.setCustomValidity(t("models.minThinkingBudgetExceedsDefault"));
-        minimumBudget.input.reportValidity();
-        return;
+      let thinkingBudget: number | null | undefined = null;
+      let minThinkingBudget: number | null | undefined = null;
+
+      if (budgetEditable && defaultBudget && minimumBudget) {
+        thinkingBudget = readBudgetInput(
+          defaultBudget.input,
+          -1,
+          t("models.invalidThinkingBudget"),
+        );
+        if (thinkingBudget === undefined) return;
+        
+        minThinkingBudget = readBudgetInput(
+          minimumBudget.input,
+          1,
+          t("models.invalidMinThinkingBudget"),
+        );
+        if (minThinkingBudget === undefined) return;
+        
+        if (minThinkingBudget != null && (
+          thinkingBudget === 0
+          || (thinkingBudget != null && thinkingBudget > 0 && minThinkingBudget > thinkingBudget)
+        )) {
+          minimumBudget.input.setCustomValidity(t("models.minThinkingBudgetExceedsDefault"));
+          minimumBudget.input.reportValidity();
+          return;
+        }
+      } else {
+        thinkingBudget = context.currentThinkingBudgets.thinkingBudget;
+        minThinkingBudget = context.currentThinkingBudgets.minThinkingBudget;
       }
       
       context.onConfirm(
