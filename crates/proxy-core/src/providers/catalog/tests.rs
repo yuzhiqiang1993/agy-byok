@@ -865,3 +865,34 @@ async fn fetches_catalog_with_provider_authentication() {
     assert_eq!(recorded.path_and_query, "/v1/models");
     assert_eq!(recorded.authorization.as_deref(), Some("Bearer sk-catalog"));
 }
+
+#[tokio::test]
+async fn fetches_raw_catalog_with_the_same_authenticated_request() {
+    let response = r#"{"data":[{"id":"raw-model"}]}"#;
+    let (mock_url, _handle, recorded) = MockProviderServer::start_recording(200, response).await;
+
+    let raw = fetch_provider_models_raw(&catalog_provider(format!("{mock_url}/v1/models")))
+        .await
+        .unwrap();
+
+    assert_eq!(raw.status_code, 200);
+    assert_eq!(raw.body, response);
+    assert_eq!(raw.request_url, format!("{mock_url}/v1/models"));
+    let recorded = recorded.await.unwrap();
+    assert_eq!(recorded.path_and_query, "/v1/models");
+    assert_eq!(recorded.authorization.as_deref(), Some("Bearer sk-catalog"));
+}
+
+#[tokio::test]
+async fn preserves_upstream_error_body_for_catalog_diagnostics() {
+    let response = r#"{"error":{"message":"invalid api key"}}"#;
+    let (mock_url, _handle, _recorded) = MockProviderServer::start_recording(401, response).await;
+
+    let error = fetch_provider_models(&catalog_provider(format!("{mock_url}/v1/models")))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.category, ErrorCategory::Authentication);
+    assert_eq!(error.status_code, 401);
+    assert_eq!(error.upstream_body.as_deref(), Some(response));
+}

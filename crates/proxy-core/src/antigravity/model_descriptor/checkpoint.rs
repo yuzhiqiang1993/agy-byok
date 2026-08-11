@@ -13,17 +13,33 @@ impl AntigravityModelDescriptor {
         policies: &BTreeMap<String, ModelCompressionPolicy>,
     ) {
         let aliases = official_model_aliases(models_json);
+        let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
         if models_json.get("models").is_some() {
             if let Some(models) = models_json.get_mut("models") {
-                apply_official_policies(models, policies, &aliases);
+                apply_official_policies(
+                    models,
+                    policies,
+                    &aliases,
+                    &checkpoint_output_limits,
+                );
             }
         } else if let Some(models) = models_json
             .get_mut("response")
             .and_then(|response| response.get_mut("models"))
         {
-            apply_official_policies(models, policies, &aliases);
+            apply_official_policies(
+                models,
+                policies,
+                &aliases,
+                &checkpoint_output_limits,
+            );
         } else {
-            apply_official_policies(models_json, policies, &aliases);
+            apply_official_policies(
+                models_json,
+                policies,
+                &aliases,
+                &checkpoint_output_limits,
+            );
         }
     }
 }
@@ -32,6 +48,7 @@ fn apply_official_policies(
     models: &mut Value,
     policies: &BTreeMap<String, ModelCompressionPolicy>,
     aliases: &BTreeMap<String, String>,
+    checkpoint_output_limits: &BTreeMap<String, u32>,
 ) {
     match models {
         Value::Object(entries) => {
@@ -39,7 +56,7 @@ fn apply_official_policies(
                 let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
-                apply_policy_with_entry_limits(entry, policy);
+                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits);
             }
         }
         Value::Array(entries) => {
@@ -50,11 +67,40 @@ fn apply_official_policies(
                 let Some(policy) = effective_policy(model_id, policies, aliases) else {
                     continue;
                 };
-                apply_policy_with_entry_limits(entry, policy);
+                apply_policy_with_entry_limits(entry, policy, checkpoint_output_limits);
             }
         }
         _ => {}
     }
+}
+
+fn official_checkpoint_output_limits(models_json: &Value) -> BTreeMap<String, u32> {
+    let response = official_catalog_response(models_json);
+    let Some(models) = response.get("models").and_then(Value::as_object) else {
+        return BTreeMap::new();
+    };
+
+    let mut limits = BTreeMap::new();
+    for (model_id, entry) in models {
+        let Some(output_limit) = minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
+        else {
+            continue;
+        };
+        limits.insert(model_id.clone(), output_limit);
+        for field in ["id", "model"] {
+            if let Some(identifier) = entry.get(field).and_then(Value::as_str) {
+                limits.insert(identifier.to_string(), output_limit);
+            }
+        }
+    }
+    limits
+}
+
+fn official_catalog_response(payload: &Value) -> &Value {
+    payload
+        .get("response")
+        .filter(|response| response.get("models").and_then(Value::as_object).is_some())
+        .unwrap_or(payload)
 }
 
 fn effective_policy<'a>(
@@ -116,13 +162,23 @@ fn official_model_aliases(models_json: &Value) -> BTreeMap<String, String> {
     aliases
 }
 
-fn apply_policy_with_entry_limits(entry: &mut Value, policy: &ModelCompressionPolicy) {
+fn apply_policy_with_entry_limits(
+    entry: &mut Value,
+    policy: &ModelCompressionPolicy,
+    checkpoint_output_limits: &BTreeMap<String, u32>,
+) {
     let capacity =
         minimum_positive_field(entry, &["maxTokens", "inputTokenLimit", "contextWindow"])
             .unwrap_or(policy.max_token_limit);
-    let output_token_limit =
+    let entry_output_limit =
         minimum_positive_field(entry, &["maxOutputTokens", "outputTokenLimit"])
             .unwrap_or(policy.max_output_tokens);
+    let output_token_limit = checkpoint_output_limits
+        .get(&policy.checkpoint_model)
+        .copied()
+        .map_or(entry_output_limit, |checkpoint_limit| {
+            entry_output_limit.min(checkpoint_limit)
+        });
     apply_model_compression_policy(entry, policy, capacity, output_token_limit);
 }
 

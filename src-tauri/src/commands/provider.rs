@@ -2,9 +2,10 @@ use crate::commands::error::{
     OFFICIAL_MODELS_FETCH_FAILED, OFFICIAL_MODELS_HOST_NOT_INSTALLED,
     OFFICIAL_MODELS_HOST_NOT_RUNNING, OFFICIAL_MODELS_PROXY_REQUIRED, PROVIDER_CATALOG_FAILED,
 };
-use crate::host::app_host::discover_app_sync;
+use crate::host::app_host::{discover_app_sync, AppStatus};
 use crate::host::cli_host::discover_cli_sync;
-use crate::host::ide_host::discover_ide_sync;
+use crate::host::cli_host::CliStatus;
+use crate::host::ide_host::{discover_ide_sync, IdeStatus};
 use crate::state::{proxy_runtime_snapshot, DesktopState};
 use agy_byok::domain::{
     AppConfig, ModelCapabilities, ModelTokenLimits, ParameterOverrides, Provider, ProviderProtocol,
@@ -12,8 +13,9 @@ use agy_byok::domain::{
     DEFAULT_PROXY_PORT,
 };
 use agy_byok::providers::{
-    fetch_official_models_catalog, fetch_provider_models, OfficialCatalogSource,
-    ProviderCatalogModel,
+    fetch_official_models_catalog, fetch_official_models_catalog_raw, fetch_provider_models,
+    fetch_provider_models_raw, parse_official_catalog_response, OfficialCatalogRawResponse,
+    OfficialCatalogSource, ProviderCatalogModel,
 };
 use agy_byok::proxy::ProxyServer;
 use agy_byok::storage::ConfigStore;
@@ -58,6 +60,63 @@ pub(crate) async fn fetch_provider_catalog(
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogDebugResult {
+    pub success: bool,
+    pub request_url: String,
+    pub status_code: Option<u16>,
+    pub content_type: Option<String>,
+    pub error_category: Option<&'static str>,
+    pub error_message: Option<String>,
+    pub response_body: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialModelsDebugResult {
+    pub success: bool,
+    pub source: Option<String>,
+    pub request_url: Option<String>,
+    pub status_code: Option<u16>,
+    pub content_type: Option<String>,
+    pub error_category: Option<String>,
+    pub error_message: Option<String>,
+    pub raw_response: Option<String>,
+    pub normalized_models: Vec<ProviderCatalogModel>,
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_provider_catalog_debug(
+    provider: Provider,
+) -> Result<ProviderCatalogDebugResult, String> {
+    if !cfg!(debug_assertions) {
+        return Err("provider_catalog_debug_disabled".to_string());
+    }
+
+    Ok(match fetch_provider_models_raw(&provider).await {
+        Ok(raw) => ProviderCatalogDebugResult {
+            success: raw.status_code < 400,
+            request_url: raw.request_url,
+            status_code: Some(raw.status_code),
+            content_type: raw.content_type,
+            error_category: None,
+            error_message: (raw.status_code >= 400)
+                .then(|| format!("模型目录返回 HTTP {}", raw.status_code)),
+            response_body: raw.body,
+        },
+        Err(error) => ProviderCatalogDebugResult {
+            success: false,
+            request_url: provider.models_endpoint,
+            status_code: None,
+            content_type: None,
+            error_category: Some(error.category.as_str()),
+            error_message: Some(error.message),
+            response_body: error.upstream_body.unwrap_or_default(),
+        },
+    })
+}
+
 #[derive(Debug, Deserialize)]
 struct CliModelsOutput {
     command: CliModelsCommand,
@@ -87,6 +146,22 @@ async fn fetch_desktop_official_models(
     loop {
         match fetch_official_models_catalog(source).await {
             Ok(models) => return Ok(models),
+            Err(error) if matches!(error.status_code, 404 | 502) && Instant::now() < deadline => {
+                tokio::time::sleep(OFFICIAL_MODELS_RETRY_INTERVAL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn fetch_desktop_official_models_raw(
+    source: OfficialCatalogSource,
+    retry_timeout: Duration,
+) -> Result<OfficialCatalogRawResponse, ProxyError> {
+    let deadline = Instant::now() + retry_timeout;
+    loop {
+        match fetch_official_models_catalog_raw(source).await {
+            Ok(raw) => return Ok(raw),
             Err(error) if matches!(error.status_code, 404 | 502) && Instant::now() < deadline => {
                 tokio::time::sleep(OFFICIAL_MODELS_RETRY_INTERVAL).await;
             }
@@ -125,6 +200,11 @@ fn parse_cli_models_output(stdout: &str) -> Result<Vec<ProviderCatalogModel>, St
 }
 
 async fn fetch_cli_official_models() -> Result<Vec<ProviderCatalogModel>, String> {
+    let raw = fetch_cli_official_models_raw().await?;
+    parse_cli_models_output(&raw)
+}
+
+async fn fetch_cli_official_models_raw() -> Result<String, String> {
     let executable =
         detect_cli_executable().ok_or_else(|| "无法定位 CLI 可执行文件".to_string())?;
     let mut command = tokio::process::Command::new(executable);
@@ -138,14 +218,13 @@ async fn fetch_cli_official_models() -> Result<Vec<ProviderCatalogModel>, String
     if !output.status.success() {
         return Err(format!("CLI 获取模型目录失败：{}", output.status));
     }
-    parse_cli_models_output(&String::from_utf8_lossy(&output.stdout))
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-#[tauri::command]
-pub(crate) async fn fetch_official_models(
-    state: State<'_, DesktopState>,
-) -> Result<Vec<ProviderCatalogModel>, String> {
-    let snapshot = proxy_runtime_snapshot(&state).await;
+async fn discover_official_host_statuses(
+    state: &DesktopState,
+) -> Result<(IdeStatus, AppStatus, CliStatus), String> {
+    let snapshot = proxy_runtime_snapshot(state).await;
     let endpoint = snapshot.endpoint;
     let proxy_running = snapshot.running;
     let host_paths = state.current_host_paths();
@@ -153,7 +232,7 @@ pub(crate) async fn fetch_official_models(
     let app_paths = host_paths.app;
     let integration_root = state.host_integration_root.clone();
     let status_endpoint = endpoint.clone();
-    let statuses = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         Ok::<_, String>((
             discover_ide_sync(
                 ide_paths.as_ref(),
@@ -178,7 +257,15 @@ pub(crate) async fn fetch_official_models(
     .map_err(|error| {
         tracing::warn!(%error, "检测官方模型来源失败");
         OFFICIAL_MODELS_FETCH_FAILED.to_string()
-    })?;
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_official_models(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<ProviderCatalogModel>, String> {
+    let statuses = discover_official_host_statuses(&state).await?;
+    let proxy_running = proxy_runtime_snapshot(&state).await.running;
     let (ide_status, app_status, cli_status) = statuses;
     if !ide_status.installed && !app_status.installed && !cli_status.installed {
         return Err(OFFICIAL_MODELS_HOST_NOT_INSTALLED.to_string());
@@ -238,6 +325,141 @@ pub(crate) async fn fetch_official_models(
         return Err(OFFICIAL_MODELS_HOST_NOT_RUNNING.to_string());
     }
     Err(OFFICIAL_MODELS_FETCH_FAILED.to_string())
+}
+
+fn official_debug_failure(
+    category: impl Into<String>,
+    message: impl Into<String>,
+    raw_response: Option<String>,
+) -> OfficialModelsDebugResult {
+    OfficialModelsDebugResult {
+        success: false,
+        source: None,
+        request_url: None,
+        status_code: None,
+        content_type: None,
+        error_category: Some(category.into()),
+        error_message: Some(message.into()),
+        raw_response,
+        normalized_models: Vec::new(),
+    }
+}
+
+fn official_debug_success(
+    raw: OfficialCatalogRawResponse,
+    models: Vec<ProviderCatalogModel>,
+) -> OfficialModelsDebugResult {
+    OfficialModelsDebugResult {
+        success: true,
+        source: Some(raw.source),
+        request_url: Some(raw.request_url),
+        status_code: Some(raw.status_code),
+        content_type: raw.content_type,
+        error_category: None,
+        error_message: None,
+        raw_response: Some(raw.body),
+        normalized_models: models,
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn fetch_official_models_debug(
+    state: State<'_, DesktopState>,
+) -> Result<OfficialModelsDebugResult, String> {
+    if !cfg!(debug_assertions) {
+        return Err("official_models_debug_disabled".to_string());
+    }
+
+    let statuses = discover_official_host_statuses(&state).await?;
+    let (ide_status, app_status, cli_status) = statuses;
+    if !ide_status.installed && !app_status.installed && !cli_status.installed {
+        return Ok(official_debug_failure(
+            "official_models_host_not_installed",
+            "未检测到 Antigravity IDE、App 或 CLI",
+            None,
+        ));
+    }
+
+    let mut found_stopped_host = false;
+    let mut last_error: Option<OfficialModelsDebugResult> = None;
+    for (installed, running, source) in [
+        (ide_status.installed, ide_status.ide_running, OfficialCatalogSource::Ide),
+        (app_status.installed, app_status.app_running, OfficialCatalogSource::App),
+    ] {
+        if !installed {
+            continue;
+        }
+        if !running {
+            found_stopped_host = true;
+            continue;
+        }
+
+        match fetch_desktop_official_models_raw(source, RUNNING_HOST_RETRY_TIMEOUT).await {
+            Ok(raw) => match parse_official_catalog_response(&raw.body, raw.source.as_str()) {
+                Ok(models) => return Ok(official_debug_success(raw, models)),
+                Err(error) => {
+                    last_error = Some(official_debug_failure(
+                        error.category.as_str(),
+                        error.message,
+                        error.upstream_body,
+                    ));
+                }
+            },
+            Err(error) => {
+                last_error = Some(official_debug_failure(
+                    error.category.as_str(),
+                    error.message,
+                    error.upstream_body,
+                ));
+            }
+        }
+    }
+
+    if cli_status.installed {
+        match fetch_cli_official_models_raw().await {
+            Ok(raw) => match parse_cli_models_output(&raw) {
+                Ok(models) => {
+                    return Ok(OfficialModelsDebugResult {
+                        success: true,
+                        source: Some("Antigravity CLI".to_string()),
+                        request_url: Some("agy --output-format json models".to_string()),
+                        status_code: None,
+                        content_type: Some("application/json".to_string()),
+                        error_category: None,
+                        error_message: None,
+                        raw_response: Some(raw),
+                        normalized_models: models,
+                    });
+                }
+                Err(error) => {
+                    last_error = Some(official_debug_failure(
+                        "upstream_server_error",
+                        error,
+                        Some(raw),
+                    ));
+                }
+            },
+            Err(error) => {
+                last_error = Some(official_debug_failure("upstream_server_error", error, None));
+            }
+        }
+    }
+
+    Ok(last_error.unwrap_or_else(|| {
+        if found_stopped_host {
+            official_debug_failure(
+                "official_models_host_not_running",
+                "已安装 Antigravity 客户端，但当前未运行",
+                None,
+            )
+        } else {
+            official_debug_failure(
+                "official_models_fetch_failed",
+                "所有官方模型来源均获取失败",
+                None,
+            )
+        }
+    }))
 }
 
 #[tauri::command]

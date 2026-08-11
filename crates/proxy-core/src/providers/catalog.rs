@@ -100,10 +100,64 @@ pub struct UpstreamCompressionPolicy {
     pub use_last_planner_model: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogRawResponse {
+    pub request_url: String,
+    pub status_code: u16,
+    pub content_type: Option<String>,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialCatalogRawResponse {
+    pub source: String,
+    pub request_url: String,
+    pub status_code: u16,
+    pub content_type: Option<String>,
+    pub body: String,
+}
+
 /// 使用供应商草稿直接拉取模型目录，允许用户在保存配置前验证连接。
 pub async fn fetch_provider_models(
     provider: &Provider,
 ) -> Result<Vec<ProviderCatalogModel>, ProxyError> {
+    let raw = fetch_provider_models_raw(provider).await?;
+    if raw.status_code >= 400 {
+        return Err(ProxyError::new(
+            catalog_error_category(raw.status_code),
+            format!("模型目录返回 HTTP {}", raw.status_code),
+            raw.status_code,
+        )
+        .with_upstream_body(raw.body));
+    }
+    let is_cpa_catalog =
+        Url::parse(&raw.request_url).is_ok_and(|endpoint| is_cpa_catalog_endpoint(&endpoint));
+    let payload: Value = serde_json::from_str(&raw.body).map_err(|error| {
+        ProxyError::new(
+            ErrorCategory::Internal,
+            format!("模型目录不是有效 JSON：{error}"),
+            500,
+        )
+    })?;
+    let mut models =
+        parse_catalog_models_with_context(&payload, &provider.protocol, is_cpa_catalog);
+    if models.is_empty() {
+        return Err(ProxyError::new(
+            ErrorCategory::Internal,
+            "响应中没有可识别的模型列表",
+            500,
+        ));
+    }
+    models.sort_by_cached_key(|model| model.display_name.to_lowercase());
+    Ok(models)
+}
+
+/// 使用与正式目录拉取完全相同的请求配置，并保留上游原始响应供调试查看。
+pub async fn fetch_provider_models_raw(
+    provider: &Provider,
+) -> Result<ProviderCatalogRawResponse, ProxyError> {
     AppConfig {
         providers: vec![provider.clone()],
         ..AppConfig::default()
@@ -134,7 +188,7 @@ pub async fn fetch_provider_models(
         })?;
     let adapter = get_adapter(&provider.protocol);
     let endpoint = catalog_models_url(provider)?;
-    let is_cpa_catalog = is_cpa_catalog_endpoint(&endpoint);
+    let request_url = endpoint.to_string();
     let mut request = client.get(endpoint);
     for (name, value) in adapter.build_headers(provider)? {
         request = request.header(name, value);
@@ -152,13 +206,11 @@ pub async fn fetch_provider_models(
         }
     })?;
     let status = response.status().as_u16();
-    if status >= 400 {
-        return Err(ProxyError::new(
-            catalog_error_category(status),
-            format!("模型目录返回 HTTP {status}"),
-            status,
-        ));
-    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let body = read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES)
         .await
         .map_err(|error| {
@@ -168,7 +220,9 @@ pub async fn fetch_provider_models(
                 500,
             )
         })?;
-    if body.is_truncated() {
+    let is_truncated = body.is_truncated();
+    let body = body.into_text();
+    if is_truncated {
         return Err(ProxyError::new(
             ErrorCategory::UpstreamServerError,
             format!(
@@ -176,27 +230,15 @@ pub async fn fetch_provider_models(
                 DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES
             ),
             502,
-        ));
-    }
-    let body = body.into_text();
-    let payload: Value = serde_json::from_str(&body).map_err(|error| {
-        ProxyError::new(
-            ErrorCategory::Internal,
-            format!("模型目录不是有效 JSON：{error}"),
-            500,
         )
-    })?;
-    let mut models =
-        parse_catalog_models_with_context(&payload, &provider.protocol, is_cpa_catalog);
-    if models.is_empty() {
-        return Err(ProxyError::new(
-            ErrorCategory::Internal,
-            "响应中没有可识别的模型列表",
-            500,
-        ));
+        .with_upstream_body(body));
     }
-    models.sort_by_cached_key(|model| model.display_name.to_lowercase());
-    Ok(models)
+    Ok(ProviderCatalogRawResponse {
+        request_url,
+        status_code: status,
+        content_type,
+        body,
+    })
 }
 
 fn catalog_models_url(provider: &Provider) -> Result<Url, ProxyError> {
@@ -249,7 +291,7 @@ pub enum OfficialCatalogSource {
 }
 
 impl OfficialCatalogSource {
-    const fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             Self::Ide => "Antigravity IDE",
             Self::App => "Antigravity App",
@@ -260,6 +302,14 @@ impl OfficialCatalogSource {
 pub async fn fetch_official_models_catalog(
     source: OfficialCatalogSource,
 ) -> Result<Vec<ProviderCatalogModel>, ProxyError> {
+    let raw = fetch_official_models_catalog_raw(source).await?;
+    parse_official_catalog_response(&raw.body, source.label())
+}
+
+/// 拉取官方语言服务目录并保留未经解析的响应，供 Debug 查看真实上游数据。
+pub async fn fetch_official_models_catalog_raw(
+    source: OfficialCatalogSource,
+) -> Result<OfficialCatalogRawResponse, ProxyError> {
     let candidates = language_server_candidates(source).await?;
     if candidates.is_empty() {
         return Err(ProxyError::new(
@@ -306,6 +356,11 @@ pub async fn fetch_official_models_catalog(
             }
         };
         let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let json_text = match response.text().await {
             Ok(body) => body,
             Err(error) => {
@@ -322,29 +377,17 @@ pub async fn fetch_official_models_catalog(
                 ErrorCategory::UpstreamServerError,
                 format!("{} 语言服务返回 HTTP {status}", source.label()),
                 502,
-            ));
+            )
+            .with_upstream_body(json_text));
             continue;
         }
-        let parsed: Value = match serde_json::from_str(&json_text) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                last_error = Some(ProxyError::new(
-                    ErrorCategory::UpstreamServerError,
-                    format!("解析 {} 语言服务响应失败: {error}", source.label()),
-                    502,
-                ));
-                continue;
-            }
-        };
-        let result = parse_official_catalog_models(&parsed);
-        if !result.is_empty() {
-            return Ok(result);
-        }
-        last_error = Some(ProxyError::new(
-            ErrorCategory::UpstreamServerError,
-            format!("{} 语言服务响应中没有有效的 models 节点", source.label()),
-            502,
-        ));
+        return Ok(OfficialCatalogRawResponse {
+            source: source.label().to_string(),
+            request_url: url,
+            status_code: status,
+            content_type,
+            body: json_text,
+        });
     }
     Err(last_error.unwrap_or_else(|| {
         ProxyError::new(
@@ -353,6 +396,30 @@ pub async fn fetch_official_models_catalog(
             502,
         )
     }))
+}
+
+pub fn parse_official_catalog_response(
+    body: &str,
+    source_label: &str,
+) -> Result<Vec<ProviderCatalogModel>, ProxyError> {
+    let parsed: Value = serde_json::from_str(body).map_err(|error| {
+        ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            format!("解析 {source_label} 语言服务响应失败: {error}"),
+            502,
+        )
+        .with_upstream_body(body)
+    })?;
+    let result = parse_official_catalog_models(&parsed);
+    if result.is_empty() {
+        return Err(ProxyError::new(
+            ErrorCategory::UpstreamServerError,
+            format!("{source_label} 语言服务响应中没有有效的 models 节点"),
+            502,
+        )
+        .with_upstream_body(body));
+    }
+    Ok(result)
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -173,6 +173,34 @@ fn official_policy_map_matches_object_key_and_array_id() {
 }
 
 #[test]
+fn official_policy_output_is_clamped_to_checkpoint_model_limit() {
+    let mut catalog = json!({
+        "models": {
+            "gemini-3.1-flash-lite": {
+                "model": "MODEL_PLACEHOLDER_M50",
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_535
+            },
+            "gemini-3.6-flash-high": {
+                "model": "MODEL_PLACEHOLDER_M71",
+                "maxTokens": 1_048_576,
+                "maxOutputTokens": 65_536
+            }
+        }
+    });
+    let mut compression = policy(314_572, 524_288, 65_536);
+    compression.checkpoint_model = "MODEL_PLACEHOLDER_M50".to_string();
+    let policies = BTreeMap::from([("gemini-3.6-flash-high".to_string(), compression)]);
+
+    AntigravityModelDescriptor::apply_official_model_overrides(&mut catalog, &policies);
+
+    let target = &catalog["models"]["gemini-3.6-flash-high"];
+    assert_eq!(target["maxOutputTokens"], 65_536);
+    let checkpoint = checkpoint(target);
+    assert_eq!(checkpoint["max_output_tokens"], "65535");
+}
+
+#[test]
 fn deprecated_official_policy_is_applied_to_both_mapped_model_entries() {
     let mut catalog = json!({
         "models": {
