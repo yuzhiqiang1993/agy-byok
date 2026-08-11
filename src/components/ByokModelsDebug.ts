@@ -1,3 +1,4 @@
+import { fetchOfficialModelsDebug } from "../controllers/providerController";
 import { t } from "../i18n";
 import { store } from "../store/appStore";
 import { withBusy } from "../utils/domUtils";
@@ -5,22 +6,14 @@ import { errorMessage } from "../utils/errorUtils";
 import { createModal } from "./common/Modal";
 import { showNotice } from "./NoticeBar";
 
-const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
-
-function proxyOrigin(): string {
-  const status = store.proxyStatus;
-  if (status?.state !== "running") throw new Error(t("models.debugByokProxyStopped"));
-  const address = status.address ?? `127.0.0.1:${status.port}`;
-  return address.startsWith("http://") || address.startsWith("https://")
-    ? address.replace(/\/+$/, "")
-    : `http://${address.replace(/\/+$/, "")}`;
+interface ByokDebugResult {
+  ok: boolean;
+  body: string;
 }
 
-interface ByokRawResponse {
-  ok: boolean;
-  statusCode: number;
-  statusText: string;
-  body: string;
+function ensureProxyRunning(): void {
+  const status = store.proxyStatus;
+  if (status?.state !== "running") throw new Error(t("models.debugByokProxyStopped"));
 }
 
 function formatJson(value: string): string {
@@ -33,28 +26,29 @@ function formatJson(value: string): string {
   }
 }
 
-async function fetchAvailableModels(): Promise<ByokRawResponse> {
-  const response = await fetch(`${proxyOrigin()}${FETCH_AVAILABLE_MODELS_PATH}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
+async function getByokModelsDebugData(): Promise<ByokDebugResult> {
+  ensureProxyRunning();
+  const result = await fetchOfficialModelsDebug();
+  if (result.success && result.modifiedResponse) {
+    return {
+      ok: true,
+      body: result.modifiedResponse,
+    };
+  }
   return {
-    ok: response.ok,
-    statusCode: response.status,
-    statusText: response.statusText,
-    body: await response.text(),
+    ok: false,
+    body: result.errorMessage || t("models.debugOfficialEmpty"),
   };
 }
 
-function showModelsJson(result: ByokRawResponse): void {
+function showModelsJson(result: ByokDebugResult): void {
   const content = document.createElement("div");
   content.className = "raw-config-body";
 
   const pre = document.createElement("pre");
   pre.className = "raw-config-json byok-debug-json";
   pre.tabIndex = 0;
-  const output = formatJson(result.body) || `${result.statusCode} ${result.statusText}`;
+  const output = formatJson(result.body) || result.body;
   pre.textContent = output;
   content.append(pre);
 
@@ -85,7 +79,7 @@ export function createByokModelsDebugButton(): HTMLButtonElement {
   button.textContent = t("models.debugByokButton");
   button.addEventListener("click", () => {
     void withBusy(button, async () => {
-      showModelsJson(await fetchAvailableModels());
+      showModelsJson(await getByokModelsDebugData());
     }, showNotice, t("models.debugByokFetching"));
   });
   return button;
