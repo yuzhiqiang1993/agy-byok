@@ -141,7 +141,7 @@ function buildOfficialModelCards(
     policyButton.type = "button";
     policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
     policyButton.dataset.policyFocusKey = `official:${item.id}`;
-    policyButton.title = t("models.editPolicyTitle");
+    policyButton.title = status.tooltip;
     policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
       model: baseName,
       status: status.label,

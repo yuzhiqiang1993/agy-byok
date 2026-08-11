@@ -239,6 +239,113 @@
   font-size: 12px;
   font-weight: 650;
 }
+.policy-preset-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: 9px;
+  background: var(--surface-inner);
+}
+.policy-pill-tab {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.policy-pill-tab:hover:not(.disabled):not(.active) {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+  color: var(--text-main);
+}
+.policy-pill-tab.active {
+  border-color: rgba(37, 99, 235, 0.3);
+  background: var(--accent, #2563eb);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+}
+.policy-pill-tab.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.policy-capacity-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-inner);
+}
+.policy-capacity-bar-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.policy-bar-title {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.policy-capacity-bar {
+  display: flex;
+  height: 10px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.15);
+}
+.bar-segment {
+  height: 100%;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bar-segment.segment-chat {
+  background: #10b981;
+}
+.bar-segment.segment-compress {
+  background: #f59e0b;
+}
+.bar-segment.segment-reserve {
+  background: #94a3b8;
+}
+.policy-capacity-ticks {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.policy-capacity-ticks .tick-trigger {
+  color: #d97706;
+  font-weight: 600;
+}
+.policy-capacity-ticks .tick-limit {
+  color: #2563eb;
+  font-weight: 600;
+}
+.policy-capacity-ticks .tick-cap {
+  color: var(--text-secondary);
+}
+
+html[data-theme="dark"] .policy-capacity-ticks .tick-trigger {
+  color: #fbbf24;
+}
+html[data-theme="dark"] .policy-capacity-ticks .tick-limit {
+  color: #60a5fa;
+}
 .policy-help,
 .policy-worker-help {
   margin: 0;

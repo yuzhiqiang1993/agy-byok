@@ -104,7 +104,7 @@ function createModelGroup(upstream: UpstreamModel, virtualModels: VirtualModel[]
   policyButton.type = "button";
   policyButton.className = `policy-pill status-pill ${status.isManaged ? "accent" : "neutral"}`;
   policyButton.dataset.policyFocusKey = `upstream:${upstream.id}`;
-  policyButton.title = t("models.editPolicyTitle");
+  policyButton.title = status.tooltip;
   policyButton.setAttribute("aria-label", t("models.editPolicyForModel", {
     model: upstream.display_name || upstream.upstream_model_id,
     status: status.label,
