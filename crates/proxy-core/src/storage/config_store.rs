@@ -111,6 +111,7 @@ impl From<ConfigError> for ConfigStoreError {
 pub struct ConfigStore {
     config: Arc<RwLock<AppConfig>>,
     file_path: Option<PathBuf>,
+    raw_official_catalog: Arc<RwLock<Option<String>>>,
 }
 
 impl ConfigStore {
@@ -121,6 +122,7 @@ impl ConfigStore {
         Self {
             config: Arc::new(RwLock::new(initial_config)),
             file_path: None,
+            raw_official_catalog: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -154,12 +156,24 @@ impl ConfigStore {
                 });
             }
         };
+
         config.validate()?;
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             file_path: Some(path_buf),
+            raw_official_catalog: Arc::new(RwLock::new(None)),
         })
+    }
+
+    pub fn set_raw_official_catalog(&self, catalog: String) {
+        if let Ok(mut lock) = self.raw_official_catalog.write() {
+            *lock = Some(catalog);
+        }
+    }
+
+    pub fn get_raw_official_catalog(&self) -> Option<String> {
+        self.raw_official_catalog.read().ok()?.clone()
     }
     pub fn get_config(&self) -> AppConfig {
         self.config.read().unwrap().clone()

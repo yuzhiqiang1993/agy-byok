@@ -207,34 +207,66 @@ pub(crate) async fn fetch_official_models(
 
     let mut found_stopped_host = false;
 
-    if ide_status.installed {
-        if !ide_status.ide_running {
+    // Trigger a request to the language server to ensure the proxy caches the raw upstream response.
+    // The language server might return a filtered response, so we ignore its body and read the proxy cache.
+    let mut request_succeeded = false;
+    for (installed, running, source) in [
+        (
+            ide_status.installed,
+            ide_status.ide_running,
+            OfficialCatalogSource::Ide,
+        ),
+        (
+            app_status.installed,
+            app_status.app_running,
+            OfficialCatalogSource::App,
+        ),
+    ] {
+        if !installed {
+            continue;
+        }
+        if !running {
             found_stopped_host = true;
-        } else {
-            match fetch_desktop_official_models(
+            continue;
+        }
+        match fetch_desktop_official_models_raw(source, RUNNING_HOST_RETRY_TIMEOUT).await {
+            Ok(_) => {
+                request_succeeded = true;
+                break;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "通过 {} 获取官方模型失败，尝试下一来源", source.label());
+            }
+        }
+    }
+
+    if let Some(raw_catalog) = state.config_store.get_raw_official_catalog() {
+        if let Ok(models) = parse_official_catalog_response(&raw_catalog, "ProxyCache") {
+            return Ok(models);
+        }
+    }
+
+    // If the cache wasn't populated (e.g. proxy bypassed or not intercepting),
+    // fallback to parsing whatever the language server returned (which may be filtered).
+    if request_succeeded {
+        if ide_status.installed && ide_status.ide_running {
+            if let Ok(models) = fetch_desktop_official_models(
                 OfficialCatalogSource::Ide,
                 RUNNING_HOST_RETRY_TIMEOUT,
             )
             .await
             {
-                Ok(models) => return Ok(models),
-                Err(error) => tracing::warn!(%error, "通过 IDE 获取官方模型失败，尝试下一来源"),
+                return Ok(models);
             }
         }
-    }
-
-    if app_status.installed {
-        if !app_status.app_running {
-            found_stopped_host = true;
-        } else {
-            match fetch_desktop_official_models(
+        if app_status.installed && app_status.app_running {
+            if let Ok(models) = fetch_desktop_official_models(
                 OfficialCatalogSource::App,
                 RUNNING_HOST_RETRY_TIMEOUT,
             )
             .await
             {
-                Ok(models) => return Ok(models),
-                Err(error) => tracing::warn!(%error, "通过 App 获取官方模型失败，尝试下一来源"),
+                return Ok(models);
             }
         }
     }
@@ -336,31 +368,40 @@ pub(crate) async fn fetch_official_models_debug(
         }
 
         match fetch_desktop_official_models_raw(source, RUNNING_HOST_RETRY_TIMEOUT).await {
-            Ok(raw) => match parse_official_catalog_response(&raw.body, raw.source.as_str()) {
-                Ok(_) => {
-                    let mut base_json: serde_json::Value = match serde_json::from_str(&raw.body) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            last_error = Some(official_debug_failure(
-                                "upstream_server_error",
-                                format!("解析官方模型原始响应失败：{error}"),
-                                Some(raw.body),
-                            ));
-                            continue;
+            Ok(raw) => {
+                let actual_raw_body = state
+                    .config_store
+                    .get_raw_official_catalog()
+                    .unwrap_or(raw.body.clone());
+                match parse_official_catalog_response(&actual_raw_body, raw.source.as_str()) {
+                    Ok(_) => {
+                        let mut base_json: serde_json::Value =
+                            match serde_json::from_str(&actual_raw_body) {
+                                Ok(value) => value,
+                                Err(error) => {
+                                    last_error = Some(official_debug_failure(
+                                        "upstream_server_error",
+                                        format!("解析官方模型原始响应失败：{error}"),
+                                        Some(actual_raw_body),
+                                    ));
+                                    continue;
+                                }
+                            };
+                        if let Some(object) = base_json.as_object_mut() {
+                            object.remove("error");
                         }
-                    };
-                    if let Some(object) = base_json.as_object_mut() {
-                        object.remove("error");
+                        let proxy = ProxyServer::new(state.config_store.clone(), 0);
+                        let modified_response =
+                            proxy.prepare_model_catalog_response(base_json, &proxy_target);
+                        let mut final_raw = raw;
+                        final_raw.body = actual_raw_body;
+                        return Ok(official_debug_success(final_raw, modified_response));
                     }
-                    let proxy = ProxyServer::new(state.config_store.clone(), 0);
-                    let modified_response =
-                        proxy.prepare_model_catalog_response(base_json, &proxy_target);
-                    return Ok(official_debug_success(raw, modified_response));
+                    Err(error) => {
+                        last_error = Some(official_debug_proxy_failure(error));
+                    }
                 }
-                Err(error) => {
-                    last_error = Some(official_debug_proxy_failure(error));
-                }
-            },
+            }
             Err(error) => {
                 last_error = Some(official_debug_proxy_failure(error));
             }

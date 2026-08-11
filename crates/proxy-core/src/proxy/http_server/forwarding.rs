@@ -122,6 +122,14 @@ pub(super) async fn handle_fetch_models_request(
             )
         }
     };
+
+    // Cache the RAW, valid JSON catalog before any modifications are applied.
+    // This allows the desktop app UI to fetch the completely unfiltered list,
+    // including disabled official models, even though they will be removed below.
+    if let Ok(raw_json_str) = serde_json::to_string(&upstream_models) {
+        proxy.config_store().set_raw_official_catalog(raw_json_str);
+    }
+
     if let Some(obj) = upstream_models.as_object_mut() {
         obj.remove("error");
     }

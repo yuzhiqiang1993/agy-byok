@@ -38,6 +38,10 @@ impl ProxyServer {
         Self::with_activity_log(config_store, port, Arc::new(ActivityLog::new()))
     }
 
+    pub fn config_store(&self) -> &ConfigStore {
+        &self.config_store
+    }
+
     pub fn with_activity_log(
         config_store: ConfigStore,
         port: u16,
