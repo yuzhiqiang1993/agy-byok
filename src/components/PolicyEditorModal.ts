@@ -5,9 +5,11 @@ import type { ModelCompressionPolicy } from "../types/config";
 import { errorMessage } from "../utils/errorUtils";
 import { createModal, type ModalInstance } from "./common/Modal";
 
-type CompressionPresetId = "CONTEXT_128K" | "CONTEXT_200K" | "CONTEXT_256K" | "CONTEXT_372K" | "CONTEXT_1M";
+type CompressionPresetId = "CONTEXT_256K" | "CONTEXT_372K" | "CONTEXT_500K" | "CONTEXT_1M";
 
 type PolicyMode = "NONE" | CompressionPresetId | "CUSTOM";
+// 官方模型只覆盖三个 Token 阈值，自定义模型则完整注入当前策略。
+type CompressionPolicyScope = "official_threshold_override" | "custom_full_policy";
 type CompressionWorkerMode =
   | "CURRENT_MODEL"
   | "MODEL_PLACEHOLDER_M50"
@@ -22,16 +24,16 @@ interface CompressionWorkerPolicy {
 interface CompressionPreset {
   id: CompressionPresetId;
   labelKey:
-    | "models.presetContext128K"
-    | "models.presetContext200K"
     | "models.presetContext256K"
     | "models.presetContext372K"
+    | "models.presetContext500K"
     | "models.presetContext1M";
   minCapacity: number;
   values: Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens">;
 }
 
 interface PolicyEditorModalOptions {
+  scope: CompressionPolicyScope;
   modelName: string;
   currentPolicy: ModelCompressionPolicy | null;
   capacity: number | null;
@@ -45,7 +47,8 @@ interface PolicyEditorModalOptions {
 }
 
 const DEFAULT_OUTPUT_RESERVE = 16_384;
-const MAX_OUTPUT_RESERVE = 65_535;
+// 模型未声明输出上限时采用保守兜底；明确上限由模型自身决定。
+const DEFAULT_MAX_OUTPUT_RESERVE = 65_536;
 
 const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M71";
 const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
@@ -61,22 +64,10 @@ const DEFAULT_POLICY_LIMITS = {
 
 const COMPRESSION_PRESETS: readonly CompressionPreset[] = [
   {
-    id: "CONTEXT_128K",
-    labelKey: "models.presetContext128K",
-    minCapacity: 128_000,
-    values: { token_threshold: 50_000, max_token_limit: 128_000, max_output_tokens: 16_384 },
-  },
-  {
-    id: "CONTEXT_200K",
-    labelKey: "models.presetContext200K",
-    minCapacity: 200_000,
-    values: { token_threshold: 50_000, max_token_limit: 160_000, max_output_tokens: 16_384 },
-  },
-  {
     id: "CONTEXT_256K",
     labelKey: "models.presetContext256K",
     minCapacity: 256_000,
-    values: { token_threshold: 140_000, max_token_limit: 256_000, max_output_tokens: 16_384 },
+    values: { token_threshold: 102_400, max_token_limit: 153_600, max_output_tokens: 30_720 },
   },
   {
     id: "CONTEXT_372K",
@@ -85,10 +76,16 @@ const COMPRESSION_PRESETS: readonly CompressionPreset[] = [
     values: { token_threshold: 148_800, max_token_limit: 223_200, max_output_tokens: 44_640 },
   },
   {
+    id: "CONTEXT_500K",
+    labelKey: "models.presetContext500K",
+    minCapacity: 500_000,
+    values: { token_threshold: 200_000, max_token_limit: 300_000, max_output_tokens: 60_000 },
+  },
+  {
     id: "CONTEXT_1M",
     labelKey: "models.presetContext1M",
     minCapacity: 1_000_000,
-    values: { token_threshold: 419_430, max_token_limit: 629_145, max_output_tokens: MAX_OUTPUT_RESERVE },
+    values: { token_threshold: 419_430, max_token_limit: 629_145, max_output_tokens: 65_535 },
   },
 ];
 
@@ -175,13 +172,6 @@ function matchingPreset(
       && policy.max_output_tokens === preset.values.max_output_tokens
   ))?.id;
   if (exact) return exact;
-  if (
-    policy.token_threshold === 61_000
-    && policy.max_token_limit === 73_000
-    && presetSupported(presetById("CONTEXT_128K"), capacity, outputTokenLimit)
-  ) {
-    return "CONTEXT_128K";
-  }
   return null;
 }
 
@@ -245,9 +235,10 @@ function isValidPolicy(
   outputTokenLimit: number | null,
 ): boolean {
   const { token_threshold: threshold, max_token_limit: limit, max_output_tokens: output } = policy;
+  const maximumOutputReserve = outputTokenLimit ?? DEFAULT_MAX_OUTPUT_RESERVE;
   return [threshold, limit, output].every((value) => Number.isSafeInteger(value) && value > 0)
     && output >= DEFAULT_OUTPUT_RESERVE
-    && output <= MAX_OUTPUT_RESERVE
+    && output <= maximumOutputReserve
     && threshold < limit
     && output < limit
     && threshold + output <= limit
@@ -421,6 +412,9 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   let mode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
   let draft = options.currentPolicy ? clonePolicy(options.currentPolicy) : null;
 
+  const source = document.createElement("p");
+  source.className = "policy-source-note";
+
   const presetField = document.createElement("div");
   presetField.className = "policy-preset-field";
   const presetFieldLabel = document.createElement("span");
@@ -442,7 +436,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   error.tabIndex = -1;
   error.hidden = true;
 
-  body.append(presetField, help, form, error);
+  body.append(source, presetField, help, form, error);
 
   const renderSegmented = (): void => {
     presetSegmented.replaceChildren();
@@ -465,7 +459,9 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       { id: "CUSTOM", label: t("models.presetCustom") },
     ];
 
-    const recommended = recommendedPresetForCapacity(options.capacity, options.outputTokenLimit);
+    const recommended = options.scope === "custom_full_policy"
+      ? recommendedPresetForCapacity(options.capacity, options.outputTokenLimit)
+      : null;
 
     for (const item of modes) {
       const btn = document.createElement("button");
@@ -476,7 +472,10 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       textSpan.textContent = item.label;
       btn.append(textSpan);
 
-      if (recommended && item.id === recommended.id) {
+      const isRecommended = options.scope === "official_threshold_override"
+        ? item.id === "NONE"
+        : recommended?.id === item.id;
+      if (isRecommended) {
         const badge = document.createElement("span");
         badge.className = "policy-pill-recommend";
         badge.textContent = t("models.policyRecommended");
@@ -613,7 +612,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       pillRow = document.createElement("div");
       pillRow.className = "policy-percentage-row policy-percentage-row-reserves";
 
-      const reserves = [16_384, 32_768, 44_640, 65_535];
+      const reserves = [16_384, 32_768, 44_640, 65_535, 65_536];
       const pillButtons: HTMLButtonElement[] = [];
 
       for (const val of reserves) {
@@ -725,6 +724,13 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   const render = (): void => {
     form.replaceChildren();
     error.hidden = true;
+    source.textContent = options.scope === "official_threshold_override"
+      ? mode === "NONE"
+        ? t("models.policySourceOfficialDefault")
+        : t("models.policySourceOfficialOverride")
+      : mode === "NONE"
+        ? t("models.policySourceUpstreamDefault")
+        : t("models.policySourceByokFull");
     if (mode === "NONE") {
       renderDefaultPolicy();
       return;

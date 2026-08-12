@@ -65,11 +65,25 @@ fn model_compression_policy_validation_accepts_complete_valid_policy() {
 }
 
 #[test]
-fn model_compression_policy_validation_rejects_unsupported_worker_models() {
+fn model_compression_policy_validation_accepts_inherited_placeholder_workers() {
     let mut policy = policy();
     policy.checkpoint_model = "MODEL_PLACEHOLDER_M400".to_string();
 
-    assert!(policy.validate("policy").is_err());
+    assert!(policy.validate("policy").is_ok());
+}
+
+#[test]
+fn model_compression_policy_validation_rejects_invalid_worker_models() {
+    for checkpoint_model in [
+        "MODEL_PLACEHOLDER_M",
+        "MODEL_PLACEHOLDER_M-1",
+        "custom-worker",
+    ] {
+        let mut policy = policy();
+        policy.checkpoint_model = checkpoint_model.to_string();
+
+        assert!(policy.validate("policy").is_err());
+    }
 }
 
 #[test]

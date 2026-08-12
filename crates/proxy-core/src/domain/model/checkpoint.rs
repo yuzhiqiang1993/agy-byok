@@ -1,9 +1,3 @@
-const SUPPORTED_CHECKPOINT_MODELS: [&str; 3] = [
-    "MODEL_PLACEHOLDER_M50",
-    "MODEL_PLACEHOLDER_M71",
-    "MODEL_PLACEHOLDER_M72",
-];
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -110,10 +104,9 @@ impl ModelCompressionPolicy {
     }
 
     pub fn validate(&self, scope: &str) -> Result<(), String> {
-        if !SUPPORTED_CHECKPOINT_MODELS.contains(&self.checkpoint_model.as_str()) {
+        if !is_valid_checkpoint_model(&self.checkpoint_model) {
             return Err(format!(
-                "{scope} checkpoint_model must be one of {}",
-                SUPPORTED_CHECKPOINT_MODELS.join(", ")
+                "{scope} checkpoint_model must match MODEL_PLACEHOLDER_M<number>"
             ));
         }
         if self.strategy.trim().is_empty() {
@@ -128,6 +121,13 @@ impl ModelCompressionPolicy {
             self.max_output_tokens,
         )
     }
+}
+
+fn is_valid_checkpoint_model(value: &str) -> bool {
+    // UI 仍只提供已验证的 Worker，但官方目录中的新 placeholder 必须能够原样继承。
+    value
+        .strip_prefix("MODEL_PLACEHOLDER_M")
+        .is_some_and(|number| !number.is_empty() && number.parse::<u32>().is_ok())
 }
 
 fn validate_token_limits(
