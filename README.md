@@ -1,3 +1,5 @@
+
+
 # AGY BYOK
 
 [简体中文](README.zh-CN.md) · English
@@ -231,7 +233,7 @@ From the project root:
 
 ```bash
 npm install
-npm run tauri dev
+tauri dev
 ```
 
 After launch, open **Model Management** and add a Provider and models to begin configuring the tool. Source development does not require the quarantine command above.
