@@ -302,7 +302,8 @@ run_step "校验 i18n" npm run check:i18n
 run_step "校验 TypeScript" npx tsc --noEmit
 run_step "校验前端生产构建" npm run build
 run_step "校验 Rust 格式" cargo fmt --all -- --check
-run_step "运行 Rust 核心测试" cargo test -p agy-byok
+run_step "运行 Rust Clippy 静态检查" cargo clippy --workspace --all-targets --locked -- -D warnings
+run_step "运行 Rust 工作区测试" cargo test --workspace --locked
 run_step "校验 Cargo.lock" sh -c 'cargo metadata --locked --no-deps --format-version 1 >/dev/null'
 run_step "校验差异空白" git diff --check
 

@@ -44,8 +44,7 @@ pub(super) fn host_paths() -> HostPaths {
 
 pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, String> {
     let mut candidate = custom_path.to_path_buf();
-    while !candidate.as_os_str().is_empty()
-        && !candidate.extension().map_or(false, |ext| ext == "app")
+    while !candidate.as_os_str().is_empty() && candidate.extension().is_none_or(|ext| ext != "app")
     {
         if let Some(parent) = candidate.parent() {
             candidate = parent.to_path_buf();
@@ -53,7 +52,7 @@ pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, S
             break;
         }
     }
-    let installation = if candidate.extension().map_or(false, |ext| ext == "app") {
+    let installation = if candidate.extension().is_some_and(|ext| ext == "app") {
         candidate
     } else {
         custom_path.to_path_buf()
@@ -91,8 +90,7 @@ pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, S
 
 pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, String> {
     let mut candidate = custom_path.to_path_buf();
-    while !candidate.as_os_str().is_empty()
-        && !candidate.extension().map_or(false, |ext| ext == "app")
+    while !candidate.as_os_str().is_empty() && candidate.extension().is_none_or(|ext| ext != "app")
     {
         if let Some(parent) = candidate.parent() {
             candidate = parent.to_path_buf();
@@ -100,7 +98,7 @@ pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, S
             break;
         }
     }
-    let installation = if candidate.extension().map_or(false, |ext| ext == "app") {
+    let installation = if candidate.extension().is_some_and(|ext| ext == "app") {
         candidate
     } else {
         custom_path.to_path_buf()

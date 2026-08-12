@@ -54,7 +54,7 @@ impl AntigravityModelDescriptor {
                                 group.get_mut("modelIds").and_then(Value::as_array_mut)
                             {
                                 model_ids.retain(|mid| {
-                                    mid.as_str().map_or(true, |id| {
+                                    mid.as_str().is_none_or(|id| {
                                         let clean_id = id.strip_prefix("models/").unwrap_or(id);
                                         let canonical = canonical_model_id(clean_id, &aliases);
                                         !disabled_models.contains(id)
