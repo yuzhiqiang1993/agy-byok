@@ -15,8 +15,7 @@ pub use model::{
 };
 pub use provider::{ParameterOverrides, Provider, ProviderProtocol};
 pub(crate) use request::{
-    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type,
-    openai_input_audio_format, MessageRole, NeutralChatRequest, NeutralContentBlock,
-    NeutralMessage, NeutralTool, NeutralToolFunction,
+    inline_data_filename, input_modality_for_mime_type, openai_input_audio_format, MessageRole,
+    NeutralChatRequest, NeutralContentBlock, NeutralMessage, NeutralTool, NeutralToolFunction,
 };
 pub(crate) use response::{FinishReason, NeutralChatResponse, NeutralStreamEvent, UsageInfo};

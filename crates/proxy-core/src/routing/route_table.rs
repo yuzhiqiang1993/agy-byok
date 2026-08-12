@@ -148,28 +148,7 @@ impl RouteTable {
 
         let fallback_route = Self::resolve(config, &fallback_request)?;
 
-        // 校验能力降级规则：备用模型的能力不得低于主模型
-        let main_cap = &failed_route.upstream_model.capabilities;
-        let fb_cap = &fallback_route.upstream_model.capabilities;
-
-        if !main_cap
-            .input_modalities
-            .is_subset(&fb_cap.input_modalities)
-            || !main_cap
-                .output_modalities
-                .is_subset(&fb_cap.output_modalities)
-            || (main_cap.tools && !fb_cap.tools)
-        {
-            return Err(ProxyError::new(
-                ErrorCategory::UnsupportedFeature,
-                format!(
-                    "Fallback model {} capabilities are lower than primary model {}",
-                    fallback_route.virtual_model.id, failed_route.virtual_model.id
-                ),
-                400,
-            ));
-        }
-
+        // 能力是用户声明而非本地事实；备用模型是否接受当前请求交由上游判断。
         Ok(Some(fallback_route))
     }
 }

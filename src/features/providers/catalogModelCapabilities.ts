@@ -1,4 +1,5 @@
 import { openReasoningModal } from "../../components/ReasoningModal";
+import { openMultimodalModal } from "../../components/MultimodalModal";
 import { t } from "../../i18n";
 import type { ConfigurableReasoningLevel, ThinkingBudgetConfig } from "../../types/reasoning";
 import {
@@ -12,7 +13,11 @@ import type {
   ProviderCatalogContext,
 } from "./providerCatalogTypes";
 import { testProviderModelConnection } from "./providerTesting";
-import { supportsInputModality } from "./modelMediaCapabilities";
+import {
+  MULTIMODAL_INPUT_MODALITIES,
+  normalizeSelectedInputMimeTypes,
+  type MultimodalInputModality,
+} from "./modelMediaCapabilities";
 
 function applyReasoningSelection(
   modelId: string,
@@ -109,30 +114,55 @@ function createReasoningButton(
 }
 
 function catalogCapabilityToggle(
-  modelId: string,
   label: string,
-  enabledModelIds: Set<string>,
+  checked: boolean,
   onChange: (enabled: boolean) => void,
-  disabled = false,
-  title?: string,
 ): { element: HTMLLabelElement; checkbox: HTMLInputElement } {
   const toggle = document.createElement("label");
   toggle.className = "check-label catalog-capability-toggle";
-  if (title) toggle.title = title;
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
-  checkbox.checked = enabledModelIds.has(modelId);
-  checkbox.disabled = disabled;
-  if (title) checkbox.title = title;
+  checkbox.checked = checked;
   checkbox.addEventListener("change", () => {
-    if (checkbox.checked) enabledModelIds.add(modelId);
-    else enabledModelIds.delete(modelId);
     onChange(checkbox.checked);
   });
   const copy = document.createElement("span");
   copy.textContent = label;
   toggle.append(checkbox, copy);
   return { element: toggle, checkbox };
+}
+
+function selectedMultimodalModalities(
+  state: CatalogModelListState,
+  modelId: string,
+): Set<MultimodalInputModality> {
+  const modalities = new Set<MultimodalInputModality>();
+  if (state.catalogImageInputModelIds.has(modelId)) modalities.add("image");
+  if (state.catalogDocumentInputModelIds.has(modelId)) modalities.add("document");
+  if (state.catalogAudioInputModelIds.has(modelId)) modalities.add("audio");
+  if (state.catalogVideoInputModelIds.has(modelId)) modalities.add("video");
+  return modalities;
+}
+
+function applyMultimodalModalities(
+  state: CatalogModelListState,
+  modelId: string,
+  modalities: ReadonlySet<MultimodalInputModality>,
+): void {
+  for (const [modality, modelIds] of [
+    ["image", state.catalogImageInputModelIds],
+    ["document", state.catalogDocumentInputModelIds],
+    ["audio", state.catalogAudioInputModelIds],
+    ["video", state.catalogVideoInputModelIds],
+  ] as const) {
+    if (modalities.has(modality)) modelIds.add(modelId);
+    else modelIds.delete(modelId);
+  }
+  const currentMimeTypes = state.catalogInputMimeTypesByModel.get(modelId) ?? new Set<string>();
+  state.catalogInputMimeTypesByModel.set(
+    modelId,
+    new Set(normalizeSelectedInputMimeTypes(currentMimeTypes, modalities)),
+  );
 }
 
 export function createCatalogModelCapabilities(
@@ -148,69 +178,59 @@ export function createCatalogModelCapabilities(
     state.changedCatalogCapabilityModelIds.add(model.id);
     context.setProviderEditorDirty(true);
   };
-  const imageToggle = catalogCapabilityToggle(
-    model.id,
-    t("models.visionInput"),
-    state.catalogImageInputModelIds,
-    () => {
+  const currentModalities = selectedMultimodalModalities(state, model.id);
+  const multimodalControl = document.createElement("span");
+  multimodalControl.className = "catalog-multimodal-control";
+  const multimodalToggle = catalogCapabilityToggle(
+    t("models.multimodalInput"),
+    currentModalities.size > 0,
+    (enabled) => {
+      applyMultimodalModalities(
+        state,
+        model.id,
+        enabled ? new Set(MULTIMODAL_INPUT_MODALITIES) : new Set(),
+      );
       markChanged();
       rerender();
     },
   );
-  const audioAvailable = supportsInputModality(context.selectedProtocol(), "audio");
-  const audioToggle = catalogCapabilityToggle(
-    model.id,
-    t("models.audioInput"),
-    state.catalogAudioInputModelIds,
-    () => {
-      markChanged();
-      rerender();
-    },
-    !audioAvailable,
-    audioAvailable ? undefined : t("models.adapterMediaUnsupported"),
-  );
-  const videoAvailable = supportsInputModality(context.selectedProtocol(), "video");
-  const videoToggle = catalogCapabilityToggle(
-    model.id,
-    t("models.videoInput"),
-    state.catalogVideoInputModelIds,
-    () => {
-      markChanged();
-      rerender();
-    },
-    !videoAvailable,
-    videoAvailable ? undefined : t("models.adapterMediaUnsupported"),
-  );
-  const documentToggle = catalogCapabilityToggle(
-    model.id,
-    t("models.documentInput"),
-    state.catalogDocumentInputModelIds,
-    () => {
-      markChanged();
-      rerender();
-    },
-  );
+  const editMultimodalButton = document.createElement("button");
+  editMultimodalButton.type = "button";
+  editMultimodalButton.className = "catalog-multimodal-edit";
+  editMultimodalButton.textContent = t("models.editMultimodal");
+  editMultimodalButton.disabled = currentModalities.size === 0;
+  editMultimodalButton.addEventListener("click", () => {
+    openMultimodalModal(model, {
+      currentModalities,
+      onConfirm: (modalities) => {
+        applyMultimodalModalities(state, model.id, modalities);
+        markChanged();
+        rerender();
+      },
+    });
+  });
+  multimodalControl.append(multimodalToggle.element, editMultimodalButton);
   const toolsToggle = catalogCapabilityToggle(
-    model.id,
     t("models.toolCalling"),
-    state.catalogToolsEnabledModelIds,
-    () => {
+    state.catalogToolsEnabledModelIds.has(model.id),
+    (enabled) => {
+      if (enabled) state.catalogToolsEnabledModelIds.add(model.id);
+      else state.catalogToolsEnabledModelIds.delete(model.id);
       markChanged();
       rerender();
     },
   );
 
   capabilities.append(
-    imageToggle.element,
-    audioToggle.element,
-    videoToggle.element,
-    documentToggle.element,
+    multimodalControl,
     toolsToggle.element,
     createReasoningButton(rowState, context, state, rerender),
   );
   if (!selected) {
-    for (const input of capabilities.querySelectorAll<HTMLInputElement>("input")) {
-      input.disabled = true;
+    for (const control of capabilities.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+      "input, button",
+    )) {
+      control.disabled = true;
     }
   }
   return capabilities;

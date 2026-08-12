@@ -368,11 +368,7 @@ fn modalities(
 }
 
 fn input_mime_types(caps: &crate::domain::ModelCapabilities) -> Map<String, Value> {
-    let mut mime_types = Map::from_iter([
-        ("text/plain".to_string(), Value::Bool(true)),
-        ("text/markdown".to_string(), Value::Bool(true)),
-        ("application/json".to_string(), Value::Bool(true)),
-    ]);
+    let mut mime_types = Map::new();
     for mime_type in caps.effective_input_mime_types() {
         mime_types.insert(mime_type, Value::Bool(true));
     }

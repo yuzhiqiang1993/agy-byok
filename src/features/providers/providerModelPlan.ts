@@ -127,10 +127,7 @@ function selectedInputMimeTypes(
   if (input.catalogAudioInputModelIds.has(model.id)) selectedModalities.add("audio");
   if (input.catalogVideoInputModelIds.has(model.id)) selectedModalities.add("video");
   if (input.catalogDocumentInputModelIds.has(model.id)) selectedModalities.add("document");
-  return normalizeSelectedInputMimeTypes(selectedMimeTypes, {
-    selectedModalities,
-    protocol: input.provider.protocol,
-  });
+  return normalizeSelectedInputMimeTypes(selectedMimeTypes, selectedModalities);
 }
 
 function defaultCompressionPolicy(

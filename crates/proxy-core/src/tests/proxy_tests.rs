@@ -320,6 +320,32 @@ mod tests {
     }
 
     #[test]
+    fn fallback_capability_declarations_do_not_block_upstream_attempts() {
+        let mut config = fallback_config(
+            "http://localhost/primary".to_string(),
+            "http://localhost/fallback".to_string(),
+        );
+        config.upstream_models[0].capabilities.input_modalities =
+            std::collections::BTreeSet::from([
+                ModelModality::Text,
+                ModelModality::Image,
+                ModelModality::Document,
+                ModelModality::Audio,
+                ModelModality::Video,
+            ]);
+        config.upstream_models[0].capabilities.tools = true;
+        config.upstream_models[0].capabilities.input_mime_types = vec!["video/mp4".to_string()];
+
+        let request = chat_request("vm-primary");
+        let primary_route = RouteTable::resolve(&config, &request).unwrap();
+        let fallback_route = RouteTable::resolve_fallback(&config, &primary_route, &request)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(fallback_route.virtual_model.id, "vm-fallback");
+    }
+
+    #[test]
     fn model_catalog_without_reasoning_uses_provider_only_name() {
         let config = connection_test_config("http://localhost/chat".to_string());
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);

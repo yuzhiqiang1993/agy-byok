@@ -1,8 +1,8 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type,
-    openai_input_audio_format, ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock,
-    NeutralMessage, Provider, ProxyError,
+    inline_data_filename, input_modality_for_mime_type, openai_input_audio_format, ErrorCategory,
+    MessageRole, ModelModality, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
+    ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -82,7 +82,7 @@ fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
                 mime_type,
                 data_base64,
             } => {
-                if is_supported_inline_image_mime_type(mime_type) {
+                if input_modality_for_mime_type(mime_type) == ModelModality::Image {
                     contents.push(json!({
                         "type": "image_url",
                         "image_url": {
@@ -97,22 +97,14 @@ fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
                             "format": format
                         }
                     }));
-                } else if is_supported_inline_document_mime_type(mime_type) {
+                } else {
                     contents.push(json!({
                         "type": "file",
                         "file": {
-                            "filename": "input.pdf",
+                            "filename": inline_data_filename(mime_type),
                             "file_data": data_base64
                         }
                     }));
-                } else {
-                    return Err(ProxyError::new(
-                        ErrorCategory::UnsupportedFeature,
-                        format!(
-                            "OpenAI Chat Completions does not support inline {mime_type} content"
-                        ),
-                        400,
-                    ));
                 }
             }
             NeutralContentBlock::ToolCall {

@@ -237,37 +237,49 @@ mod tests {
     }
 
     #[test]
-    fn image_only_adapters_reject_video_inline_data() {
+    fn adapters_forward_video_inline_data_for_upstream_validation() {
         let request = video_request();
-        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
-            (
-                Box::new(OpenAIAdapter::new()),
-                create_dummy_route(
+        let openai_chat = OpenAIAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::OpenaiChatCompletions,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-            (
-                Box::new(OpenAIResponsesAdapter::new()),
-                create_dummy_route(
+                &request,
+            )
+            .unwrap();
+        assert_eq!(openai_chat["messages"][0]["content"][0]["type"], "file");
+        assert_eq!(
+            openai_chat["messages"][0]["content"][0]["file"]["filename"],
+            "input.mp4"
+        );
+
+        let responses = OpenAIResponsesAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::OpenaiResponses,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-            (
-                Box::new(AnthropicAdapter::new()),
-                create_dummy_route(
+                &request,
+            )
+            .unwrap();
+        assert_eq!(responses["input"][0]["content"][0]["type"], "input_file");
+        assert_eq!(responses["input"][0]["content"][0]["filename"], "input.mp4");
+
+        let anthropic = AnthropicAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::AnthropicMessages,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-        ];
-
-        for (adapter, route) in cases {
-            let error = adapter.build_request_payload(&route, &request).unwrap_err();
-            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
-            assert!(error.message.contains("video/mp4"));
-        }
+                &request,
+            )
+            .unwrap();
+        assert_eq!(anthropic["messages"][0]["content"][0]["type"], "document");
+        assert_eq!(
+            anthropic["messages"][0]["content"][0]["source"]["media_type"],
+            "video/mp4"
+        );
     }
 
     #[test]
@@ -294,30 +306,29 @@ mod tests {
     }
 
     #[test]
-    fn adapters_without_audio_content_blocks_reject_audio_input() {
+    fn adapters_forward_audio_without_native_audio_blocks_as_files() {
         let request = inline_data_request("audio/wav");
-        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
-            (
-                Box::new(OpenAIResponsesAdapter::new()),
-                create_dummy_route(
+        let responses = OpenAIResponsesAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::OpenaiResponses,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-            (
-                Box::new(AnthropicAdapter::new()),
-                create_dummy_route(
+                &request,
+            )
+            .unwrap();
+        assert_eq!(responses["input"][0]["content"][0]["type"], "input_file");
+
+        let anthropic = AnthropicAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::AnthropicMessages,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-        ];
-
-        for (adapter, route) in cases {
-            let error = adapter.build_request_payload(&route, &request).unwrap_err();
-            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
-            assert!(error.message.contains("audio/wav"));
-        }
+                &request,
+            )
+            .unwrap();
+        assert_eq!(anthropic["messages"][0]["content"][0]["type"], "document");
     }
 
     #[test]
@@ -382,37 +393,43 @@ mod tests {
     }
 
     #[test]
-    fn image_only_adapters_reject_unverified_image_formats() {
+    fn adapters_forward_declared_image_formats_for_upstream_validation() {
         let request = inline_data_request("image/heic");
-        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
-            (
-                Box::new(OpenAIAdapter::new()),
-                create_dummy_route(
+        let openai_chat = OpenAIAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::OpenaiChatCompletions,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-            (
-                Box::new(OpenAIResponsesAdapter::new()),
-                create_dummy_route(
+                &request,
+            )
+            .unwrap();
+        assert_eq!(
+            openai_chat["messages"][0]["content"][0]["type"],
+            "image_url"
+        );
+
+        let responses = OpenAIResponsesAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::OpenaiResponses,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-            (
-                Box::new(AnthropicAdapter::new()),
-                create_dummy_route(
+                &request,
+            )
+            .unwrap();
+        assert_eq!(responses["input"][0]["content"][0]["type"], "input_image");
+
+        let anthropic = AnthropicAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
                     ProviderProtocol::AnthropicMessages,
                     ReasoningMapping::Effort("high".to_string()),
                 ),
-            ),
-        ];
-
-        for (adapter, route) in cases {
-            let error = adapter.build_request_payload(&route, &request).unwrap_err();
-            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
-            assert!(error.message.contains("image/heic"));
-        }
+                &request,
+            )
+            .unwrap();
+        assert_eq!(anthropic["messages"][0]["content"][0]["type"], "image");
     }
 
     #[test]

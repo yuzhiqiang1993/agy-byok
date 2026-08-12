@@ -175,6 +175,33 @@
   color: var(--accent, #1d4ed8);
   font-weight: 600;
 }
+.catalog-multimodal-control {
+  display: inline-flex;
+  align-items: stretch;
+}
+.catalog-multimodal-control .catalog-capability-toggle {
+  border-radius: 6px 0 0 6px;
+}
+.catalog-multimodal-edit {
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--surface-border, #cbd5e1);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--surface-inner, #f8fafc);
+  color: var(--text-secondary, #475569);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.catalog-multimodal-edit:hover:not(:disabled) {
+  background: var(--accent-soft, #eff6ff);
+  color: var(--accent, #1d4ed8);
+}
+.catalog-multimodal-edit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .catalog-help {
   margin: 0 0 14px;
   color: #77817c;

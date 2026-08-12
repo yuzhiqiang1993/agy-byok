@@ -1,7 +1,7 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type, ErrorCategory,
-    MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider, ProxyError,
+    inline_data_filename, input_modality_for_mime_type, ErrorCategory, MessageRole, ModelModality,
+    NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider, ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -73,23 +73,17 @@ fn convert_message(message: &NeutralMessage) -> Result<Vec<Value>, ProxyError> {
                 mime_type,
                 data_base64,
             } => {
-                if is_supported_inline_image_mime_type(mime_type) {
+                if input_modality_for_mime_type(mime_type) == ModelModality::Image {
                     content.push(json!({
                         "type": "input_image",
                         "image_url": format!("data:{};base64,{}", mime_type, data_base64),
                     }));
-                } else if is_supported_inline_document_mime_type(mime_type) {
+                } else {
                     content.push(json!({
                         "type": "input_file",
-                        "filename": "input.pdf",
+                        "filename": inline_data_filename(mime_type),
                         "file_data": data_base64,
                     }));
-                } else {
-                    return Err(ProxyError::new(
-                        ErrorCategory::UnsupportedFeature,
-                        format!("OpenAI Responses does not support inline {mime_type} content"),
-                        400,
-                    ));
                 }
             }
             NeutralContentBlock::ToolCall {

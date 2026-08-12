@@ -1,12 +1,6 @@
-use super::{model::ReasoningLevel, provider::ParameterOverrides};
+use super::{model::ReasoningLevel, provider::ParameterOverrides, ModelModality};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-pub(crate) fn is_supported_inline_image_mime_type(mime_type: &str) -> bool {
-    ["image/png", "image/jpeg", "image/webp"]
-        .iter()
-        .any(|supported| mime_type.eq_ignore_ascii_case(supported))
-}
 
 pub(crate) fn openai_input_audio_format(mime_type: &str) -> Option<&'static str> {
     if mime_type.eq_ignore_ascii_case("audio/wav") || mime_type.eq_ignore_ascii_case("audio/x-wav")
@@ -21,8 +15,48 @@ pub(crate) fn openai_input_audio_format(mime_type: &str) -> Option<&'static str>
     }
 }
 
-pub(crate) fn is_supported_inline_document_mime_type(mime_type: &str) -> bool {
-    mime_type.eq_ignore_ascii_case("application/pdf")
+pub(crate) fn input_modality_for_mime_type(mime_type: &str) -> ModelModality {
+    let normalized = mime_type.trim().to_ascii_lowercase();
+    if normalized.starts_with("image/") {
+        ModelModality::Image
+    } else if normalized.starts_with("audio/") || normalized.starts_with("video/audio/") {
+        ModelModality::Audio
+    } else if normalized.starts_with("video/") {
+        ModelModality::Video
+    } else {
+        // 文本、代码、PDF 及其他文件输入统一归为文档，由协议适配器尽量转发。
+        ModelModality::Document
+    }
+}
+
+pub(crate) fn inline_data_filename(mime_type: &str) -> &'static str {
+    let normalized = mime_type.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "application/pdf" => "input.pdf",
+        "application/json" => "input.json",
+        "application/rtf" | "text/rtf" => "input.rtf",
+        "application/x-ipynb+json" => "input.ipynb",
+        "application/x-javascript" | "text/javascript" => "input.js",
+        "application/x-python-code" | "text/x-python" | "text/x-python-script" => "input.py",
+        "application/x-typescript" | "text/x-typescript" => "input.ts",
+        "text/css" => "input.css",
+        "text/csv" => "input.csv",
+        "text/html" => "input.html",
+        "text/markdown" => "input.md",
+        "text/plain" => "input.txt",
+        "text/xml" => "input.xml",
+        "audio/wav" | "audio/x-wav" => "input.wav",
+        "audio/mpeg" | "audio/mp3" => "input.mp3",
+        "audio/webm" | "audio/webm;codecs=opus" => "input.webm",
+        "audio/flac" => "input.flac",
+        "video/audio/s16le" => "input.pcm",
+        "video/audio/wav" => "input.wav",
+        "video/jpeg2000" | "video/videoframe/jpeg2000" => "input.j2k",
+        "video/mp4" => "input.mp4",
+        "video/text/timestamp" => "input.txt",
+        "video/webm" => "input.webm",
+        _ => "input.bin",
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

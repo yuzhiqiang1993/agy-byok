@@ -1,23 +1,64 @@
 import type { ProviderCatalogModel } from "../../types/catalog";
-import type {
-  ModelModality,
-  ProviderProtocol,
-  UpstreamModel,
-} from "../../types/config";
+import type { ModelModality, UpstreamModel } from "../../types/config";
 
-export const DEFAULT_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
-export const DEFAULT_AUDIO_MIME_TYPES = ["audio/wav"] as const;
-export const DEFAULT_VIDEO_MIME_TYPES = ["video/mp4", "video/webm"] as const;
-export const DEFAULT_DOCUMENT_MIME_TYPES = ["application/pdf"] as const;
+export type MultimodalInputModality = Exclude<ModelModality, "text">;
 
-type BinaryInputModality = Exclude<ModelModality, "text">;
+export const MULTIMODAL_INPUT_MODALITIES: readonly MultimodalInputModality[] = [
+  "image",
+  "document",
+  "audio",
+  "video",
+];
 
-const DEFAULT_MIME_TYPES: Record<BinaryInputModality, readonly string[]> = {
-  image: DEFAULT_IMAGE_MIME_TYPES,
-  audio: DEFAULT_AUDIO_MIME_TYPES,
-  video: DEFAULT_VIDEO_MIME_TYPES,
-  document: DEFAULT_DOCUMENT_MIME_TYPES,
+export const DEFAULT_MULTIMODAL_MIME_TYPES: Readonly<
+Record<MultimodalInputModality, readonly string[]>
+> = {
+  image: [
+    "image/heic",
+    "image/heif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ],
+  document: [
+    "application/json",
+    "application/pdf",
+    "application/rtf",
+    "application/x-ipynb+json",
+    "application/x-javascript",
+    "application/x-python-code",
+    "application/x-typescript",
+    "text/css",
+    "text/csv",
+    "text/html",
+    "text/javascript",
+    "text/markdown",
+    "text/plain",
+    "text/rtf",
+    "text/x-python",
+    "text/x-python-script",
+    "text/x-typescript",
+    "text/xml",
+  ],
+  audio: [
+    "audio/webm;codecs=opus",
+    "video/audio/s16le",
+    "video/audio/wav",
+  ],
+  video: [
+    "video/jpeg2000",
+    "video/mp4",
+    "video/text/timestamp",
+    "video/videoframe/jpeg2000",
+    "video/webm",
+  ],
 };
+
+const DEFAULT_MIME_TYPE_MODALITIES = new Map<string, MultimodalInputModality>(
+  MULTIMODAL_INPUT_MODALITIES.flatMap((modality) => (
+    DEFAULT_MULTIMODAL_MIME_TYPES[modality].map((mimeType) => [mimeType, modality] as const)
+  )),
+);
 
 export function normalizeInputMimeTypes(mimeTypes: Iterable<string> | undefined): string[] {
   if (!mimeTypes) return [];
@@ -32,53 +73,14 @@ export function normalizeInputMimeTypes(mimeTypes: Iterable<string> | undefined)
   return normalized;
 }
 
-export function hasMimeTypeCategory(
-  mimeTypes: Iterable<string>,
-  category: BinaryInputModality,
-): boolean {
-  return [...mimeTypes].some((mimeType) => matchesInputModality(mimeType, category));
-}
-
-function matchesInputModality(mimeType: string, modality: BinaryInputModality): boolean {
-  // 文档不是独立的 MIME 一级类型，当前仅支持 PDF。
-  if (modality === "document") {
-    return (DEFAULT_DOCUMENT_MIME_TYPES as readonly string[]).includes(mimeType);
-  }
-  return mimeType.startsWith(`${modality}/`);
-}
-
-function withoutMimeTypeCategory(
-  mimeTypes: Iterable<string>,
-  category: BinaryInputModality,
-): string[] {
-  return normalizeInputMimeTypes(mimeTypes)
-    .filter((mimeType) => !matchesInputModality(mimeType, category));
-}
-
-function withDefaultMimeTypes(
-  mimeTypes: Iterable<string>,
-  modality: BinaryInputModality,
-): string[] {
-  return normalizeInputMimeTypes([...mimeTypes, ...DEFAULT_MIME_TYPES[modality]]);
-}
-
-export function supportsInputModality(
-  protocol: ProviderProtocol,
-  modality: BinaryInputModality,
-): boolean {
-  if (modality === "image" || modality === "document") return true;
-  if (modality === "audio") {
-    return protocol === "openai_chat_completions" || protocol === "gemini_generate_content";
-  }
-  return protocol === "gemini_generate_content";
-}
-
-function supportsInputMimeType(protocol: ProviderProtocol, mimeType: string): boolean {
-  if (protocol === "gemini_generate_content") return true;
-  if ((DEFAULT_IMAGE_MIME_TYPES as readonly string[]).includes(mimeType)) return true;
-  if ((DEFAULT_DOCUMENT_MIME_TYPES as readonly string[]).includes(mimeType)) return true;
-  return protocol === "openai_chat_completions"
-    && ["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3"].includes(mimeType);
+function inputModalityForMimeType(mimeType: string): MultimodalInputModality {
+  const normalized = mimeType.trim().toLowerCase();
+  const declared = DEFAULT_MIME_TYPE_MODALITIES.get(normalized);
+  if (declared) return declared;
+  if (normalized.startsWith("image/")) return "image";
+  if (normalized.startsWith("audio/") || normalized.startsWith("video/audio/")) return "audio";
+  if (normalized.startsWith("video/")) return "video";
+  return "document";
 }
 
 export function catalogSupportsInput(
@@ -105,23 +107,14 @@ export function upstreamInputMimeTypes(upstream: UpstreamModel): string[] {
 
 export function normalizeSelectedInputMimeTypes(
   mimeTypes: Iterable<string>,
-  options: {
-    selectedModalities: ReadonlySet<BinaryInputModality>;
-    protocol: ProviderProtocol;
-  },
+  selectedModalities: ReadonlySet<MultimodalInputModality>,
 ): string[] {
-  let normalized = normalizeInputMimeTypes(mimeTypes);
-  // 目录能力还需经过当前协议适配器的实际编码范围过滤。
-  normalized = normalized.filter((mimeType) => supportsInputMimeType(options.protocol, mimeType));
-  for (const modality of ["image", "audio", "video", "document"] as const) {
-    if (options.selectedModalities.has(modality)
-      && supportsInputModality(options.protocol, modality)) {
-      if (!hasMimeTypeCategory(normalized, modality)) {
-        normalized = withDefaultMimeTypes(normalized, modality);
-      }
-    } else {
-      normalized = withoutMimeTypeCategory(normalized, modality);
+  const selectedMimeTypes = normalizeInputMimeTypes(mimeTypes)
+    .filter((mimeType) => selectedModalities.has(inputModalityForMimeType(mimeType)));
+  for (const modality of MULTIMODAL_INPUT_MODALITIES) {
+    if (selectedModalities.has(modality)) {
+      selectedMimeTypes.push(...DEFAULT_MULTIMODAL_MIME_TYPES[modality]);
     }
   }
-  return normalized;
+  return normalizeInputMimeTypes(selectedMimeTypes);
 }

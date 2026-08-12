@@ -1,7 +1,6 @@
 use super::serde_helpers::required_nullable;
 use super::{
-    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type,
-    openai_input_audio_format, ModelCompressionPolicy, ModelModality, ModelRole,
+    input_modality_for_mime_type, ModelCompressionPolicy, ModelModality, ModelRole,
     ParameterOverrides, Provider, ProviderProtocol, UpstreamModel, VirtualModel,
 };
 use reqwest::header::{HeaderName, HeaderValue};
@@ -198,7 +197,7 @@ impl AppConfig {
                 .iter()
                 .find(|provider| provider.id == model.provider_id)
                 .expect("validated provider reference must exist");
-            validate_model_media_capabilities(model, &provider.protocol)?;
+            validate_model_media_capabilities(model)?;
             validate_model_reasoning_capabilities(model, &provider.protocol)?;
             if model.upstream_model_id.trim().is_empty() {
                 return Err(ConfigError::InvalidValue(format!(
@@ -300,10 +299,7 @@ impl AppConfig {
     }
 }
 
-fn validate_model_media_capabilities(
-    model: &UpstreamModel,
-    protocol: &ProviderProtocol,
-) -> Result<(), ConfigError> {
+fn validate_model_media_capabilities(model: &UpstreamModel) -> Result<(), ConfigError> {
     if model.capabilities.roles != BTreeSet::from([ModelRole::Agent]) {
         return Err(ConfigError::InvalidValue(format!(
             "UpstreamModel {} must declare exactly the agent role",
@@ -324,10 +320,7 @@ fn validate_model_media_capabilities(
     }
 
     let mut seen = HashSet::new();
-    let mut has_image = false;
-    let mut has_audio = false;
-    let mut has_video = false;
-    let mut has_document = false;
+    let mut declared_modalities = BTreeSet::new();
     for mime_type in &model.capabilities.input_mime_types {
         let normalized = mime_type.trim().to_ascii_lowercase();
         if normalized.is_empty() || !normalized.contains('/') {
@@ -342,46 +335,19 @@ fn validate_model_media_capabilities(
                 model.id
             )));
         }
-        if normalized.starts_with("image/") {
-            has_image = true;
-        } else if normalized.starts_with("audio/") {
-            has_audio = true;
-        } else if normalized.starts_with("video/") {
-            has_video = true;
-        } else if is_supported_inline_document_mime_type(&normalized) {
-            has_document = true;
-        }
-        let supported_by_protocol = matches!(protocol, ProviderProtocol::GeminiGenerateContent)
-            || is_supported_inline_image_mime_type(&normalized)
-            || is_supported_inline_document_mime_type(&normalized)
-            || (matches!(protocol, ProviderProtocol::OpenaiChatCompletions)
-                && openai_input_audio_format(&normalized).is_some());
-        if !supported_by_protocol {
-            return Err(ConfigError::InvalidValue(format!(
-                "UpstreamModel {} cannot use inline MIME type {normalized} with provider protocol {:?}",
-                model.id, protocol
-            )));
-        }
+        declared_modalities.insert(input_modality_for_mime_type(&normalized));
     }
 
-    for (modality, has_mime) in [
-        (ModelModality::Image, has_image),
-        (ModelModality::Audio, has_audio),
-        (ModelModality::Video, has_video),
-        (ModelModality::Document, has_document),
+    for modality in [
+        ModelModality::Image,
+        ModelModality::Audio,
+        ModelModality::Video,
+        ModelModality::Document,
     ] {
-        if model.capabilities.supports_input(modality) != has_mime {
+        if model.capabilities.supports_input(modality) != declared_modalities.contains(&modality) {
             return Err(ConfigError::InvalidValue(format!(
                 "UpstreamModel {} {:?} input modality must match its input MIME types",
                 model.id, modality
-            )));
-        }
-    }
-    for modality in &model.capabilities.input_modalities {
-        if !protocol.supports_input_modality(*modality) {
-            return Err(ConfigError::InvalidValue(format!(
-                "UpstreamModel {} cannot use {:?} input with provider protocol {:?}",
-                model.id, modality, protocol
             )));
         }
     }
@@ -534,15 +500,7 @@ mod tests {
         let provider_id = "provider".to_string();
         let mut input_modalities = BTreeSet::from([ModelModality::Text]);
         for mime_type in mime_types {
-            if mime_type.starts_with("image/") {
-                input_modalities.insert(ModelModality::Image);
-            } else if mime_type.starts_with("audio/") {
-                input_modalities.insert(ModelModality::Audio);
-            } else if mime_type.starts_with("video/") {
-                input_modalities.insert(ModelModality::Video);
-            } else if *mime_type == "application/pdf" {
-                input_modalities.insert(ModelModality::Document);
-            }
+            input_modalities.insert(input_modality_for_mime_type(mime_type));
         }
         AppConfig {
             providers: vec![Provider {
@@ -585,44 +543,40 @@ mod tests {
     }
 
     #[test]
-    fn video_mime_requires_gemini_protocol() {
-        assert!(
-            media_config(ProviderProtocol::GeminiGenerateContent, &["video/mp4"])
-                .validate()
-                .is_ok()
-        );
-
-        let error = media_config(ProviderProtocol::OpenaiChatCompletions, &["video/mp4"])
-            .validate()
-            .unwrap_err();
-        assert!(error.to_string().contains("video/mp4"));
+    fn video_mime_is_a_user_declaration_for_every_protocol() {
+        for protocol in [
+            ProviderProtocol::OpenaiChatCompletions,
+            ProviderProtocol::OpenaiResponses,
+            ProviderProtocol::AnthropicMessages,
+            ProviderProtocol::GeminiGenerateContent,
+        ] {
+            assert!(media_config(protocol, &["video/mp4"]).validate().is_ok());
+        }
     }
 
     #[test]
-    fn audio_mime_is_supported_by_openai_chat_and_gemini() {
-        assert!(
-            media_config(ProviderProtocol::GeminiGenerateContent, &["audio/wav"])
+    fn audio_mime_is_a_user_declaration_for_every_protocol() {
+        for protocol in [
+            ProviderProtocol::OpenaiChatCompletions,
+            ProviderProtocol::OpenaiResponses,
+            ProviderProtocol::AnthropicMessages,
+            ProviderProtocol::GeminiGenerateContent,
+        ] {
+            assert!(media_config(protocol, &["audio/webm;codecs=opus"])
                 .validate()
-                .is_ok()
-        );
-        assert!(
-            media_config(ProviderProtocol::OpenaiChatCompletions, &["audio/mpeg"])
-                .validate()
-                .is_ok()
-        );
-
-        let error = media_config(ProviderProtocol::OpenaiResponses, &["audio/wav"])
-            .validate()
-            .unwrap_err();
-        assert!(error.to_string().contains("audio/wav"));
+                .is_ok());
+        }
     }
 
     #[test]
-    fn openai_chat_rejects_unsupported_audio_formats() {
-        let error = media_config(ProviderProtocol::OpenaiChatCompletions, &["audio/flac"])
-            .validate()
-            .unwrap_err();
-        assert!(error.to_string().contains("audio/flac"));
+    fn host_audio_mime_aliases_are_classified_as_audio() {
+        for mime_type in ["video/audio/s16le", "video/audio/wav"] {
+            assert!(
+                media_config(ProviderProtocol::OpenaiResponses, &[mime_type])
+                    .validate()
+                    .is_ok()
+            );
+        }
     }
 
     #[test]
@@ -654,14 +608,15 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_image_mime_requires_gemini_protocol() {
-        let gemini_config = media_config(ProviderProtocol::GeminiGenerateContent, &["image/heic"]);
-        assert!(gemini_config.validate().is_ok());
-
-        let error = media_config(ProviderProtocol::AnthropicMessages, &["image/heic"])
-            .validate()
-            .unwrap_err();
-        assert!(error.to_string().contains("image/heic"));
+    fn image_mime_is_not_restricted_by_protocol() {
+        for protocol in [
+            ProviderProtocol::OpenaiChatCompletions,
+            ProviderProtocol::OpenaiResponses,
+            ProviderProtocol::AnthropicMessages,
+            ProviderProtocol::GeminiGenerateContent,
+        ] {
+            assert!(media_config(protocol, &["image/heic"]).validate().is_ok());
+        }
     }
 
     #[test]

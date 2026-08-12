@@ -21,10 +21,10 @@ import type {
   ProviderCatalogState,
 } from "./providerCatalogTypes";
 import {
+  MULTIMODAL_INPUT_MODALITIES,
   catalogInputMimeTypes,
   catalogSupportsInput,
   normalizeSelectedInputMimeTypes,
-  supportsInputModality,
   upstreamInputMimeTypes,
   upstreamSupportsInput,
 } from "./modelMediaCapabilities";
@@ -136,30 +136,31 @@ function loadedCatalogState(
     const supportsImages = upstream
       ? upstreamSupportsInput(upstream, "image")
       : catalogSupportsInput(model, "image");
-    const supportsAudio = supportsInputModality(protocol, "audio") && (upstream
+    const supportsAudio = upstream
       ? upstreamSupportsInput(upstream, "audio")
-      : catalogSupportsInput(model, "audio"));
-    const supportsVideo = supportsInputModality(protocol, "video") && (upstream
+      : catalogSupportsInput(model, "audio");
+    const supportsVideo = upstream
       ? upstreamSupportsInput(upstream, "video")
-      : catalogSupportsInput(model, "video"));
+      : catalogSupportsInput(model, "video");
     const supportsDocuments = upstream
       ? upstreamSupportsInput(upstream, "document")
       : catalogSupportsInput(model, "document");
-    const selectedModalities = new Set([
+    const declaredModalities = new Set([
       ...(supportsImages ? ["image" as const] : []),
       ...(supportsAudio ? ["audio" as const] : []),
       ...(supportsVideo ? ["video" as const] : []),
       ...(supportsDocuments ? ["document" as const] : []),
     ]);
+    // 尚未保存过的目录模型只要声明任意多模态能力，就默认开放全部输入类型。
+    const selectedModalities = !upstream && declaredModalities.size > 0
+      ? new Set(MULTIMODAL_INPUT_MODALITIES)
+      : declaredModalities;
     return [model.id, {
-      supportsImages,
-      supportsAudio,
-      supportsVideo,
-      supportsDocuments,
-      mimeTypes: normalizeSelectedInputMimeTypes(sourceMimeTypes, {
-        selectedModalities,
-        protocol,
-      }),
+      supportsImages: selectedModalities.has("image"),
+      supportsAudio: selectedModalities.has("audio"),
+      supportsVideo: selectedModalities.has("video"),
+      supportsDocuments: selectedModalities.has("document"),
+      mimeTypes: normalizeSelectedInputMimeTypes(sourceMimeTypes, selectedModalities),
     }] as const;
   }));
   const reasoningLevelsByModel = new Map(models.map((model) => {
