@@ -381,12 +381,12 @@ run_step "等待 GitHub Actions #$RUN_ID" gh run watch "$RUN_ID" --exit-status
 RELEASE_BODY_FILE="$(mktemp "${TMPDIR:-/tmp}/agy-byok-release.XXXXXX")"
 {
   cat -- "$NOTES_FILE"
-  printf '\n\n### 下载\n\n'
+  printf '\n\n### Downloads\n\n'
   printf '%s\n' \
-    '- macOS Apple Silicon（M 系列）：下载名称包含 macOS-Apple-Silicon 的 DMG。' \
-    '- macOS Intel：下载名称包含 macOS-Intel 的 DMG。' \
-    '- Windows 64 位：下载 EXE。' \
-    '- 其余文件由应用自动更新使用，无需手动下载。'
+    '- **macOS Apple Silicon (M-series)**: Download the DMG containing `macOS-Apple-Silicon`.' \
+    '- **macOS Intel**: Download the DMG containing `macOS-Intel`.' \
+    '- **Windows 64-bit**: Download the `x64` setup EXE.' \
+    '- Other assets are used for in-app automatic updates and do not need to be downloaded manually.'
 } > "$RELEASE_BODY_FILE"
 
 run_step "同步 GitHub Release 正文" gh release edit "$TAG" \

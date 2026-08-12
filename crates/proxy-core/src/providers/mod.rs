@@ -8,10 +8,9 @@ pub(crate) mod traits;
 
 pub(crate) use anthropic::AnthropicAdapter;
 pub use catalog::{
-    fetch_official_models_catalog, fetch_official_models_catalog_raw,
-    fetch_provider_models, fetch_provider_models_raw, parse_official_catalog_response,
-    OfficialCatalogRawResponse, OfficialCatalogSource, ProviderCatalogModel,
-    ProviderCatalogRawResponse,
+    fetch_official_models_catalog, fetch_official_models_catalog_raw, fetch_provider_models,
+    fetch_provider_models_raw, parse_official_catalog_response, OfficialCatalogRawResponse,
+    OfficialCatalogSource, ProviderCatalogModel, ProviderCatalogRawResponse,
 };
 pub(crate) use gemini::GeminiAdapter;
 pub(crate) use openai::OpenAIAdapter;

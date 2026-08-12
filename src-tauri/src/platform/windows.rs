@@ -62,7 +62,10 @@ pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, S
     let language_server = installation.join("resources/bin/language_server.exe");
 
     if !installation.is_dir() {
-        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+        return Err(format!(
+            "指定路径不存在或不是有效目录：{}",
+            custom_path.display()
+        ));
     }
     if !executable.is_file() {
         return Err(format!(
@@ -98,7 +101,10 @@ pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, S
 
     let executable = installation.join(IDE_EXECUTABLE);
     if !installation.is_dir() {
-        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+        return Err(format!(
+            "指定路径不存在或不是有效目录：{}",
+            custom_path.display()
+        ));
     }
     if !executable.is_file() {
         return Err(format!(

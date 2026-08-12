@@ -31,7 +31,7 @@ pub(crate) async fn set_custom_app_path(
     let candidate = std::path::PathBuf::from(path.trim());
     let validated = crate::platform::validate_custom_app_path(&candidate)
         .map_err(|error| report(HOST_MODIFY_FAILED, error))?;
-    
+
     let mut config = state.config_store.get_config();
     config.custom_host_paths.app = Some(validated.installation);
     state

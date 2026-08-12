@@ -39,8 +39,8 @@ pub fn discover_cli_sync(
                 | CliIntegrationState::External
                 | CliIntegrationState::Managed
         );
-    let can_disable_integration = status.has_ownership
-        || status.state != CliIntegrationState::Disabled;
+    let can_disable_integration =
+        status.has_ownership || status.state != CliIntegrationState::Disabled;
 
     Ok(CliStatus {
         installed: status.installed,

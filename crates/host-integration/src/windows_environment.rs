@@ -130,7 +130,8 @@ pub fn disable(
 
     if let Some(receipt) = receipt {
         let current_value = read_user_environment_value()?;
-        let current_value_is_managed = receipt_matches_current_value(&receipt, current_value.as_ref());
+        let current_value_is_managed =
+            receipt_matches_current_value(&receipt, current_value.as_ref());
         let mut remaining_receipt = receipt.clone();
         remaining_receipt.owners.remove(owner);
 

@@ -63,7 +63,10 @@ pub(super) fn validate_custom_app_path(custom_path: &Path) -> Result<AppPaths, S
     let language_server = installation.join("Contents/Resources/bin/language_server");
 
     if !installation.is_dir() {
-        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+        return Err(format!(
+            "指定路径不存在或不是有效目录：{}",
+            custom_path.display()
+        ));
     }
     if !executable.is_file() {
         return Err(format!(
@@ -105,7 +108,10 @@ pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, S
 
     let executable = installation.join("Contents/MacOS/Electron");
     if !installation.is_dir() {
-        return Err(format!("指定路径不存在或不是有效目录：{}", custom_path.display()));
+        return Err(format!(
+            "指定路径不存在或不是有效目录：{}",
+            custom_path.display()
+        ));
     }
     if !executable.is_file() {
         return Err(format!(
@@ -114,9 +120,8 @@ pub(super) fn validate_custom_ide_path(custom_path: &Path) -> Result<IdePaths, S
         ));
     }
 
-    let settings = user_home_dir().map(|home| {
-        home.join("Library/Application Support/Antigravity IDE/User/settings.json")
-    });
+    let settings = user_home_dir()
+        .map(|home| home.join("Library/Application Support/Antigravity IDE/User/settings.json"));
 
     Ok(IdePaths {
         installation,

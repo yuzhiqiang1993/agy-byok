@@ -373,12 +373,14 @@ pub async fn fetch_official_models_catalog_raw(
             }
         };
         if !(200..300).contains(&status) {
-            last_error = Some(ProxyError::new(
-                ErrorCategory::UpstreamServerError,
-                format!("{} 语言服务返回 HTTP {status}", source.label()),
-                502,
-            )
-            .with_upstream_body(json_text));
+            last_error = Some(
+                ProxyError::new(
+                    ErrorCategory::UpstreamServerError,
+                    format!("{} 语言服务返回 HTTP {status}", source.label()),
+                    502,
+                )
+                .with_upstream_body(json_text),
+            );
             continue;
         }
         return Ok(OfficialCatalogRawResponse {
