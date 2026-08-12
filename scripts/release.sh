@@ -4,7 +4,6 @@
 # 功能代码应先独立提交；本脚本只处理版本元数据、发布日志、标签和 GitHub Release。
 
 set -Eeuo pipefail
-IFS=$'\n\t'
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd -- "$ROOT_DIR"
