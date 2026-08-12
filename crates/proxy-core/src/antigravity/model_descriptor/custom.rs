@@ -3,7 +3,9 @@ use super::checkpoint::{
     official_model_aliases,
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
-use crate::domain::{ModelModality, ReasoningMapping, UpstreamModel, VirtualModel};
+use crate::domain::{
+    ModelModality, Provider, ProviderProtocol, ReasoningMapping, UpstreamModel, VirtualModel,
+};
 use serde_json::{json, Map, Value};
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
@@ -48,40 +50,29 @@ impl AntigravityModelDescriptor {
     pub fn build_cloud_code_catalog_entry(
         virtual_model: &VirtualModel,
         upstream_model: &UpstreamModel,
+        provider: &Provider,
     ) -> Value {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
-        let declared_input_modalities = modalities(&caps.input_modalities, false);
-        let input_modalities_lowercase = modalities(&caps.input_modalities, true);
-        let declared_output_modalities = modalities(&caps.output_modalities, false);
-        let output_modalities_lowercase = modalities(&caps.output_modalities, true);
-        let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
+        let (_, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
             "displayName": virtual_model.display_name,
             // Antigravity 的 maxTokens 是 planner 输入预算，不是请求的输出参数。
-            "contextWindow": context_window,
             "maxTokens": input_token_limit,
             "maxOutputTokens": output_token_limit,
             "model": host_model_id,
             "planModel": host_model_id,
             "requestedModel": host_model_id,
+            // 宿主仍通过 Gemini 传输链路调用 BYOK，模型归属则按上游协议单独声明。
             "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
-            "modelProvider": "MODEL_PROVIDER_GOOGLE",
+            "modelProvider": host_model_provider(&provider.protocol),
             // 自定义模型不冒充宿主官方推荐项。
             "recommended": false,
             "supportsImages": caps.supports_input(ModelModality::Image),
-            "supportsVision": caps.supports_input(ModelModality::Image),
-            "supportsImage": caps.supports_input(ModelModality::Image),
             "supportsThinking": caps.reasoning.supports_reasoning(),
-            "supportsAudio": caps.supports_input(ModelModality::Audio),
             "supportsVideo": caps.supports_input(ModelModality::Video),
-            "inputModalities": declared_input_modalities,
-            "input_modalities": input_modalities_lowercase,
-            "outputModalities": declared_output_modalities,
-            "output_modalities": output_modalities_lowercase,
-            "supportedMimeTypes": input_mime_types(caps),
-            "tokenizerType": "LLAMA_WITH_SPECIAL"
+            "supportedMimeTypes": input_mime_types(caps)
         });
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
         descriptor
@@ -91,6 +82,7 @@ impl AntigravityModelDescriptor {
         models_json: &mut Value,
         virtual_models: &[VirtualModel],
         upstream_models: &[UpstreamModel],
+        providers: &[Provider],
     ) {
         let models = virtual_models
             .iter()
@@ -102,7 +94,14 @@ impl AntigravityModelDescriptor {
                         upstream_model.id == virtual_model.upstream_model_id
                             && upstream_model.enabled
                     })
-                    .map(|upstream_model| (virtual_model, upstream_model))
+                    .and_then(|upstream_model| {
+                        providers
+                            .iter()
+                            .find(|provider| {
+                                provider.id == upstream_model.provider_id && provider.enabled
+                            })
+                            .map(|provider| (virtual_model, upstream_model, provider))
+                    })
             })
             .collect::<Vec<_>>();
 
@@ -117,7 +116,7 @@ impl AntigravityModelDescriptor {
                     .expect("checked model catalog must exist");
                 models
                     .iter()
-                    .map(|(virtual_model, _)| {
+                    .map(|(virtual_model, _, _)| {
                         if target.is_array() {
                             virtual_model.id.clone()
                         } else {
@@ -134,7 +133,7 @@ impl AntigravityModelDescriptor {
                 &checkpoint_output_limits,
                 &aliases,
             );
-            append_catalog_keys_to_model_sorts(catalog.get_mut("agentModelSorts"), &model_sort_ids);
+            place_catalog_keys_in_byok_sort(catalog.get_mut("agentModelSorts"), &model_sort_ids);
         } else {
             inject_models(catalog, models, &checkpoint_output_limits, &aliases);
         }
@@ -170,9 +169,10 @@ fn apply_reasoning_metadata(
         return;
     };
     let reasoning = &upstream_model.capabilities.reasoning;
-    if let Some(tokens) = reasoning.thinking_budget {
-        descriptor.insert("thinkingBudget".to_string(), json!(tokens));
-    }
+    descriptor.insert(
+        "thinkingBudget".to_string(),
+        json!(reasoning.thinking_budget.unwrap_or(-1)),
+    );
     if let Some(tokens) = reasoning.min_thinking_budget {
         descriptor.insert("minThinkingBudget".to_string(), json!(tokens));
     }
@@ -182,14 +182,6 @@ fn apply_reasoning_metadata(
     let Some(mapping) = upstream_model.capabilities.reasoning.mapping_for(level) else {
         return;
     };
-
-    let reasoning_effort = match mapping {
-        ReasoningMapping::Effort(value) | ReasoningMapping::NativeLevel(value) => {
-            Value::String(value.clone())
-        }
-        _ => serde_json::to_value(level).expect("reasoning level serialization cannot fail"),
-    };
-    descriptor.insert("reasoningEffort".to_string(), reasoning_effort);
 
     match mapping {
         ReasoningMapping::BudgetTokens(tokens) => {
@@ -257,11 +249,15 @@ fn custom_model_object(
 fn custom_cloud_code_catalog_entry(
     virtual_model: &VirtualModel,
     upstream_model: &UpstreamModel,
+    provider: &Provider,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
 ) -> Value {
-    let mut descriptor =
-        AntigravityModelDescriptor::build_cloud_code_catalog_entry(virtual_model, upstream_model);
+    let mut descriptor = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+        virtual_model,
+        upstream_model,
+        provider,
+    );
     apply_custom_model_compression_policy(
         &mut descriptor,
         upstream_model,
@@ -273,28 +269,33 @@ fn custom_cloud_code_catalog_entry(
 
 fn inject_models(
     target: &mut Value,
-    models: Vec<(&VirtualModel, &UpstreamModel)>,
+    models: Vec<(&VirtualModel, &UpstreamModel, &Provider)>,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
 ) {
     match target {
         Value::Array(entries) => {
-            entries.extend(models.into_iter().map(|(virtual_model, upstream_model)| {
-                custom_model_object(
-                    virtual_model,
-                    upstream_model,
-                    checkpoint_output_limits,
-                    aliases,
-                )
-            }));
+            entries.extend(
+                models
+                    .into_iter()
+                    .map(|(virtual_model, upstream_model, _)| {
+                        custom_model_object(
+                            virtual_model,
+                            upstream_model,
+                            checkpoint_output_limits,
+                            aliases,
+                        )
+                    }),
+            );
         }
         Value::Object(entries) => {
-            for (virtual_model, upstream_model) in models {
+            for (virtual_model, upstream_model, provider) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
                     custom_cloud_code_catalog_entry(
                         virtual_model,
                         upstream_model,
+                        provider,
                         checkpoint_output_limits,
                         aliases,
                     ),
@@ -303,12 +304,13 @@ fn inject_models(
         }
         _ => {
             let mut entries = Map::new();
-            for (virtual_model, upstream_model) in models {
+            for (virtual_model, upstream_model, provider) in models {
                 entries.insert(
                     virtual_model.catalog_key().into_owned(),
                     custom_cloud_code_catalog_entry(
                         virtual_model,
                         upstream_model,
+                        provider,
                         checkpoint_output_limits,
                         aliases,
                     ),
@@ -319,12 +321,15 @@ fn inject_models(
     }
 }
 
-fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_keys: &[String]) {
+fn place_catalog_keys_in_byok_sort(model_sorts: Option<&mut Value>, catalog_keys: &[String]) {
+    if catalog_keys.is_empty() {
+        return;
+    }
     let Some(model_sorts) = model_sorts.and_then(Value::as_array_mut) else {
         return;
     };
 
-    for model_sort in model_sorts {
+    for model_sort in model_sorts.iter_mut() {
         let Some(groups) = model_sort.get_mut("groups").and_then(Value::as_array_mut) else {
             continue;
         };
@@ -333,16 +338,58 @@ fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_k
             let Some(model_ids) = group.get_mut("modelIds").and_then(Value::as_array_mut) else {
                 continue;
             };
-
-            for catalog_key in catalog_keys {
-                if !model_ids
-                    .iter()
-                    .any(|model_id| model_id.as_str() == Some(catalog_key.as_str()))
-                {
-                    model_ids.push(Value::String(catalog_key.clone()));
-                }
-            }
+            model_ids.retain(|model_id| {
+                model_id
+                    .as_str()
+                    .is_none_or(|model_id| !catalog_keys.iter().any(|key| key == model_id))
+            });
         }
+    }
+
+    let byok_sort_index = model_sorts
+        .iter()
+        .position(|sort| sort.get("displayName").and_then(Value::as_str) == Some("BYOK"));
+    let byok_sort = match byok_sort_index {
+        Some(index) => &mut model_sorts[index],
+        None => {
+            model_sorts.push(json!({
+                "displayName": "BYOK",
+                "groups": [{ "modelIds": [] }]
+            }));
+            model_sorts
+                .last_mut()
+                .expect("BYOK model sort was just appended")
+        }
+    };
+    if !byok_sort.get("groups").is_some_and(Value::is_array) {
+        byok_sort["groups"] = json!([]);
+    }
+    let groups = byok_sort
+        .get_mut("groups")
+        .and_then(Value::as_array_mut)
+        .expect("BYOK groups were normalized to an array");
+    if groups.is_empty() {
+        groups.push(json!({ "modelIds": [] }));
+    }
+    if !groups[0].get("modelIds").is_some_and(Value::is_array) {
+        groups[0]["modelIds"] = json!([]);
+    }
+    let model_ids = groups[0]
+        .get_mut("modelIds")
+        .and_then(Value::as_array_mut)
+        .expect("BYOK model IDs were normalized to an array");
+    for catalog_key in catalog_keys {
+        model_ids.push(Value::String(catalog_key.clone()));
+    }
+}
+
+fn host_model_provider(protocol: &ProviderProtocol) -> &'static str {
+    match protocol {
+        ProviderProtocol::OpenaiChatCompletions | ProviderProtocol::OpenaiResponses => {
+            "MODEL_PROVIDER_OPENAI"
+        }
+        ProviderProtocol::AnthropicMessages => "MODEL_PROVIDER_ANTHROPIC",
+        ProviderProtocol::GeminiGenerateContent => "MODEL_PROVIDER_GOOGLE",
     }
 }
 

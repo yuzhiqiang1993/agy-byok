@@ -4,10 +4,31 @@ use super::custom::{
 use super::*;
 use crate::domain::{
     ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelTokenLimits, ParameterOverrides,
-    TokenLimitSource, UpstreamModel, VirtualModel,
+    Provider, ProviderProtocol, TokenLimitSource, UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+fn provider(protocol: ProviderProtocol) -> Provider {
+    Provider {
+        id: "provider".to_string(),
+        name: "Provider".to_string(),
+        protocol,
+        models_endpoint: "http://localhost/models".to_string(),
+        generate_endpoint: "http://localhost/generate".to_string(),
+        api_key: "test-key".to_string(),
+        headers: HashMap::new(),
+        default_parameters: ParameterOverrides::default(),
+        connect_timeout_ms: 1_000,
+        request_timeout_ms: 1_000,
+        stream_idle_timeout_ms: 1_000,
+        enabled: true,
+    }
+}
+
+fn providers() -> Vec<Provider> {
+    vec![provider(ProviderProtocol::GeminiGenerateContent)]
+}
 
 fn models() -> (VirtualModel, UpstreamModel) {
     (
@@ -92,11 +113,13 @@ fn custom_model_without_policy_does_not_inject_checkpointer() {
         &mut object_catalog,
         std::slice::from_ref(&virtual_model),
         std::slice::from_ref(&upstream_model),
+        &providers(),
     );
     AntigravityModelDescriptor::inject_into_model_list(
         &mut array_catalog,
         &[virtual_model],
         &[upstream_model],
+        &providers(),
     );
 
     assert!(!has_checkpoint(&object_catalog["models"]["custom-model"]));
@@ -119,6 +142,7 @@ fn custom_model_policy_is_applied_and_clamped_to_model_limits() {
         &mut catalog,
         &[virtual_model],
         &[upstream_model],
+        &providers(),
     );
 
     let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
@@ -147,6 +171,7 @@ fn estimated_context_does_not_clamp_catalog_input_checkpointer_capacity() {
         &mut catalog,
         &[virtual_model],
         &[upstream_model],
+        &providers(),
     );
 
     let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
@@ -326,6 +351,7 @@ fn model_injection_supports_root_and_response_object_and_array_catalogs() {
             catalog,
             std::slice::from_ref(&virtual_model),
             std::slice::from_ref(&upstream_model),
+            &providers(),
         );
     }
 
@@ -334,21 +360,28 @@ fn model_injection_supports_root_and_response_object_and_array_catalogs() {
     assert_eq!(catalogs[2]["models"][0]["id"], "custom-model");
     assert_eq!(catalogs[3]["response"]["models"][0]["id"], "custom-model");
     assert_eq!(
-        catalogs[0]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
-        "custom-model"
+        catalogs[0]["agentModelSorts"][1]["groups"][0]["modelIds"],
+        json!(["custom-model"])
     );
     assert_eq!(
-        catalogs[1]["response"]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
-        "custom-model"
+        catalogs[1]["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
+        json!(["custom-model"])
     );
     assert_eq!(
-        catalogs[2]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
-        "custom-model"
+        catalogs[2]["agentModelSorts"][1]["groups"][0]["modelIds"],
+        json!(["custom-model"])
     );
     assert_eq!(
-        catalogs[3]["response"]["agentModelSorts"][0]["groups"][0]["modelIds"][1],
-        "custom-model"
+        catalogs[3]["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
+        json!(["custom-model"])
     );
+    for catalog in [&catalogs[0], &catalogs[2]] {
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!(["official"])
+        );
+        assert_eq!(catalog["agentModelSorts"][1]["displayName"], "BYOK");
+    }
     for catalog in &catalogs {
         assert_eq!(AntigravityModelDescriptor::model_count(catalog), 1);
     }
@@ -433,18 +466,73 @@ fn descriptor_uses_experience_defaults_for_missing_model_limits() {
     let (virtual_model, upstream_model) = models();
     let descriptor =
         AntigravityModelDescriptor::build_model_object(&virtual_model, &upstream_model);
-    let catalog =
-        AntigravityModelDescriptor::build_cloud_code_catalog_entry(&virtual_model, &upstream_model);
+    let catalog = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+        &virtual_model,
+        &upstream_model,
+        &provider(ProviderProtocol::GeminiGenerateContent),
+    );
 
     assert_eq!(descriptor["contextWindow"], DEFAULT_CONTEXT_WINDOW);
     assert_eq!(descriptor["inputTokenLimit"], DEFAULT_INPUT_TOKEN_LIMIT);
     assert_eq!(descriptor["outputTokenLimit"], DEFAULT_OUTPUT_TOKEN_LIMIT);
-    assert_eq!(catalog["contextWindow"], DEFAULT_CONTEXT_WINDOW);
+    assert_eq!(catalog["maxTokens"], DEFAULT_INPUT_TOKEN_LIMIT);
     assert_eq!(catalog["recommended"], false);
+    assert_eq!(
+        catalog
+            .as_object()
+            .expect("catalog entry must be an object")
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "apiProvider",
+            "displayName",
+            "maxOutputTokens",
+            "maxTokens",
+            "model",
+            "modelProvider",
+            "planModel",
+            "recommended",
+            "requestedModel",
+            "supportedMimeTypes",
+            "supportsImages",
+            "supportsThinking",
+            "supportsVideo",
+        ])
+    );
 }
 
 #[test]
-fn video_capabilities_are_consistent_across_catalog_shapes() {
+fn cloud_code_catalog_keeps_byok_transport_and_maps_model_provider_by_protocol() {
+    let (virtual_model, upstream_model) = models();
+    for (protocol, expected_model_provider) in [
+        (
+            ProviderProtocol::OpenaiChatCompletions,
+            "MODEL_PROVIDER_OPENAI",
+        ),
+        (ProviderProtocol::OpenaiResponses, "MODEL_PROVIDER_OPENAI"),
+        (
+            ProviderProtocol::AnthropicMessages,
+            "MODEL_PROVIDER_ANTHROPIC",
+        ),
+        (
+            ProviderProtocol::GeminiGenerateContent,
+            "MODEL_PROVIDER_GOOGLE",
+        ),
+    ] {
+        let catalog = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+            &virtual_model,
+            &upstream_model,
+            &provider(protocol),
+        );
+
+        assert_eq!(catalog["apiProvider"], "API_PROVIDER_GOOGLE_GEMINI");
+        assert_eq!(catalog["modelProvider"], expected_model_provider);
+    }
+}
+
+#[test]
+fn video_capabilities_follow_each_catalog_shape() {
     let (virtual_model, mut upstream_model) = models();
     upstream_model.capabilities.input_modalities = std::collections::BTreeSet::from([
         ModelModality::Text,
@@ -463,18 +551,20 @@ fn video_capabilities_are_consistent_across_catalog_shapes() {
         &mut object_catalog,
         std::slice::from_ref(&virtual_model),
         std::slice::from_ref(&upstream_model),
+        &providers(),
     );
     AntigravityModelDescriptor::inject_into_model_list(
         &mut array_catalog,
         &[virtual_model],
         &[upstream_model],
+        &providers(),
     );
 
     let object_model = &object_catalog["models"]["custom-model"];
     let array_model = &array_catalog["models"][0];
     assert_eq!(object_model["supportsVideo"], true);
     assert_eq!(array_model["supportsVideo"], true);
-    assert_eq!(object_model["outputModalities"], json!(["TEXT"]));
+    assert!(object_model.get("outputModalities").is_none());
     assert_eq!(array_model["outputModalities"], json!(["TEXT"]));
     assert_eq!(object_model["supportedMimeTypes"]["video/mp4"], true);
     assert!(array_model["supportedMimeTypes"]
@@ -482,11 +572,7 @@ fn video_capabilities_are_consistent_across_catalog_shapes() {
         .unwrap()
         .iter()
         .any(|mime_type| mime_type == "video/mp4"));
-    assert!(object_model["inputModalities"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|modality| modality == "VIDEO"));
+    assert!(object_model.get("inputModalities").is_none());
     assert!(array_model["inputModalities"]
         .as_array()
         .unwrap()
@@ -502,8 +588,11 @@ fn model_thinking_budgets_are_preserved_across_catalog_shapes() {
 
     let descriptor =
         AntigravityModelDescriptor::build_model_object(&virtual_model, &upstream_model);
-    let catalog =
-        AntigravityModelDescriptor::build_cloud_code_catalog_entry(&virtual_model, &upstream_model);
+    let catalog = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+        &virtual_model,
+        &upstream_model,
+        &provider(ProviderProtocol::GeminiGenerateContent),
+    );
 
     assert_eq!(descriptor["supportsThinking"], true);
     assert_eq!(descriptor["thinkingBudget"], 10_001);

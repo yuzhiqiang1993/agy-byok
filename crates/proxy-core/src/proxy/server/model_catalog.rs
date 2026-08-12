@@ -80,6 +80,7 @@ impl ProxyServer {
             &mut base_json,
             &catalog_virtual_models,
             &config.upstream_models,
+            &config.providers,
         );
         base_json
     }

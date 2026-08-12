@@ -603,11 +603,16 @@ mod tests {
         assert_eq!(catalog["agentModelSorts"][0]["sortId"], "recommended");
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["native-model", "custom-virtual-1"])
+            json!(["native-model"])
         );
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][1]["modelIds"],
-            json!(["native-model", "custom-virtual-1"])
+            json!(["native-model"])
+        );
+        assert_eq!(catalog["agentModelSorts"][1]["displayName"], "BYOK");
+        assert_eq!(
+            catalog["agentModelSorts"][1]["groups"][0]["modelIds"],
+            json!(["custom-virtual-1"])
         );
         let host_model_id = catalog["models"]["custom-virtual-1"]["requestedModel"]
             .as_str()

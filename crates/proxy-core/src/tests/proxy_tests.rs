@@ -11,28 +11,34 @@ mod tests {
     use crate::routing::RouteTable;
     use crate::storage::ConfigStore;
     use crate::tests::mock_provider::MockProviderServer;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::{BTreeMap, HashMap};
     use std::time::Duration;
 
+    fn test_provider(id: &str, protocol: ProviderProtocol) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: "Connection Provider".to_string(),
+            protocol,
+            models_endpoint: "http://localhost/models".to_string(),
+            generate_endpoint: "http://localhost/chat".to_string(),
+            api_key: "sk-connection".to_string(),
+            headers: HashMap::new(),
+            default_parameters: ParameterOverrides::default(),
+            connect_timeout_ms: 3000,
+            request_timeout_ms: 5000,
+            stream_idle_timeout_ms: 5000,
+            enabled: true,
+        }
+    }
+
     fn connection_test_config(generate_endpoint: String) -> AppConfig {
+        let mut provider = test_provider("p-connection", ProviderProtocol::OpenaiChatCompletions);
+        provider.generate_endpoint = generate_endpoint;
         AppConfig {
             proxy_port: 51234,
             disabled_official_models: std::collections::HashSet::new(),
-            providers: vec![Provider {
-                id: "p-connection".to_string(),
-                name: "Connection Provider".to_string(),
-                protocol: ProviderProtocol::OpenaiChatCompletions,
-                models_endpoint: "http://localhost/models".to_string(),
-                generate_endpoint,
-                api_key: "sk-connection".to_string(),
-                headers: HashMap::new(),
-                default_parameters: ParameterOverrides::default(),
-                connect_timeout_ms: 3000,
-                request_timeout_ms: 5000,
-                stream_idle_timeout_ms: 5000,
-                enabled: true,
-            }],
+            providers: vec![provider],
             upstream_models: vec![UpstreamModel {
                 id: "um-connection".to_string(),
                 provider_id: "p-connection".to_string(),
@@ -117,6 +123,7 @@ mod tests {
             &mut catalog,
             &config.virtual_models,
             &config.upstream_models,
+            &config.providers,
         );
         let catalog_key = catalog["models"]
             .as_object()
@@ -205,7 +212,11 @@ mod tests {
         assert!(catalog["response"]["models"][catalog_key.as_str()].is_object());
         assert_eq!(
             catalog["response"]["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["official", catalog_key])
+            json!(["official"])
+        );
+        assert_eq!(
+            catalog["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
+            json!([catalog_key])
         );
         assert_eq!(AntigravityModelDescriptor::model_count(&catalog), 2);
     }
@@ -394,7 +405,10 @@ mod tests {
             "Connection Model high(Connection Provider)"
         );
         assert_eq!(model["supportsThinking"], true);
-        assert_eq!(model["reasoningEffort"], "high");
+        assert_eq!(model["thinkingBudget"], -1);
+        assert!(model.get("reasoningEffort").is_none());
+        assert_eq!(model["apiProvider"], "API_PROVIDER_GOOGLE_GEMINI");
+        assert_eq!(model["modelProvider"], "MODEL_PROVIDER_OPENAI");
     }
 
     #[test]
@@ -432,13 +446,19 @@ mod tests {
             "Connection Model high(Connection Provider)"
         );
         assert_eq!(
-            catalog["models"]["custom-vm-connection"]["reasoningEffort"],
-            "low"
+            catalog["models"]["custom-vm-connection"]["thinkingBudget"],
+            -1
         );
         assert_eq!(
-            catalog["models"]["custom-vm-connection-high"]["reasoningEffort"],
-            "high"
+            catalog["models"]["custom-vm-connection-high"]["thinkingBudget"],
+            -1
         );
+        assert!(catalog["models"]["custom-vm-connection"]
+            .get("reasoningEffort")
+            .is_none());
+        assert!(catalog["models"]["custom-vm-connection-high"]
+            .get("reasoningEffort")
+            .is_none());
     }
 
     #[test]
@@ -453,13 +473,13 @@ mod tests {
             .handle_model_list(json!({ "models": {} }));
         let default_model = &default_catalog["models"]["custom-vm-connection"];
         assert!(default_model.get("reasoningEffort").is_none());
-        assert!(default_model.get("thinkingBudget").is_none());
+        assert_eq!(default_model["thinkingBudget"], -1);
 
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::High);
         let high_catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
             .handle_model_list(json!({ "models": {} }));
         let high_model = &high_catalog["models"]["custom-vm-connection"];
-        assert_eq!(high_model["reasoningEffort"], "high");
+        assert!(high_model.get("reasoningEffort").is_none());
         assert_eq!(high_model["thinkingBudget"], 8192);
         assert!(high_model["thinkingBudget"].is_number());
     }
@@ -1102,7 +1122,11 @@ mod tests {
         assert_eq!(models_arr[1]["supportsThinking"], true);
         assert_eq!(
             injected["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["gemini-pro", "vm-claude"])
+            json!(["gemini-pro"])
+        );
+        assert_eq!(
+            injected["agentModelSorts"][1]["groups"][0]["modelIds"],
+            json!(["vm-claude"])
         );
     }
 
@@ -1142,6 +1166,10 @@ mod tests {
                 enabled: true,
             },
         ];
+        let providers = vec![test_provider(
+            "provider-1",
+            ProviderProtocol::OpenaiChatCompletions,
+        )];
         let mut catalog = json!({
             "catalogVersion": "v10",
             "models": {
@@ -1170,11 +1198,13 @@ mod tests {
             &mut catalog,
             &virtual_models,
             &upstream_models,
+            &providers,
         );
         AntigravityModelDescriptor::inject_into_model_list(
             &mut catalog,
             &virtual_models,
             &upstream_models,
+            &providers,
         );
 
         assert_eq!(catalog["catalogVersion"], "v10");
@@ -1186,11 +1216,16 @@ mod tests {
         assert_eq!(catalog["agentModelSorts"][0]["nativeField"], true);
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
+            json!(["native-model"])
         );
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][1]["modelIds"],
-            json!(["native-secondary", "custom-virtual-1", "custom-virtual-2"])
+            json!(["native-secondary"])
+        );
+        assert_eq!(catalog["agentModelSorts"][1]["displayName"], "BYOK");
+        assert_eq!(
+            catalog["agentModelSorts"][1]["groups"][0]["modelIds"],
+            json!(["custom-virtual-1", "custom-virtual-2"])
         );
 
         for mut malformed_catalog in [
@@ -1220,6 +1255,7 @@ mod tests {
                 &mut malformed_catalog,
                 &virtual_models,
                 &upstream_models,
+                &providers,
             );
 
             assert_eq!(
@@ -1228,10 +1264,20 @@ mod tests {
             );
             assert!(malformed_catalog["models"]["custom-virtual-1"].is_object());
             assert!(malformed_catalog["models"]["custom-virtual-2"].is_object());
-            assert_eq!(
-                malformed_catalog.get("agentModelSorts"),
-                original_sorts.as_ref()
-            );
+            if original_sorts.as_ref().is_some_and(Value::is_array) {
+                assert_eq!(
+                    malformed_catalog["agentModelSorts"]
+                        .as_array()
+                        .and_then(|sorts| sorts.last())
+                        .and_then(|sort| sort.get("displayName")),
+                    Some(&json!("BYOK"))
+                );
+            } else {
+                assert_eq!(
+                    malformed_catalog.get("agentModelSorts"),
+                    original_sorts.as_ref()
+                );
+            }
         }
 
         let mut mixed_catalog = json!({
@@ -1258,6 +1304,7 @@ mod tests {
             &mut mixed_catalog,
             &virtual_models,
             &upstream_models,
+            &providers,
         );
 
         assert_eq!(mixed_catalog["agentModelSorts"][0], malformed_sort);
@@ -1268,7 +1315,12 @@ mod tests {
         );
         assert_eq!(
             mixed_catalog["agentModelSorts"][1]["groups"][0]["modelIds"],
-            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
+            json!(["native-model"])
+        );
+        assert_eq!(mixed_catalog["agentModelSorts"][2]["displayName"], "BYOK");
+        assert_eq!(
+            mixed_catalog["agentModelSorts"][2]["groups"][0]["modelIds"],
+            json!(["custom-virtual-1", "custom-virtual-2"])
         );
     }
 
