@@ -43,10 +43,9 @@ mod tests {
                 upstream_model_id: "gpt-test".to_string(),
                 display_name: "GPT Test".to_string(),
                 capabilities: ModelCapabilities {
-                    vision: false,
                     tools: true,
-                    supported_mime_types: Vec::new(),
                     reasoning: ReasoningCapability::default(),
+                    ..ModelCapabilities::default()
                 },
                 token_limits: ModelTokenLimits::default(),
                 compression_policy: None,

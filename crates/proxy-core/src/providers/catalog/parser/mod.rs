@@ -1,10 +1,19 @@
 mod reasoning;
 
 use super::{ProviderCatalogModel, UpstreamCompressionPolicy};
-use crate::domain::{CustomModelCheckpointRetryConfig, ModelCompressionPolicy, ProviderProtocol};
+use crate::domain::{
+    CustomModelCheckpointRetryConfig, ModelCompressionPolicy, ModelModality, ModelRole,
+    ProviderProtocol,
+};
 use reasoning::parse_reasoning_metadata;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+struct CatalogModalityMetadata {
+    input_mime_types: Option<Vec<String>>,
+    input_modalities: Option<BTreeSet<ModelModality>>,
+    output_modalities: Option<BTreeSet<ModelModality>>,
+}
 
 #[cfg(test)]
 pub(super) fn parse_catalog_models(
@@ -102,8 +111,7 @@ pub(super) fn parse_catalog_models_with_context(
                 ],
             )
             .or(fallback_output_token_limit);
-            let (supported_mime_types, supports_images, supports_video) =
-                extract_media_metadata(item);
+            let media = extract_modality_metadata(item);
             Some(ProviderCatalogModel {
                 id,
                 display_name,
@@ -116,15 +124,15 @@ pub(super) fn parse_catalog_models_with_context(
                 max_tokens,
                 token_budget,
                 capabilities: extract_capabilities(item),
-                supported_mime_types,
-                supports_images,
-                supports_video,
+                roles: None,
+                input_modalities: media.input_modalities,
+                output_modalities: media.output_modalities,
+                input_mime_types: media.input_mime_types,
                 thinking: item.get("thinking").cloned(),
                 reasoning: parse_reasoning_metadata(item, protocol),
                 upstream_compression: extract_upstream_compression(item),
                 default_compression_policy: extract_default_compression_policy(item),
                 is_recommended: None,
-                is_agent_model: None,
                 agent_sort_order: None,
                 is_deprecated: None,
                 replacement_model_id: None,
@@ -280,10 +288,8 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
     };
     let deprecated_model_ids = parse_deprecated_model_ids(response);
     let agent_model_order = parse_agent_model_order(response);
-    let has_agent_model_metadata = response
-        .get("agentModelSorts")
-        .and_then(Value::as_array)
-        .is_some_and(|sorts| !sorts.is_empty() && !agent_model_order.is_empty());
+    let (official_roles, has_role_metadata) = parse_official_model_roles(response);
+    let has_agent_model_metadata = !agent_model_order.is_empty();
 
     let mut result = models
         .iter()
@@ -298,21 +304,62 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
                 .iter()
                 .filter_map(|field| item.get(*field).and_then(parse_positive_u32))
                 .min();
-            let supports_vision = item
-                .get("supportsVision")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
+            let capabilities_object = item.get("capabilities").and_then(Value::as_object);
+            let media_field = |keys: &[&str]| {
+                keys.iter().find_map(|key| item.get(*key)).or_else(|| {
+                    capabilities_object
+                        .and_then(|object| keys.iter().find_map(|key| object.get(*key)))
+                })
+            };
+            let supports_image_input = media_field(&[
+                "supportsImages",
+                "supports_images",
+                "supportsVision",
+                "supports_vision",
+                "supportsImageInput",
+                "supports_image_input",
+            ])
+            .and_then(Value::as_bool);
+            let has_explicit_input_modalities =
+                media_field(&["inputModalities", "input_modalities"]).is_some();
             let supports_tools = item
                 .get("supportsTools")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
             let supports_reasoning = item.get("supportsThinking").and_then(Value::as_bool);
-            let (supported_mime_types, supports_images, supports_video) =
-                extract_media_metadata(item);
-            let supports_vision = supports_images.unwrap_or(supports_vision);
+            let media = extract_modality_metadata(item);
+            let mut input_modalities = media.input_modalities;
+            let input_modalities =
+                input_modalities.get_or_insert_with(|| BTreeSet::from([ModelModality::Text]));
+            input_modalities.insert(ModelModality::Text);
+            match supports_image_input {
+                Some(true) => {
+                    input_modalities.insert(ModelModality::Image);
+                }
+                Some(false) => {
+                    input_modalities.remove(&ModelModality::Image);
+                }
+                None if !has_explicit_input_modalities => {
+                    input_modalities.insert(ModelModality::Image);
+                }
+                None => {}
+            }
+            let roles = official_roles.get(model_id).cloned().unwrap_or_default();
+            let output_modalities = media
+                .output_modalities
+                .unwrap_or_else(|| official_output_modalities(&roles));
+            let input_mime_types = complete_input_mime_types(
+                media
+                    .input_mime_types
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                input_modalities,
+            );
 
             let mut capabilities = serde_json::json!({
-                "vision": supports_vision,
+                "inputModalities": input_modalities,
+                "outputModalities": output_modalities,
                 "tools": supports_tools,
                 "raw_config": item,
             });
@@ -332,15 +379,14 @@ pub(super) fn parse_official_catalog_models(payload: &Value) -> Vec<ProviderCata
                 output_token_limit,
                 max_tokens,
                 capabilities: Some(capabilities),
-                supported_mime_types,
-                supports_images: Some(supports_vision),
-                supports_video,
+                roles: has_role_metadata.then_some(roles),
+                input_modalities: Some(input_modalities.clone()),
+                output_modalities: Some(output_modalities),
+                input_mime_types: (!input_mime_types.is_empty()).then_some(input_mime_types),
                 reasoning: parse_reasoning_metadata(item, &ProviderProtocol::GeminiGenerateContent),
                 upstream_compression: extract_upstream_compression(item),
                 default_compression_policy: extract_default_compression_policy(item),
                 is_recommended: item.get("recommended").and_then(Value::as_bool),
-                is_agent_model: has_agent_model_metadata
-                    .then(|| agent_model_order.contains_key(model_id)),
                 agent_sort_order: agent_model_order.get(model_id).copied(),
                 is_deprecated: (!deprecated_model_ids.is_empty())
                     .then(|| deprecated_model_ids.contains_key(model_id)),
@@ -411,6 +457,62 @@ fn parse_agent_model_order(response: &Value) -> BTreeMap<String, u32> {
     order
 }
 
+fn parse_official_model_roles(response: &Value) -> (BTreeMap<String, BTreeSet<ModelRole>>, bool) {
+    let mut roles = BTreeMap::<String, BTreeSet<ModelRole>>::new();
+    let mut has_metadata = false;
+
+    for model_id in parse_agent_model_order(response).into_keys() {
+        has_metadata = true;
+        roles.entry(model_id).or_default().insert(ModelRole::Agent);
+    }
+    if let Some(model_id) = response
+        .get("defaultAgentModelId")
+        .and_then(Value::as_str)
+        .filter(|model_id| !model_id.trim().is_empty())
+    {
+        has_metadata = true;
+        roles
+            .entry(model_id.to_string())
+            .or_default()
+            .insert(ModelRole::Agent);
+    }
+
+    for (field, role) in [
+        ("commandModelIds", ModelRole::Command),
+        ("tabModelIds", ModelRole::Tab),
+        ("imageGenerationModelIds", ModelRole::ImageGeneration),
+        ("mqueryModelIds", ModelRole::Mquery),
+        ("webSearchModelIds", ModelRole::WebSearch),
+        ("commitMessageModelIds", ModelRole::CommitMessage),
+        ("audioTranscriptionModelIds", ModelRole::AudioTranscription),
+    ] {
+        let Some(model_ids) = response.get(field).and_then(Value::as_array) else {
+            continue;
+        };
+        for model_id in model_ids
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|model_id| !model_id.trim().is_empty())
+        {
+            has_metadata = true;
+            roles.entry(model_id.to_string()).or_default().insert(role);
+        }
+    }
+
+    (roles, has_metadata)
+}
+
+fn official_output_modalities(roles: &BTreeSet<ModelRole>) -> BTreeSet<ModelModality> {
+    let mut modalities = BTreeSet::new();
+    if roles.contains(&ModelRole::ImageGeneration) {
+        modalities.insert(ModelModality::Image);
+    }
+    if roles.is_empty() || roles.iter().any(|role| *role != ModelRole::ImageGeneration) {
+        modalities.insert(ModelModality::Text);
+    }
+    modalities
+}
+
 fn extract_capabilities(item: &Value) -> Option<Value> {
     let object = item.as_object()?;
     let raw_capabilities = object.get("capabilities");
@@ -423,6 +525,8 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
     for key in [
         "inputModalities",
         "input_modalities",
+        "outputModalities",
+        "output_modalities",
         "supportedGenerationMethods",
         "supported_generation_methods",
         "supportedParameters",
@@ -435,6 +539,8 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
         "supports_images",
         "supportsVideo",
         "supports_video",
+        "supportsAudio",
+        "supports_audio",
         "supportedMimeTypes",
         "supported_mime_types",
         "supportsParallelToolCalls",
@@ -505,40 +611,98 @@ fn extract_capabilities(item: &Value) -> Option<Value> {
     (!capabilities.is_empty()).then_some(Value::Object(capabilities))
 }
 
-fn extract_media_metadata(item: &Value) -> (Option<Vec<String>>, Option<bool>, Option<bool>) {
+fn extract_modality_metadata(item: &Value) -> CatalogModalityMetadata {
     let capabilities = item.get("capabilities").and_then(Value::as_object);
     let field = |keys: &[&str]| {
         keys.iter().find_map(|key| item.get(*key)).or_else(|| {
             capabilities.and_then(|object| keys.iter().find_map(|key| object.get(*key)))
         })
     };
-    let mut mime_types = field(&["supportedMimeTypes", "supported_mime_types"])
+    let mime_types = field(&["supportedMimeTypes", "supported_mime_types"])
         .map(parse_supported_mime_types)
         .unwrap_or_default();
-    let mut supports_images = field(&[
-        "supportsImages",
-        "supports_images",
-        "supportsVision",
-        "supports_vision",
-        "supportsImageInput",
-        "supports_image_input",
-    ])
-    .and_then(Value::as_bool);
-    let mut supports_video = field(&["supportsVideo", "supports_video"]).and_then(Value::as_bool);
-
-    if !mime_types.is_empty() {
-        supports_images.get_or_insert_with(|| {
-            mime_types
-                .iter()
-                .any(|mime_type| mime_type.starts_with("image/"))
-        });
-        supports_video.get_or_insert_with(|| {
-            mime_types
-                .iter()
-                .any(|mime_type| mime_type.starts_with("video/"))
-        });
+    let explicit_input_modalities = field(&["inputModalities", "input_modalities"]);
+    let mut input_modalities = extract_modalities(
+        explicit_input_modalities,
+        [
+            (
+                ModelModality::Image,
+                field(&[
+                    "supportsImages",
+                    "supports_images",
+                    "supportsVision",
+                    "supports_vision",
+                    "supportsImageInput",
+                    "supports_image_input",
+                ])
+                .and_then(Value::as_bool),
+            ),
+            (
+                ModelModality::Audio,
+                field(&["supportsAudio", "supports_audio"]).and_then(Value::as_bool),
+            ),
+            (
+                ModelModality::Video,
+                field(&["supportsVideo", "supports_video"]).and_then(Value::as_bool),
+            ),
+        ],
+    );
+    if explicit_input_modalities.is_none() {
+        if let Some(input_modalities) = input_modalities.as_mut() {
+            input_modalities.insert(ModelModality::Text);
+        }
     }
-    if supports_images == Some(true)
+    let output_modalities =
+        extract_modalities(field(&["outputModalities", "output_modalities"]), []);
+    CatalogModalityMetadata {
+        input_mime_types: (!mime_types.is_empty()).then(|| mime_types.into_iter().collect()),
+        input_modalities,
+        output_modalities,
+    }
+}
+
+fn extract_modalities<const N: usize>(
+    explicit: Option<&Value>,
+    flags: [(ModelModality, Option<bool>); N],
+) -> Option<BTreeSet<ModelModality>> {
+    let mut modalities = explicit.map(parse_modalities).unwrap_or_default();
+    let has_metadata = explicit.is_some() || flags.iter().any(|(_, value)| value.is_some());
+    for (modality, enabled) in flags {
+        match enabled {
+            Some(true) => {
+                modalities.insert(modality);
+            }
+            Some(false) => {
+                modalities.remove(&modality);
+            }
+            None => {}
+        }
+    }
+    has_metadata.then_some(modalities)
+}
+
+fn parse_modalities(value: &Value) -> BTreeSet<ModelModality> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "text" => Some(ModelModality::Text),
+            "image" => Some(ModelModality::Image),
+            "audio" => Some(ModelModality::Audio),
+            "video" => Some(ModelModality::Video),
+            "document" | "file" | "pdf" => Some(ModelModality::Document),
+            _ => None,
+        })
+        .collect()
+}
+
+fn complete_input_mime_types(
+    mut mime_types: BTreeSet<String>,
+    input_modalities: &BTreeSet<ModelModality>,
+) -> Vec<String> {
+    if input_modalities.contains(&ModelModality::Image)
         && !mime_types
             .iter()
             .any(|mime_type| mime_type.starts_with("image/"))
@@ -549,15 +713,26 @@ fn extract_media_metadata(item: &Value) -> (Option<Vec<String>>, Option<bool>, O
                 .map(str::to_string),
         );
     }
-    if supports_video == Some(true)
+    if input_modalities.contains(&ModelModality::Audio)
+        && !mime_types
+            .iter()
+            .any(|mime_type| mime_type.starts_with("audio/"))
+    {
+        mime_types.insert("audio/wav".to_string());
+    }
+    if input_modalities.contains(&ModelModality::Video)
         && !mime_types
             .iter()
             .any(|mime_type| mime_type.starts_with("video/"))
     {
         mime_types.extend(["video/mp4", "video/webm"].into_iter().map(str::to_string));
     }
-    let supported_mime_types = (!mime_types.is_empty()).then(|| mime_types.into_iter().collect());
-    (supported_mime_types, supports_images, supports_video)
+    if input_modalities.contains(&ModelModality::Document)
+        && !mime_types.contains("application/pdf")
+    {
+        mime_types.insert("application/pdf".to_string());
+    }
+    mime_types.into_iter().collect()
 }
 
 fn parse_supported_mime_types(value: &Value) -> BTreeSet<String> {

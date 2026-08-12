@@ -24,9 +24,8 @@ import {
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
 import {
-  catalogSupportedMimeTypes,
-  normalizeMediaMimeTypes,
-  supportsVideoInput,
+  catalogInputMimeTypes,
+  normalizeSelectedInputMimeTypes,
 } from "./modelMediaCapabilities";
 import { tokenLimitsFromCatalog } from "./providerTokenPlan";
 
@@ -38,9 +37,11 @@ interface ProviderModelPlanInput {
   catalogReasoningLevelsByModel: ReadonlyMap<string, ReadonlySet<ConfigurableReasoningLevel>>;
   catalogCustomReasoningByModel: ReadonlyMap<string, string>;
   catalogThinkingBudgetsByModel: ReadonlyMap<string, ThinkingBudgetConfig>;
-  catalogVisionEnabledModelIds: ReadonlySet<string>;
-  catalogVideoEnabledModelIds: ReadonlySet<string>;
-  catalogSupportedMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
+  catalogImageInputModelIds: ReadonlySet<string>;
+  catalogAudioInputModelIds: ReadonlySet<string>;
+  catalogVideoInputModelIds: ReadonlySet<string>;
+  catalogDocumentInputModelIds: ReadonlySet<string>;
+  catalogInputMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
@@ -103,17 +104,32 @@ function reasoningChanged(input: ProviderModelPlanInput, modelId: string): boole
   return input.changedCatalogReasoningModelIds.has(modelId) || input.protocolChanged;
 }
 
-function selectedSupportedMimeTypes(
+function selectedInputModalities(
+  input: ProviderModelPlanInput,
+  modelId: string,
+): UpstreamModel["capabilities"]["input_modalities"] {
+  const modalities: UpstreamModel["capabilities"]["input_modalities"] = ["text"];
+  if (input.catalogImageInputModelIds.has(modelId)) modalities.push("image");
+  if (input.catalogAudioInputModelIds.has(modelId)) modalities.push("audio");
+  if (input.catalogVideoInputModelIds.has(modelId)) modalities.push("video");
+  if (input.catalogDocumentInputModelIds.has(modelId)) modalities.push("document");
+  return modalities;
+}
+
+function selectedInputMimeTypes(
   input: ProviderModelPlanInput,
   model: ProviderCatalogModel,
 ): string[] {
-  const selectedMimeTypes = input.catalogSupportedMimeTypesByModel.get(model.id)
-    ?? catalogSupportedMimeTypes(model);
-  return normalizeMediaMimeTypes(selectedMimeTypes, {
-    supportsImages: input.catalogVisionEnabledModelIds.has(model.id),
-    supportsVideo: input.catalogVideoEnabledModelIds.has(model.id),
-    // 仅原生 Gemini 请求适配器能够安全转发视频内容。
-    videoAvailable: supportsVideoInput(input.provider.protocol),
+  const selectedMimeTypes = input.catalogInputMimeTypesByModel.get(model.id)
+    ?? catalogInputMimeTypes(model);
+  const selectedModalities = new Set<"image" | "audio" | "video" | "document">();
+  if (input.catalogImageInputModelIds.has(model.id)) selectedModalities.add("image");
+  if (input.catalogAudioInputModelIds.has(model.id)) selectedModalities.add("audio");
+  if (input.catalogVideoInputModelIds.has(model.id)) selectedModalities.add("video");
+  if (input.catalogDocumentInputModelIds.has(model.id)) selectedModalities.add("document");
+  return normalizeSelectedInputMimeTypes(selectedMimeTypes, {
+    selectedModalities,
+    protocol: input.provider.protocol,
   });
 }
 
@@ -231,18 +247,19 @@ function updatedStableReasoningUpstream(
   model: ProviderCatalogModel,
   existingUpstream: UpstreamModel,
 ): UpstreamModel {
-  const capabilitiesChanged = input.changedCatalogCapabilityModelIds.has(model.id);
+  const capabilitiesChanged = input.changedCatalogCapabilityModelIds.has(model.id)
+    || input.protocolChanged;
   return {
     ...existingUpstream,
     capabilities: {
       ...existingUpstream.capabilities,
       ...(capabilitiesChanged
         ? {
-            vision: input.catalogVisionEnabledModelIds.has(model.id),
+            input_modalities: selectedInputModalities(input, model.id),
             tools: input.catalogToolsEnabledModelIds.has(model.id),
           }
         : {}),
-      supported_mime_types: selectedSupportedMimeTypes(input, model),
+      input_mime_types: selectedInputMimeTypes(input, model),
     },
     token_limits: tokenLimitsFromCatalog(
       model,
@@ -269,9 +286,11 @@ function buildUpstream(
       : undefined,
   );
   const capabilities = {
-    vision: input.catalogVisionEnabledModelIds.has(model.id),
+    roles: ["agent" as const],
+    input_modalities: selectedInputModalities(input, model.id),
+    output_modalities: ["text" as const],
     tools: input.catalogToolsEnabledModelIds.has(model.id),
-    supported_mime_types: selectedSupportedMimeTypes(input, model),
+    input_mime_types: selectedInputMimeTypes(input, model),
     reasoning,
   };
 

@@ -40,12 +40,31 @@ function createModelSummary(
   summary.className = "catalog-model-summary";
   const { token, refreshToken } = createTokenSummary(model, state);
   const vision = document.createElement("span");
-  vision.className = `catalog-model-summary-item${state.catalogVisionEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
+  vision.className = `catalog-model-summary-item${state.catalogImageInputModelIds.has(model.id) ? " active" : " disabled"}`;
   vision.textContent = t("models.visionInput");
   const tools = document.createElement("span");
   tools.className = `catalog-model-summary-item${state.catalogToolsEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
   tools.textContent = t("models.toolCalling");
-  summary.append(token, vision, tools);
+  summary.append(token, vision);
+  if (state.catalogAudioInputModelIds.has(model.id)) {
+    const audio = document.createElement("span");
+    audio.className = "catalog-model-summary-item active";
+    audio.textContent = t("models.audioInput");
+    summary.append(audio);
+  }
+  if (state.catalogVideoInputModelIds.has(model.id)) {
+    const video = document.createElement("span");
+    video.className = "catalog-model-summary-item active";
+    video.textContent = t("models.videoInput");
+    summary.append(video);
+  }
+  if (state.catalogDocumentInputModelIds.has(model.id)) {
+    const documentInput = document.createElement("span");
+    documentInput.className = "catalog-model-summary-item active";
+    documentInput.textContent = t("models.documentInput");
+    summary.append(documentInput);
+  }
+  summary.append(tools);
 
   if (reasoningEnabled && selectedReasoningLevels) {
     const reasoning = document.createElement("span");

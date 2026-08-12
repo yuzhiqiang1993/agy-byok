@@ -1,11 +1,12 @@
 use super::serde_helpers::required_nullable;
 use super::{
-    is_supported_inline_image_mime_type, ModelCompressionPolicy, ParameterOverrides, Provider,
-    ProviderProtocol, UpstreamModel, VirtualModel,
+    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type,
+    openai_input_audio_format, ModelCompressionPolicy, ModelModality, ModelRole,
+    ParameterOverrides, Provider, ProviderProtocol, UpstreamModel, VirtualModel,
 };
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::net::IpAddr;
 
@@ -303,9 +304,31 @@ fn validate_model_media_capabilities(
     model: &UpstreamModel,
     protocol: &ProviderProtocol,
 ) -> Result<(), ConfigError> {
+    if model.capabilities.roles != BTreeSet::from([ModelRole::Agent]) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} must declare exactly the agent role",
+            model.id
+        )));
+    }
+    if !model.capabilities.supports_input(ModelModality::Text) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} must support text input",
+            model.id
+        )));
+    }
+    if model.capabilities.output_modalities != BTreeSet::from([ModelModality::Text]) {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} must declare text as its only output modality",
+            model.id
+        )));
+    }
+
     let mut seen = HashSet::new();
     let mut has_image = false;
-    for mime_type in &model.capabilities.supported_mime_types {
+    let mut has_audio = false;
+    let mut has_video = false;
+    let mut has_document = false;
+    for mime_type in &model.capabilities.input_mime_types {
         let normalized = mime_type.trim().to_ascii_lowercase();
         if normalized.is_empty() || !normalized.contains('/') {
             return Err(ConfigError::InvalidValue(format!(
@@ -321,21 +344,46 @@ fn validate_model_media_capabilities(
         }
         if normalized.starts_with("image/") {
             has_image = true;
+        } else if normalized.starts_with("audio/") {
+            has_audio = true;
+        } else if normalized.starts_with("video/") {
+            has_video = true;
+        } else if is_supported_inline_document_mime_type(&normalized) {
+            has_document = true;
         }
-        if !matches!(protocol, ProviderProtocol::GeminiGenerateContent)
-            && !is_supported_inline_image_mime_type(&normalized)
-        {
+        let supported_by_protocol = matches!(protocol, ProviderProtocol::GeminiGenerateContent)
+            || is_supported_inline_image_mime_type(&normalized)
+            || is_supported_inline_document_mime_type(&normalized)
+            || (matches!(protocol, ProviderProtocol::OpenaiChatCompletions)
+                && openai_input_audio_format(&normalized).is_some());
+        if !supported_by_protocol {
             return Err(ConfigError::InvalidValue(format!(
                 "UpstreamModel {} cannot use inline MIME type {normalized} with provider protocol {:?}",
                 model.id, protocol
             )));
         }
     }
-    if model.capabilities.vision != has_image {
-        return Err(ConfigError::InvalidValue(format!(
-            "UpstreamModel {} vision capability must match its image MIME types",
-            model.id
-        )));
+
+    for (modality, has_mime) in [
+        (ModelModality::Image, has_image),
+        (ModelModality::Audio, has_audio),
+        (ModelModality::Video, has_video),
+        (ModelModality::Document, has_document),
+    ] {
+        if model.capabilities.supports_input(modality) != has_mime {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} {:?} input modality must match its input MIME types",
+                model.id, modality
+            )));
+        }
+    }
+    for modality in &model.capabilities.input_modalities {
+        if !protocol.supports_input_modality(*modality) {
+            return Err(ConfigError::InvalidValue(format!(
+                "UpstreamModel {} cannot use {:?} input with provider protocol {:?}",
+                model.id, modality, protocol
+            )));
+        }
     }
     Ok(())
 }
@@ -484,6 +532,18 @@ mod tests {
 
     fn media_config(protocol: ProviderProtocol, mime_types: &[&str]) -> AppConfig {
         let provider_id = "provider".to_string();
+        let mut input_modalities = BTreeSet::from([ModelModality::Text]);
+        for mime_type in mime_types {
+            if mime_type.starts_with("image/") {
+                input_modalities.insert(ModelModality::Image);
+            } else if mime_type.starts_with("audio/") {
+                input_modalities.insert(ModelModality::Audio);
+            } else if mime_type.starts_with("video/") {
+                input_modalities.insert(ModelModality::Video);
+            } else if *mime_type == "application/pdf" {
+                input_modalities.insert(ModelModality::Document);
+            }
+        }
         AppConfig {
             providers: vec![Provider {
                 id: provider_id.clone(),
@@ -505,13 +565,14 @@ mod tests {
                 upstream_model_id: "model".to_string(),
                 display_name: "Model".to_string(),
                 capabilities: ModelCapabilities {
-                    vision: false,
+                    input_modalities,
                     tools: true,
-                    supported_mime_types: mime_types
+                    input_mime_types: mime_types
                         .iter()
                         .map(|mime_type| (*mime_type).to_string())
                         .collect(),
                     reasoning: ReasoningCapability::default(),
+                    ..ModelCapabilities::default()
                 },
                 token_limits: ModelTokenLimits::default(),
                 compression_policy: None,
@@ -538,10 +599,63 @@ mod tests {
     }
 
     #[test]
+    fn audio_mime_is_supported_by_openai_chat_and_gemini() {
+        assert!(
+            media_config(ProviderProtocol::GeminiGenerateContent, &["audio/wav"])
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            media_config(ProviderProtocol::OpenaiChatCompletions, &["audio/mpeg"])
+                .validate()
+                .is_ok()
+        );
+
+        let error = media_config(ProviderProtocol::OpenaiResponses, &["audio/wav"])
+            .validate()
+            .unwrap_err();
+        assert!(error.to_string().contains("audio/wav"));
+    }
+
+    #[test]
+    fn openai_chat_rejects_unsupported_audio_formats() {
+        let error = media_config(ProviderProtocol::OpenaiChatCompletions, &["audio/flac"])
+            .validate()
+            .unwrap_err();
+        assert!(error.to_string().contains("audio/flac"));
+    }
+
+    #[test]
+    fn pdf_documents_are_supported_by_every_protocol() {
+        for protocol in [
+            ProviderProtocol::OpenaiChatCompletions,
+            ProviderProtocol::OpenaiResponses,
+            ProviderProtocol::AnthropicMessages,
+            ProviderProtocol::GeminiGenerateContent,
+        ] {
+            assert!(media_config(protocol, &["application/pdf"])
+                .validate()
+                .is_ok());
+        }
+    }
+
+    #[test]
+    fn custom_models_require_agent_role_and_text_only_output() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0].capabilities.roles = BTreeSet::from([ModelRole::Command]);
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("agent role"));
+
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0].capabilities.output_modalities =
+            BTreeSet::from([ModelModality::Image]);
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("only output modality"));
+    }
+
+    #[test]
     fn unsupported_image_mime_requires_gemini_protocol() {
-        let mut gemini_config =
-            media_config(ProviderProtocol::GeminiGenerateContent, &["image/heic"]);
-        gemini_config.upstream_models[0].capabilities.vision = true;
+        let gemini_config = media_config(ProviderProtocol::GeminiGenerateContent, &["image/heic"]);
         assert!(gemini_config.validate().is_ok());
 
         let error = media_config(ProviderProtocol::AnthropicMessages, &["image/heic"])
@@ -551,12 +665,15 @@ mod tests {
     }
 
     #[test]
-    fn vision_requires_an_explicit_image_mime_type() {
+    fn image_modality_requires_an_explicit_image_mime_type() {
         let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
-        config.upstream_models[0].capabilities.vision = true;
+        config.upstream_models[0]
+            .capabilities
+            .input_modalities
+            .insert(ModelModality::Image);
 
         let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("vision capability"));
+        assert!(error.to_string().contains("Image input modality"));
     }
 
     #[test]

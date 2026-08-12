@@ -1,8 +1,8 @@
 mod parser;
 
 use crate::domain::{
-    AppConfig, ErrorCategory, ModelCompressionPolicy, Provider, ProxyError, ReasoningLevel,
-    ReasoningMapping,
+    AppConfig, ErrorCategory, ModelCompressionPolicy, ModelModality, ModelRole, Provider,
+    ProxyError, ReasoningLevel, ReasoningMapping,
 };
 use crate::providers::get_adapter;
 use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
@@ -10,7 +10,7 @@ use parser::{parse_catalog_models_with_context, parse_official_catalog_models};
 use reqwest::{Client, Url};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -56,11 +56,13 @@ pub struct ProviderCatalogModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub supported_mime_types: Option<Vec<String>>,
+    pub roles: Option<BTreeSet<ModelRole>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_images: Option<bool>,
+    pub input_modalities: Option<BTreeSet<ModelModality>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_video: Option<bool>,
+    pub output_modalities: Option<BTreeSet<ModelModality>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_mime_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,9 +74,6 @@ pub struct ProviderCatalogModel {
     /// 官方目录中的推荐标记；普通供应商目录不填充此字段。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_recommended: Option<bool>,
-    /// 官方目录中模型是否属于 Agent 模型；普通供应商目录不填充此字段。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_agent_model: Option<bool>,
     /// 官方 Agent 模型在服务端排序中的位置。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_sort_order: Option<u32>,

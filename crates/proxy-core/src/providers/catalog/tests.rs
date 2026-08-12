@@ -2,7 +2,7 @@ use super::parser::{
     parse_catalog_models, parse_catalog_models_with_context, parse_official_catalog_models,
 };
 use super::*;
-use crate::domain::{ParameterOverrides, ProviderProtocol};
+use crate::domain::{ModelModality, ModelRole, ParameterOverrides, ProviderProtocol};
 use crate::tests::mock_provider::MockProviderServer;
 use serde_json::json;
 use std::collections::HashMap;
@@ -230,6 +230,8 @@ fn parses_official_agent_order_and_deprecated_model_aliases() {
                     "modelIds": ["gemini-pro-agent"]
                 }]
             }],
+            "commandModelIds": ["internal-model"],
+            "imageGenerationModelIds": ["gemini-3.1-pro-high"],
             "deprecatedModelIds": {
                 "gemini-3.1-pro-high": {
                     "newModelId": "gemini-pro-agent",
@@ -241,17 +243,31 @@ fn parses_official_agent_order_and_deprecated_model_aliases() {
     }));
 
     assert_eq!(models[0].id, "gemini-pro-agent");
-    assert_eq!(models[0].is_agent_model, Some(true));
+    assert!(models[0]
+        .roles
+        .as_ref()
+        .is_some_and(|roles| roles.contains(&ModelRole::Agent)));
     assert_eq!(models[0].agent_sort_order, Some(0));
     assert_eq!(models[0].is_recommended, Some(true));
     assert_eq!(models[0].is_deprecated, Some(false));
     assert_eq!(models[1].id, "gemini-3.1-pro-high");
-    assert_eq!(models[1].is_agent_model, Some(false));
+    assert!(models[1]
+        .roles
+        .as_ref()
+        .is_some_and(|roles| roles.contains(&ModelRole::ImageGeneration)));
+    assert_eq!(
+        models[1].output_modalities,
+        Some(std::collections::BTreeSet::from([ModelModality::Image]))
+    );
     assert_eq!(models[1].is_deprecated, Some(true));
     assert_eq!(
         models[1].replacement_model_id.as_deref(),
         Some("gemini-pro-agent")
     );
+    assert!(models[2]
+        .roles
+        .as_ref()
+        .is_some_and(|roles| roles.contains(&ModelRole::Command)));
 }
 
 #[test]
@@ -295,6 +311,20 @@ fn uses_official_max_tokens_as_input_limit_when_no_explicit_input_limit_exists()
 }
 
 #[test]
+fn empty_official_role_metadata_is_not_authoritative() {
+    let models = parse_official_catalog_models(&json!({
+        "models": {
+            "gemini-pro": {}
+        },
+        "agentModelSorts": [],
+        "defaultAgentModelId": null,
+        "commandModelIds": []
+    }));
+
+    assert_eq!(models[0].roles, None);
+}
+
+#[test]
 fn parses_official_video_and_mime_capabilities() {
     let models = parse_official_catalog_models(&json!({
         "models": {
@@ -316,8 +346,14 @@ fn parses_official_video_and_mime_capabilities() {
         }
     }));
 
-    assert_eq!(models[0].supports_images, Some(true));
-    assert_eq!(models[0].supports_video, Some(true));
+    assert!(models[0]
+        .input_modalities
+        .as_ref()
+        .is_some_and(|modalities| modalities.contains(&ModelModality::Image)));
+    assert!(models[0]
+        .input_modalities
+        .as_ref()
+        .is_some_and(|modalities| modalities.contains(&ModelModality::Video)));
     assert_eq!(models[0].reasoning.as_ref().unwrap().supported, Some(true));
     assert_eq!(
         models[0].reasoning.as_ref().unwrap().thinking_budget,
@@ -328,12 +364,38 @@ fn parses_official_video_and_mime_capabilities() {
         Some(128)
     );
     assert_eq!(
-        models[0].supported_mime_types,
+        models[0].input_mime_types,
         Some(vec![
             "image/heic".to_string(),
             "image/png".to_string(),
             "video/mp4".to_string(),
             "video/webm".to_string(),
+        ])
+    );
+}
+
+#[test]
+fn official_video_capability_is_not_inferred_from_mime_types() {
+    let models = parse_official_catalog_models(&json!({
+        "models": {
+            "gemini-pro": {
+                "supportsVideo": false,
+                "supportedMimeTypes": ["video/mp4"]
+            }
+        }
+    }));
+
+    assert!(!models[0]
+        .input_modalities
+        .as_ref()
+        .is_some_and(|modalities| modalities.contains(&ModelModality::Video)));
+    assert_eq!(
+        models[0].input_mime_types,
+        Some(vec![
+            "image/jpeg".to_string(),
+            "image/png".to_string(),
+            "image/webp".to_string(),
+            "video/mp4".to_string()
         ])
     );
 }

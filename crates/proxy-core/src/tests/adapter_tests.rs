@@ -43,10 +43,14 @@ mod tests {
             upstream_model_id: "test-model".to_string(),
             display_name: "Test Model".to_string(),
             capabilities: ModelCapabilities {
-                vision: true,
+                input_modalities: std::collections::BTreeSet::from([
+                    ModelModality::Text,
+                    ModelModality::Image,
+                ]),
                 tools: true,
-                supported_mime_types: Vec::new(),
+                input_mime_types: vec!["image/jpeg".to_string()],
                 reasoning,
+                ..ModelCapabilities::default()
             },
             token_limits: ModelTokenLimits::default(),
             compression_policy: None,
@@ -264,6 +268,117 @@ mod tests {
             assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
             assert!(error.message.contains("video/mp4"));
         }
+    }
+
+    #[test]
+    fn openai_chat_encodes_supported_audio_input() {
+        let route = create_dummy_route(
+            ProviderProtocol::OpenaiChatCompletions,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+
+        let payload = OpenAIAdapter::new()
+            .build_request_payload(&route, &inline_data_request("audio/mpeg"))
+            .unwrap();
+
+        assert_eq!(
+            payload["messages"][0]["content"][0],
+            json!({
+                "type": "input_audio",
+                "input_audio": {
+                    "data": "AAAA",
+                    "format": "mp3"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn adapters_without_audio_content_blocks_reject_audio_input() {
+        let request = inline_data_request("audio/wav");
+        let cases: Vec<(Box<dyn ProviderAdapter>, ResolvedRoute)> = vec![
+            (
+                Box::new(OpenAIResponsesAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::OpenaiResponses,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+            (
+                Box::new(AnthropicAdapter::new()),
+                create_dummy_route(
+                    ProviderProtocol::AnthropicMessages,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ),
+        ];
+
+        for (adapter, route) in cases {
+            let error = adapter.build_request_payload(&route, &request).unwrap_err();
+            assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
+            assert!(error.message.contains("audio/wav"));
+        }
+    }
+
+    #[test]
+    fn adapters_encode_pdf_documents_with_native_content_blocks() {
+        let request = inline_data_request("application/pdf");
+
+        let openai_chat = OpenAIAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
+                    ProviderProtocol::OpenaiChatCompletions,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+                &request,
+            )
+            .unwrap();
+        assert_eq!(openai_chat["messages"][0]["content"][0]["type"], "file");
+        assert_eq!(
+            openai_chat["messages"][0]["content"][0]["file"]["filename"],
+            "input.pdf"
+        );
+        assert_eq!(
+            openai_chat["messages"][0]["content"][0]["file"]["file_data"],
+            "AAAA"
+        );
+
+        let responses = OpenAIResponsesAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
+                    ProviderProtocol::OpenaiResponses,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+                &request,
+            )
+            .unwrap();
+        assert_eq!(responses["input"][0]["content"][0]["type"], "input_file");
+        assert_eq!(responses["input"][0]["content"][0]["file_data"], "AAAA");
+
+        let anthropic = AnthropicAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
+                    ProviderProtocol::AnthropicMessages,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+                &request,
+            )
+            .unwrap();
+        assert_eq!(anthropic["messages"][0]["content"][0]["type"], "document");
+
+        let gemini = GeminiAdapter::new()
+            .build_request_payload(
+                &create_dummy_route(
+                    ProviderProtocol::GeminiGenerateContent,
+                    ReasoningMapping::NativeLevel("high".to_string()),
+                ),
+                &request,
+            )
+            .unwrap();
+        assert_eq!(
+            gemini["contents"][0]["parts"][0]["inlineData"]["mimeType"],
+            "application/pdf"
+        );
     }
 
     #[test]

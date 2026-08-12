@@ -3,7 +3,7 @@ use super::checkpoint::{
     official_model_aliases,
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
-use crate::domain::{ReasoningMapping, UpstreamModel, VirtualModel};
+use crate::domain::{ModelModality, ReasoningMapping, UpstreamModel, VirtualModel};
 use serde_json::{json, Map, Value};
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
@@ -19,8 +19,9 @@ impl AntigravityModelDescriptor {
     ) -> Value {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
-        let supported_mime_types = supported_mime_types(caps);
-        let declared_input_modalities = input_modalities(caps, false);
+        let input_mime_types = input_mime_types(caps);
+        let declared_input_modalities = modalities(&caps.input_modalities, false);
+        let declared_output_modalities = modalities(&caps.output_modalities, false);
         let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
@@ -31,12 +32,14 @@ impl AntigravityModelDescriptor {
             "contextWindow": context_window,
             "inputTokenLimit": input_token_limit,
             "outputTokenLimit": output_token_limit,
-            "supportsImages": caps.vision,
-            "supportsVideo": caps.supports_video(),
+            "supportsImages": caps.supports_input(ModelModality::Image),
+            "supportsAudio": caps.supports_input(ModelModality::Audio),
+            "supportsVideo": caps.supports_input(ModelModality::Video),
             "supportsTools": caps.tools,
             "supportsThinking": caps.reasoning.supports_reasoning(),
             "inputModalities": declared_input_modalities,
-            "supportedMimeTypes": supported_mime_types.keys().collect::<Vec<_>>()
+            "outputModalities": declared_output_modalities,
+            "supportedMimeTypes": input_mime_types.keys().collect::<Vec<_>>()
         });
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
         descriptor
@@ -48,8 +51,10 @@ impl AntigravityModelDescriptor {
     ) -> Value {
         let caps = &upstream_model.capabilities;
         let host_model_id = virtual_model.effective_host_model_id().into_owned();
-        let declared_input_modalities = input_modalities(caps, false);
-        let input_modalities_lowercase = input_modalities(caps, true);
+        let declared_input_modalities = modalities(&caps.input_modalities, false);
+        let input_modalities_lowercase = modalities(&caps.input_modalities, true);
+        let declared_output_modalities = modalities(&caps.output_modalities, false);
+        let output_modalities_lowercase = modalities(&caps.output_modalities, true);
         let (context_window, input_token_limit, output_token_limit) = token_limits(upstream_model);
 
         let mut descriptor = json!({
@@ -65,14 +70,17 @@ impl AntigravityModelDescriptor {
             "modelProvider": "MODEL_PROVIDER_GOOGLE",
             // 自定义模型不冒充宿主官方推荐项。
             "recommended": false,
-            "supportsImages": caps.vision,
-            "supportsVision": caps.vision,
-            "supportsImage": caps.vision,
+            "supportsImages": caps.supports_input(ModelModality::Image),
+            "supportsVision": caps.supports_input(ModelModality::Image),
+            "supportsImage": caps.supports_input(ModelModality::Image),
             "supportsThinking": caps.reasoning.supports_reasoning(),
-            "supportsVideo": caps.supports_video(),
+            "supportsAudio": caps.supports_input(ModelModality::Audio),
+            "supportsVideo": caps.supports_input(ModelModality::Video),
             "inputModalities": declared_input_modalities,
             "input_modalities": input_modalities_lowercase,
-            "supportedMimeTypes": supported_mime_types(caps),
+            "outputModalities": declared_output_modalities,
+            "output_modalities": output_modalities_lowercase,
+            "supportedMimeTypes": input_mime_types(caps),
             "tokenizerType": "LLAMA_WITH_SPECIAL"
         });
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
@@ -338,24 +346,34 @@ fn append_catalog_keys_to_model_sorts(model_sorts: Option<&mut Value>, catalog_k
     }
 }
 
-fn input_modalities(caps: &crate::domain::ModelCapabilities, lowercase: bool) -> Vec<&'static str> {
-    let mut modalities = vec![if lowercase { "text" } else { "TEXT" }];
-    if caps.vision {
-        modalities.insert(0, if lowercase { "image" } else { "IMAGE" });
-    }
-    if caps.supports_video() {
-        modalities.insert(0, if lowercase { "video" } else { "VIDEO" });
-    }
+fn modalities(
+    modalities: &std::collections::BTreeSet<ModelModality>,
+    lowercase: bool,
+) -> Vec<&'static str> {
     modalities
+        .iter()
+        .map(|modality| match (modality, lowercase) {
+            (ModelModality::Text, false) => "TEXT",
+            (ModelModality::Image, false) => "IMAGE",
+            (ModelModality::Audio, false) => "AUDIO",
+            (ModelModality::Video, false) => "VIDEO",
+            (ModelModality::Document, false) => "DOCUMENT",
+            (ModelModality::Text, true) => "text",
+            (ModelModality::Image, true) => "image",
+            (ModelModality::Audio, true) => "audio",
+            (ModelModality::Video, true) => "video",
+            (ModelModality::Document, true) => "document",
+        })
+        .collect()
 }
 
-fn supported_mime_types(caps: &crate::domain::ModelCapabilities) -> Map<String, Value> {
+fn input_mime_types(caps: &crate::domain::ModelCapabilities) -> Map<String, Value> {
     let mut mime_types = Map::from_iter([
         ("text/plain".to_string(), Value::Bool(true)),
         ("text/markdown".to_string(), Value::Bool(true)),
         ("application/json".to_string(), Value::Bool(true)),
     ]);
-    for mime_type in caps.effective_supported_mime_types() {
+    for mime_type in caps.effective_input_mime_types() {
         mime_types.insert(mime_type, Value::Bool(true));
     }
     mime_types

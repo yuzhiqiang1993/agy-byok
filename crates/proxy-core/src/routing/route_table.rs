@@ -152,7 +152,14 @@ impl RouteTable {
         let main_cap = &failed_route.upstream_model.capabilities;
         let fb_cap = &fallback_route.upstream_model.capabilities;
 
-        if (main_cap.vision && !fb_cap.vision) || (main_cap.tools && !fb_cap.tools) {
+        if !main_cap
+            .input_modalities
+            .is_subset(&fb_cap.input_modalities)
+            || !main_cap
+                .output_modalities
+                .is_subset(&fb_cap.output_modalities)
+            || (main_cap.tools && !fb_cap.tools)
+        {
             return Err(ProxyError::new(
                 ErrorCategory::UnsupportedFeature,
                 format!(

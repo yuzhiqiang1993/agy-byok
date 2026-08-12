@@ -19,9 +19,11 @@ interface ProviderSavePlanInput {
   catalogReasoningLevelsByModel: ReadonlyMap<string, ReadonlySet<ConfigurableReasoningLevel>>;
   catalogCustomReasoningByModel: ReadonlyMap<string, string>;
   catalogThinkingBudgetsByModel: ReadonlyMap<string, ThinkingBudgetConfig>;
-  catalogVisionEnabledModelIds: ReadonlySet<string>;
-  catalogVideoEnabledModelIds: ReadonlySet<string>;
-  catalogSupportedMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
+  catalogImageInputModelIds: ReadonlySet<string>;
+  catalogAudioInputModelIds: ReadonlySet<string>;
+  catalogVideoInputModelIds: ReadonlySet<string>;
+  catalogDocumentInputModelIds: ReadonlySet<string>;
+  catalogInputMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;

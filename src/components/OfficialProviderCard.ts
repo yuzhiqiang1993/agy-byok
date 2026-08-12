@@ -113,7 +113,7 @@ function buildOfficialModelCards(
     capabilities.className = "capability-list";
     const capObj = item.capabilities as Record<string, unknown> | undefined;
     const caps = capObj as Record<string, boolean> | undefined;
-    if (caps?.vision) capabilities.append(capabilityBadge("vision"));
+    if (item.inputModalities?.includes("image")) capabilities.append(capabilityBadge("vision"));
     if (caps?.tools) capabilities.append(capabilityBadge("tools"));
     if (caps?.reasoning) capabilities.append(capabilityBadge("reasoning"));
 
@@ -396,12 +396,12 @@ export function renderOfficialProviderCard(options: {
 }
 
 function filterMainAgentModels(models: ProviderCatalogModel[]): ProviderCatalogModel[] {
-  const hasAgentMetadata = models.some((model) => model.isAgentModel !== undefined);
+  const hasAgentMetadata = models.some((model) => model.roles !== undefined);
   const hasRecommendationMetadata = models.some((model) => model.isRecommended !== undefined);
   const filtered = hasAgentMetadata
     ? models.filter(
       (model) =>
-        model.isAgentModel === true
+        model.roles?.includes("agent") === true
         && model.isDeprecated !== true
         && (!hasRecommendationMetadata || model.isRecommended === true),
     )

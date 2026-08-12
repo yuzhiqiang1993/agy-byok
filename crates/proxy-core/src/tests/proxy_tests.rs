@@ -924,10 +924,9 @@ mod tests {
                 upstream_model_id: "gpt-4o".to_string(),
                 display_name: "GPT-4o".to_string(),
                 capabilities: ModelCapabilities {
-                    vision: false,
                     tools: true,
-                    supported_mime_types: Vec::new(),
                     reasoning: ReasoningCapability::default(),
+                    ..ModelCapabilities::default()
                 },
                 token_limits: ModelTokenLimits::default(),
                 compression_policy: None,
@@ -1020,9 +1019,12 @@ mod tests {
                 upstream_model_id: "claude-3-5-sonnet".to_string(),
                 display_name: "Claude 3.5".to_string(),
                 capabilities: ModelCapabilities {
-                    vision: true,
+                    input_modalities: std::collections::BTreeSet::from([
+                        ModelModality::Text,
+                        ModelModality::Image,
+                    ]),
                     tools: true,
-                    supported_mime_types: vec!["image/jpeg".to_string()],
+                    input_mime_types: vec!["image/jpeg".to_string()],
                     reasoning: ReasoningCapability {
                         levels: BTreeMap::from([(
                             ReasoningLevel::High,
@@ -1030,6 +1032,7 @@ mod tests {
                         )]),
                         ..ReasoningCapability::default()
                     },
+                    ..ModelCapabilities::default()
                 },
                 token_limits: ModelTokenLimits::default(),
                 compression_policy: None,

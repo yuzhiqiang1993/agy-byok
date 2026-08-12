@@ -1,7 +1,8 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
-    NeutralContentBlock, NeutralMessage, Provider, ProxyError,
+    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type,
+    openai_input_audio_format, ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock,
+    NeutralMessage, Provider, ProxyError,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -81,7 +82,30 @@ fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
                 mime_type,
                 data_base64,
             } => {
-                if !is_supported_inline_image_mime_type(mime_type) {
+                if is_supported_inline_image_mime_type(mime_type) {
+                    contents.push(json!({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": format!("data:{};base64,{}", mime_type, data_base64)
+                        }
+                    }));
+                } else if let Some(format) = openai_input_audio_format(mime_type) {
+                    contents.push(json!({
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": data_base64,
+                            "format": format
+                        }
+                    }));
+                } else if is_supported_inline_document_mime_type(mime_type) {
+                    contents.push(json!({
+                        "type": "file",
+                        "file": {
+                            "filename": "input.pdf",
+                            "file_data": data_base64
+                        }
+                    }));
+                } else {
                     return Err(ProxyError::new(
                         ErrorCategory::UnsupportedFeature,
                         format!(
@@ -90,12 +114,6 @@ fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
                         400,
                     ));
                 }
-                contents.push(json!({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": format!("data:{};base64,{}", mime_type, data_base64)
-                    }
-                }));
             }
             NeutralContentBlock::ToolCall {
                 id,

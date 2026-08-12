@@ -9,6 +9,18 @@ export type ProviderProtocol =
   | "anthropic_messages"
   | "gemini_generate_content";
 
+export type ModelRole =
+  | "agent"
+  | "command"
+  | "tab"
+  | "image_generation"
+  | "mquery"
+  | "web_search"
+  | "commit_message"
+  | "audio_transcription";
+
+export type ModelModality = "text" | "image" | "audio" | "video" | "document";
+
 export interface ParameterOverrides {
   temperature: number | null;
   max_tokens: number | null;
@@ -83,9 +95,11 @@ export interface UpstreamModel {
   upstream_model_id: string;
   display_name: string;
   capabilities: {
-    vision: boolean;
+    roles: ModelRole[];
+    input_modalities: ModelModality[];
+    output_modalities: ModelModality[];
     tools: boolean;
-    supported_mime_types: string[];
+    input_mime_types: string[];
     reasoning: {
       supported: boolean | null;
       thinking_budget: number | null;

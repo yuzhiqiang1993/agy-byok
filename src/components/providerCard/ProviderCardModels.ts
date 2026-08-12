@@ -78,7 +78,9 @@ function createModelGroup(
 
   const capabilities = document.createElement("div");
   capabilities.className = "capability-list";
-  if (upstream.capabilities.vision) capabilities.append(capabilityBadge("vision"));
+  if (upstream.capabilities.input_modalities.includes("image")) {
+    capabilities.append(capabilityBadge("vision"));
+  }
   if (upstream.capabilities.tools) capabilities.append(capabilityBadge("tools"));
   if (Object.keys(upstream.capabilities.reasoning.levels).length > 0) {
     capabilities.append(capabilityBadge("reasoning"));

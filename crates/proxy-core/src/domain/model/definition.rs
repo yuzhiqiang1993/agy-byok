@@ -8,29 +8,69 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRole {
+    Agent,
+    Command,
+    Tab,
+    ImageGeneration,
+    Mquery,
+    WebSearch,
+    CommitMessage,
+    AudioTranscription,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelModality {
+    Text,
+    Image,
+    Audio,
+    Video,
+    Document,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ModelCapabilities {
-    pub vision: bool,
+    pub roles: BTreeSet<ModelRole>,
+    pub input_modalities: BTreeSet<ModelModality>,
+    pub output_modalities: BTreeSet<ModelModality>,
     pub tools: bool,
-    /// 上游模型可接收的内联数据 MIME。
-    pub supported_mime_types: Vec<String>,
+    /// 上游模型可接收的输入数据 MIME；输出能力由 output_modalities 单独声明。
+    pub input_mime_types: Vec<String>,
     pub reasoning: ReasoningCapability,
 }
 
+impl Default for ModelCapabilities {
+    fn default() -> Self {
+        Self {
+            roles: BTreeSet::from([ModelRole::Agent]),
+            input_modalities: BTreeSet::from([ModelModality::Text]),
+            output_modalities: BTreeSet::from([ModelModality::Text]),
+            tools: false,
+            input_mime_types: Vec::new(),
+            reasoning: ReasoningCapability::default(),
+        }
+    }
+}
+
 impl ModelCapabilities {
-    pub fn effective_supported_mime_types(&self) -> BTreeSet<String> {
-        self.supported_mime_types
+    pub fn effective_input_mime_types(&self) -> BTreeSet<String> {
+        self.input_mime_types
             .iter()
             .map(|mime_type| mime_type.trim().to_ascii_lowercase())
             .filter(|mime_type| !mime_type.is_empty())
             .collect::<BTreeSet<_>>()
     }
 
-    pub fn supports_video(&self) -> bool {
-        self.effective_supported_mime_types()
-            .iter()
-            .any(|mime_type| mime_type.starts_with("video/"))
+    pub fn supports_input(&self, modality: ModelModality) -> bool {
+        self.input_modalities.contains(&modality)
+    }
+
+    pub fn supports_output(&self, modality: ModelModality) -> bool {
+        self.output_modalities.contains(&modality)
     }
 }
 
@@ -126,7 +166,9 @@ mod tests {
     #[test]
     fn capabilities_require_mime_types() {
         let error = serde_json::from_value::<ModelCapabilities>(json!({
-            "vision": true,
+            "roles": ["agent"],
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["text"],
             "tools": true,
             "reasoning": {
                 "supported": null,
@@ -137,15 +179,17 @@ mod tests {
         }))
         .unwrap_err();
 
-        assert!(error.to_string().contains("supported_mime_types"));
+        assert!(error.to_string().contains("input_mime_types"));
     }
 
     #[test]
     fn reasoning_requires_explicit_nullable_metadata() {
         let error = serde_json::from_value::<ModelCapabilities>(json!({
-            "vision": false,
+            "roles": ["agent"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
             "tools": true,
-            "supported_mime_types": [],
+            "input_mime_types": [],
             "reasoning": { "levels": {} }
         }))
         .unwrap_err();

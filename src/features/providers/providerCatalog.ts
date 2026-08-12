@@ -21,13 +21,12 @@ import type {
   ProviderCatalogState,
 } from "./providerCatalogTypes";
 import {
-  catalogSupportedMimeTypes,
-  catalogSupportsImages,
-  catalogSupportsVideo,
-  hasMimeTypeCategory,
-  normalizeMediaMimeTypes,
-  supportsVideoInput,
-  upstreamSupportedMimeTypes,
+  catalogInputMimeTypes,
+  catalogSupportsInput,
+  normalizeSelectedInputMimeTypes,
+  supportsInputModality,
+  upstreamInputMimeTypes,
+  upstreamSupportsInput,
 } from "./modelMediaCapabilities";
 import { resolveCatalogTokenLimits } from "./modelTokenLimits";
 
@@ -46,9 +45,11 @@ function emptyCatalogState(): InternalProviderCatalogState {
     catalogReasoningLevelsByModel: new Map(),
     catalogCustomReasoningByModel: new Map(),
     catalogThinkingBudgetsByModel: new Map(),
-    catalogVisionEnabledModelIds: new Set(),
-    catalogVideoEnabledModelIds: new Set(),
-    catalogSupportedMimeTypesByModel: new Map(),
+    catalogImageInputModelIds: new Set(),
+    catalogAudioInputModelIds: new Set(),
+    catalogVideoInputModelIds: new Set(),
+    catalogDocumentInputModelIds: new Set(),
+    catalogInputMimeTypesByModel: new Map(),
     catalogToolsEnabledModelIds: new Set(),
     catalogReasoningEnabledModelIds: new Set(),
     catalogTokenLimitsByModel: new Map(),
@@ -127,23 +128,37 @@ function loadedCatalogState(
     existingUpstreams.map((upstream) => [upstream.upstream_model_id, upstream]),
   );
   const virtualsByUpstreamId = groupVirtualModelsByUpstreamId();
-  const videoAvailable = supportsVideoInput(protocol);
   const mediaByModel = new Map(models.map((model) => {
     const upstream = upstreamByModelId.get(model.id);
     const sourceMimeTypes = upstream
-      ? upstreamSupportedMimeTypes(upstream)
-      : catalogSupportedMimeTypes(model);
-    const supportsImages = upstream?.capabilities.vision ?? catalogSupportsImages(model);
-    const supportsVideo = videoAvailable && (upstream
-      ? hasMimeTypeCategory(sourceMimeTypes, "video")
-      : catalogSupportsVideo(model));
+      ? upstreamInputMimeTypes(upstream)
+      : catalogInputMimeTypes(model);
+    const supportsImages = upstream
+      ? upstreamSupportsInput(upstream, "image")
+      : catalogSupportsInput(model, "image");
+    const supportsAudio = supportsInputModality(protocol, "audio") && (upstream
+      ? upstreamSupportsInput(upstream, "audio")
+      : catalogSupportsInput(model, "audio"));
+    const supportsVideo = supportsInputModality(protocol, "video") && (upstream
+      ? upstreamSupportsInput(upstream, "video")
+      : catalogSupportsInput(model, "video"));
+    const supportsDocuments = upstream
+      ? upstreamSupportsInput(upstream, "document")
+      : catalogSupportsInput(model, "document");
+    const selectedModalities = new Set([
+      ...(supportsImages ? ["image" as const] : []),
+      ...(supportsAudio ? ["audio" as const] : []),
+      ...(supportsVideo ? ["video" as const] : []),
+      ...(supportsDocuments ? ["document" as const] : []),
+    ]);
     return [model.id, {
       supportsImages,
+      supportsAudio,
       supportsVideo,
-      mimeTypes: normalizeMediaMimeTypes(sourceMimeTypes, {
-        supportsImages,
-        supportsVideo,
-        videoAvailable,
+      supportsDocuments,
+      mimeTypes: normalizeSelectedInputMimeTypes(sourceMimeTypes, {
+        selectedModalities,
+        protocol,
       }),
     }] as const;
   }));
@@ -188,13 +203,19 @@ function loadedCatalogState(
           : null,
       }] as const;
     })),
-    catalogVisionEnabledModelIds: new Set(models
+    catalogImageInputModelIds: new Set(models
       .filter((model) => mediaByModel.get(model.id)?.supportsImages)
       .map((model) => model.id)),
-    catalogVideoEnabledModelIds: new Set(models
+    catalogAudioInputModelIds: new Set(models
+      .filter((model) => mediaByModel.get(model.id)?.supportsAudio)
+      .map((model) => model.id)),
+    catalogVideoInputModelIds: new Set(models
       .filter((model) => mediaByModel.get(model.id)?.supportsVideo)
       .map((model) => model.id)),
-    catalogSupportedMimeTypesByModel: new Map(models.map((model) => [
+    catalogDocumentInputModelIds: new Set(models
+      .filter((model) => mediaByModel.get(model.id)?.supportsDocuments)
+      .map((model) => model.id)),
+    catalogInputMimeTypesByModel: new Map(models.map((model) => [
       model.id,
       new Set(mediaByModel.get(model.id)?.mimeTypes ?? []),
     ])),

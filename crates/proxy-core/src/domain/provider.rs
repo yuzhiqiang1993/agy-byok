@@ -1,4 +1,5 @@
 use super::serde_helpers::required_nullable;
+use super::ModelModality;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -9,6 +10,19 @@ pub enum ProviderProtocol {
     AnthropicMessages,
     GeminiGenerateContent,
     OpenaiResponses,
+}
+
+impl ProviderProtocol {
+    pub fn supports_input_modality(&self, modality: ModelModality) -> bool {
+        match modality {
+            ModelModality::Text | ModelModality::Image | ModelModality::Document => true,
+            ModelModality::Audio => matches!(
+                self,
+                Self::OpenaiChatCompletions | Self::GeminiGenerateContent
+            ),
+            ModelModality::Video => matches!(self, Self::GeminiGenerateContent),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

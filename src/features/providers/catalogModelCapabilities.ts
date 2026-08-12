@@ -12,6 +12,7 @@ import type {
   ProviderCatalogContext,
 } from "./providerCatalogTypes";
 import { testProviderModelConnection } from "./providerTesting";
+import { supportsInputModality } from "./modelMediaCapabilities";
 
 function applyReasoningSelection(
   modelId: string,
@@ -150,7 +151,40 @@ export function createCatalogModelCapabilities(
   const imageToggle = catalogCapabilityToggle(
     model.id,
     t("models.visionInput"),
-    state.catalogVisionEnabledModelIds,
+    state.catalogImageInputModelIds,
+    () => {
+      markChanged();
+      rerender();
+    },
+  );
+  const audioAvailable = supportsInputModality(context.selectedProtocol(), "audio");
+  const audioToggle = catalogCapabilityToggle(
+    model.id,
+    t("models.audioInput"),
+    state.catalogAudioInputModelIds,
+    () => {
+      markChanged();
+      rerender();
+    },
+    !audioAvailable,
+    audioAvailable ? undefined : t("models.adapterMediaUnsupported"),
+  );
+  const videoAvailable = supportsInputModality(context.selectedProtocol(), "video");
+  const videoToggle = catalogCapabilityToggle(
+    model.id,
+    t("models.videoInput"),
+    state.catalogVideoInputModelIds,
+    () => {
+      markChanged();
+      rerender();
+    },
+    !videoAvailable,
+    videoAvailable ? undefined : t("models.adapterMediaUnsupported"),
+  );
+  const documentToggle = catalogCapabilityToggle(
+    model.id,
+    t("models.documentInput"),
+    state.catalogDocumentInputModelIds,
     () => {
       markChanged();
       rerender();
@@ -168,6 +202,9 @@ export function createCatalogModelCapabilities(
 
   capabilities.append(
     imageToggle.element,
+    audioToggle.element,
+    videoToggle.element,
+    documentToggle.element,
     toolsToggle.element,
     createReasoningButton(rowState, context, state, rerender),
   );

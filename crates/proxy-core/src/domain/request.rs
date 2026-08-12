@@ -8,6 +8,23 @@ pub(crate) fn is_supported_inline_image_mime_type(mime_type: &str) -> bool {
         .any(|supported| mime_type.eq_ignore_ascii_case(supported))
 }
 
+pub(crate) fn openai_input_audio_format(mime_type: &str) -> Option<&'static str> {
+    if mime_type.eq_ignore_ascii_case("audio/wav") || mime_type.eq_ignore_ascii_case("audio/x-wav")
+    {
+        Some("wav")
+    } else if mime_type.eq_ignore_ascii_case("audio/mpeg")
+        || mime_type.eq_ignore_ascii_case("audio/mp3")
+    {
+        Some("mp3")
+    } else {
+        None
+    }
+}
+
+pub(crate) fn is_supported_inline_document_mime_type(mime_type: &str) -> bool {
+    mime_type.eq_ignore_ascii_case("application/pdf")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {

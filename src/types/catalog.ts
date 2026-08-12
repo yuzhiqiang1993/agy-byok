@@ -1,5 +1,5 @@
 import type { ReasoningLevel, ReasoningMapping } from "./reasoning";
-import type { ModelCompressionPolicy } from "./config";
+import type { ModelCompressionPolicy, ModelModality, ModelRole } from "./config";
 
 interface ProviderCatalogReasoning {
   supported?: boolean;
@@ -21,17 +21,16 @@ export interface ProviderCatalogModel {
   maxTokens?: number;
   tokenBudget?: number;
   capabilities?: Record<string, unknown> | unknown[];
-  supportedMimeTypes?: string[];
-  supportsImages?: boolean;
-  supportsVideo?: boolean;
+  roles?: ModelRole[];
+  inputModalities?: ModelModality[];
+  outputModalities?: ModelModality[];
+  inputMimeTypes?: string[];
   thinking?: unknown;
   reasoning?: ProviderCatalogReasoning;
   upstreamCompression?: UpstreamCompressionPolicy;
   defaultCompressionPolicy?: ModelCompressionPolicy;
   /** 官方目录中的推荐标记。 */
   isRecommended?: boolean;
-  /** 官方目录中模型是否属于 Agent 模型。 */
-  isAgentModel?: boolean;
   /** 官方 Agent 模型在服务端排序中的位置。 */
   agentSortOrder?: number;
   /** 官方目录是否已将该模型标记为过时。 */

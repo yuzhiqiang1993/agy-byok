@@ -198,6 +198,33 @@ fn incompatible_schema_is_deleted_and_replaced_with_defaults_in_memory() {
 }
 
 #[test]
+fn legacy_model_capabilities_are_deleted_instead_of_migrated() {
+    let directory =
+        std::env::temp_dir().join(format!("agy-byok-config-test-{}", uuid::Uuid::new_v4()));
+    let path = directory.join("config.v1.json");
+    fs::create_dir_all(&directory).unwrap();
+    let mut value = serde_json::to_value(sample_config()).unwrap();
+    value["upstream_models"][0]["capabilities"] = serde_json::json!({
+        "vision": true,
+        "tools": true,
+        "supported_mime_types": ["image/jpeg"],
+        "reasoning": {
+            "supported": null,
+            "thinking_budget": null,
+            "min_thinking_budget": null,
+            "levels": {}
+        }
+    });
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let store = ConfigStore::load_from_file(&path).unwrap();
+
+    assert!(!path.exists());
+    assert!(store.get_config().upstream_models.is_empty());
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
 fn invalid_config_is_deleted_and_replaced_with_defaults_in_memory() {
     let directory =
         std::env::temp_dir().join(format!("agy-byok-config-test-{}", uuid::Uuid::new_v4()));

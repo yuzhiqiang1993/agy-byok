@@ -1,8 +1,8 @@
 use super::DEFAULT_MAX_TOKENS;
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
-    NeutralContentBlock, Provider, ProxyError, TokenLimitSource,
+    is_supported_inline_document_mime_type, is_supported_inline_image_mime_type, ErrorCategory,
+    MessageRole, NeutralChatRequest, NeutralContentBlock, Provider, ProxyError, TokenLimitSource,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
@@ -32,21 +32,31 @@ fn convert_blocks(blocks: &[NeutralContentBlock]) -> Result<Vec<Value>, ProxyErr
                 mime_type,
                 data_base64,
             } => {
-                if !is_supported_inline_image_mime_type(mime_type) {
+                if is_supported_inline_image_mime_type(mime_type) {
+                    out.push(json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": data_base64
+                        }
+                    }));
+                } else if is_supported_inline_document_mime_type(mime_type) {
+                    out.push(json!({
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": data_base64
+                        }
+                    }));
+                } else {
                     return Err(ProxyError::new(
                         ErrorCategory::UnsupportedFeature,
                         format!("Anthropic Messages does not support inline {mime_type} content"),
                         400,
                     ));
                 }
-                out.push(json!({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": mime_type,
-                        "data": data_base64
-                    }
-                }));
             }
             NeutralContentBlock::ToolCall {
                 id,

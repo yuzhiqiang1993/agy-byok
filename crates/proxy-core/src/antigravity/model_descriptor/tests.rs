@@ -3,7 +3,7 @@ use super::custom::{
 };
 use super::*;
 use crate::domain::{
-    ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides,
+    ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelTokenLimits, ParameterOverrides,
     TokenLimitSource, UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Value};
@@ -446,7 +446,12 @@ fn descriptor_uses_experience_defaults_for_missing_model_limits() {
 #[test]
 fn video_capabilities_are_consistent_across_catalog_shapes() {
     let (virtual_model, mut upstream_model) = models();
-    upstream_model.capabilities.supported_mime_types = vec![
+    upstream_model.capabilities.input_modalities = std::collections::BTreeSet::from([
+        ModelModality::Text,
+        ModelModality::Image,
+        ModelModality::Video,
+    ]);
+    upstream_model.capabilities.input_mime_types = vec![
         "image/png".to_string(),
         "video/mp4".to_string(),
         "video/webm".to_string(),
@@ -469,6 +474,8 @@ fn video_capabilities_are_consistent_across_catalog_shapes() {
     let array_model = &array_catalog["models"][0];
     assert_eq!(object_model["supportsVideo"], true);
     assert_eq!(array_model["supportsVideo"], true);
+    assert_eq!(object_model["outputModalities"], json!(["TEXT"]));
+    assert_eq!(array_model["outputModalities"], json!(["TEXT"]));
     assert_eq!(object_model["supportedMimeTypes"]["video/mp4"], true);
     assert!(array_model["supportedMimeTypes"]
         .as_array()
