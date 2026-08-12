@@ -208,7 +208,13 @@ fn collect_reasoning_metadata(
             }
             if let Some(value) = object.get("type").and_then(Value::as_str) {
                 match value.to_ascii_lowercase().as_str() {
-                    "enabled" | "adaptive" => *supported = Some(true),
+                    "enabled" => *supported = Some(true),
+                    "adaptive" => {
+                        *supported = Some(true);
+                        if matches!(protocol, ProviderProtocol::AnthropicMessages) {
+                            add_reasoning_level("adaptive", protocol, None, levels, mappings);
+                        }
+                    }
                     "disabled" | "none" => *supported = Some(false),
                     _ => {}
                 }
@@ -254,7 +260,8 @@ fn normalize_reasoning_level(value: &str) -> Option<ReasoningLevel> {
         "high" => Some(ReasoningLevel::High),
         "xhigh" | "extrahigh" => Some(ReasoningLevel::XHigh),
         "max" | "maximum" => Some(ReasoningLevel::Max),
-        "auto" | "adaptive" => Some(ReasoningLevel::Auto),
+        "adaptive" => Some(ReasoningLevel::Adaptive),
+        "auto" => Some(ReasoningLevel::Auto),
         _ => None,
     }
 }
@@ -285,6 +292,7 @@ fn level_name(level: ReasoningLevel) -> &'static str {
         ReasoningLevel::High => "high",
         ReasoningLevel::XHigh => "xhigh",
         ReasoningLevel::Max => "max",
+        ReasoningLevel::Adaptive => "adaptive",
         ReasoningLevel::Auto => "auto",
     }
 }
@@ -301,7 +309,8 @@ fn reasoning_mapping(
     if level == ReasoningLevel::Off {
         return Some(ReasoningMapping::Disabled);
     }
-    if level == ReasoningLevel::Auto && matches!(protocol, ProviderProtocol::AnthropicMessages) {
+    if level == ReasoningLevel::Adaptive && matches!(protocol, ProviderProtocol::AnthropicMessages)
+    {
         return Some(ReasoningMapping::Adaptive);
     }
 

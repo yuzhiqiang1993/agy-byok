@@ -94,7 +94,7 @@ pub(super) fn configured_model_display_name(
     let provider_suffix = format!("({provider_name})");
     let mut base_name = model_name;
     for known_reasoning in [
-        "default", "off", "low", "medium", "high", "xhigh", "max", "auto",
+        "default", "off", "low", "medium", "high", "xhigh", "max", "adaptive", "auto",
     ] {
         let known_suffix = format!(" {known_reasoning}({provider_name})");
         if let Some(stripped) = base_name.strip_suffix(&known_suffix) {
@@ -117,6 +117,7 @@ pub(super) fn configured_model_display_name(
         Some(ReasoningLevel::High) => "high",
         Some(ReasoningLevel::XHigh) => "xhigh",
         Some(ReasoningLevel::Max) => "max",
+        Some(ReasoningLevel::Adaptive) => "adaptive",
         Some(ReasoningLevel::Auto) => "custom",
     };
     format!("{base_name} {reasoning}({provider_name})")

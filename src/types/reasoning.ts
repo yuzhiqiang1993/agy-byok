@@ -1,5 +1,5 @@
-export type ReasoningLevel = "off" | "low" | "medium" | "high" | "x_high" | "max" | "auto";
-export type ConfigurableReasoningLevel = "low" | "medium" | "high" | "x_high" | "max";
+export type ReasoningLevel = "off" | "low" | "medium" | "high" | "x_high" | "max" | "adaptive" | "auto";
+export type ConfigurableReasoningLevel = "low" | "medium" | "high" | "x_high" | "max" | "adaptive";
 
 export interface ThinkingBudgetConfig {
   thinkingBudget: number | null;

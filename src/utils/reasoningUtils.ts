@@ -10,7 +10,8 @@ const REASONING_LEVEL_ORDER: Record<ReasoningLevel, number> = {
   high: 3,
   x_high: 4,
   max: 5,
-  auto: 6,
+  adaptive: 6,
+  auto: 7,
 };
 
 export function sortReasoningLevels<T extends ReasoningLevel>(levels: Iterable<T>): T[] {
@@ -35,14 +36,17 @@ export function reasoningLevelLabel(level: ReasoningLevel): string {
     high: t("models.reasoningHigh"),
     x_high: t("models.reasoningExtraHigh"),
     max: t("models.reasoningMax"),
+    adaptive: t("models.reasoningAdaptive"),
     auto: t("models.reasoningCustom"),
   }[level];
 }
 
 function configurableReasoningLevels(protocol: ProviderProtocol): ConfigurableReasoningLevel[] {
-  return protocol === "gemini_generate_content"
-    ? ["low", "medium", "high"]
-    : ["low", "medium", "high", "x_high", "max"];
+  if (protocol === "gemini_generate_content") return ["low", "medium", "high"];
+  if (protocol === "anthropic_messages") {
+    return ["low", "medium", "high", "x_high", "max", "adaptive"];
+  }
+  return ["low", "medium", "high", "x_high", "max"];
 }
 
 export function catalogReasoningIsAuthoritative(model: ProviderCatalogModel): boolean {
@@ -54,25 +58,36 @@ export function catalogReasoningLevelsForModel(
   model: ProviderCatalogModel,
   protocol: ProviderProtocol,
   existingUpstream?: UpstreamModel,
+  outputTokenLimit?: number | null,
 ): ConfigurableReasoningLevel[] {
   const configurable = configurableReasoningLevels(protocol);
+  const effectiveOutputTokenLimit = outputTokenLimit
+    ?? model.outputTokenLimit
+    ?? trustedConfiguredOutputLimit(existingUpstream);
   const existing = existingUpstream
     ? (Object.keys(existingUpstream.capabilities.reasoning.levels) as ReasoningLevel[]).filter(
-        (level): level is ConfigurableReasoningLevel => configurable.includes(level as ConfigurableReasoningLevel),
+        (level): level is ConfigurableReasoningLevel =>
+          configurable.includes(level as ConfigurableReasoningLevel)
+          && reasoningMappingSupported(
+            protocol,
+            existingUpstream.capabilities.reasoning.levels[level],
+            effectiveOutputTokenLimit,
+          ),
       )
     : [];
 
   if (model.reasoning?.supported === false) return sortReasoningLevels([...new Set(existing)]);
 
+  const mappings = catalogReasoningMappingsForModel(model, protocol, effectiveOutputTokenLimit);
   const explicit = (model.reasoning?.levels ?? []).filter(
     (level): level is ConfigurableReasoningLevel =>
-      configurable.includes(level as ConfigurableReasoningLevel),
+      configurable.includes(level as ConfigurableReasoningLevel)
+      && (mappings[level] !== undefined || existing.includes(level as ConfigurableReasoningLevel)),
   );
   if (explicit.length > 0) {
     return sortReasoningLevels([...new Set([...existing, ...explicit])]);
   }
 
-  const mappings = catalogReasoningMappingsForModel(model, protocol);
   const mappedLevels = configurable.filter((level) => mappings[level] !== undefined);
   if (mappedLevels.length > 0) {
     return sortReasoningLevels([...new Set([...existing, ...mappedLevels])]);
@@ -87,6 +102,50 @@ export function catalogReasoningLevelsForModel(
 
   // 未声明具体等级时保留手动配置入口，避免把“目录未返回”误当成“不支持”。
   return configurable;
+}
+
+export type ReasoningMappingSource = "catalog" | "configured" | "protocol_suggestion";
+
+export function reasoningMappingSource(
+  model: ProviderCatalogModel,
+  protocol: ProviderProtocol,
+  level: ConfigurableReasoningLevel,
+  existingUpstream?: UpstreamModel,
+  outputTokenLimit?: number | null,
+): ReasoningMappingSource {
+  return resolveReasoningMappingForModel(
+    model,
+    protocol,
+    level,
+    existingUpstream,
+    outputTokenLimit,
+  ).source;
+}
+
+export type ReasoningConfigurationSource =
+  | "catalog"
+  | "catalog_adaptive"
+  | "catalog_capability"
+  | "configured"
+  | "protocol_suggestion";
+
+export function reasoningConfigurationSource(
+  model: ProviderCatalogModel,
+  existingUpstream?: UpstreamModel,
+): ReasoningConfigurationSource {
+  if (Object.values(model.reasoning?.mappings ?? {}).some((mapping) => mapping.kind === "adaptive")) return "catalog_adaptive";
+  if (catalogReasoningIsAuthoritative(model)) return "catalog";
+  if (model.reasoning !== undefined) return "catalog_capability";
+  const configured = existingUpstream?.capabilities.reasoning;
+  if (configured && (
+    configured.supported !== null
+    || configured.thinking_budget !== null
+    || configured.min_thinking_budget !== null
+    || Object.keys(configured.levels).length > 0
+  )) {
+    return "configured";
+  }
+  return "protocol_suggestion";
 }
 
 export function catalogReasoningMetadataLabel(model: ProviderCatalogModel): string | null {
@@ -108,19 +167,74 @@ function defaultReasoningMapping(
   level: ConfigurableReasoningLevel,
 ): ReasoningMapping | null {
   if (protocol === "anthropic_messages") {
-    const budgetTokens = {
+    if (level === "adaptive") return { kind: "adaptive" };
+    const budgetTokens: Record<Exclude<ConfigurableReasoningLevel, "adaptive">, number> = {
       low: 1_024,
       medium: 4_096,
       high: 8_192,
       x_high: 16_384,
       max: 32_768,
-    }[level];
-    return { kind: "budget_tokens", value: budgetTokens };
+    };
+    return { kind: "budget_tokens", value: budgetTokens[level] };
   }
   if (protocol === "gemini_generate_content") {
     return { kind: "native_level", value: level === "x_high" ? "xhigh" : level };
   }
   return { kind: "effort", value: level === "x_high" ? "xhigh" : level };
+}
+
+function trustedConfiguredOutputLimit(upstream?: UpstreamModel): number | null {
+  if (!upstream) return null;
+  const { output_token_limit: limit, output_token_limit_source: source } = upstream.token_limits;
+  return limit != null && (source === "catalog" || source === "configured") ? limit : null;
+}
+
+function reasoningMappingSupported(
+  protocol: ProviderProtocol,
+  mapping: ReasoningMapping | undefined,
+  outputTokenLimit: number | null,
+): boolean {
+  if (!mapping) return false;
+  if (protocol === "anthropic_messages" && mapping.kind === "budget_tokens") {
+    return mapping.value >= 1_024
+      && (outputTokenLimit == null || mapping.value < outputTokenLimit);
+  }
+  if (protocol === "openai_chat_completions" || protocol === "openai_responses") {
+    return mapping.kind === "effort" || mapping.kind === "disabled";
+  }
+  if (protocol === "gemini_generate_content") {
+    return mapping.kind === "native_level"
+      || mapping.kind === "budget_tokens"
+      || mapping.kind === "disabled";
+  }
+  return mapping.kind === "effort"
+    || mapping.kind === "adaptive"
+    || mapping.kind === "disabled";
+}
+
+export function resolveReasoningMappingForModel(
+  model: ProviderCatalogModel,
+  protocol: ProviderProtocol,
+  level: ConfigurableReasoningLevel,
+  existingUpstream?: UpstreamModel,
+  outputTokenLimit?: number | null,
+): { mapping: ReasoningMapping | null; source: ReasoningMappingSource } {
+  const effectiveOutputTokenLimit = outputTokenLimit
+    ?? model.outputTokenLimit
+    ?? trustedConfiguredOutputLimit(existingUpstream);
+  const catalogMapping = model.reasoning?.mappings?.[level];
+  if (reasoningMappingSupported(protocol, catalogMapping, effectiveOutputTokenLimit)) {
+    return { mapping: catalogMapping ?? null, source: "catalog" };
+  }
+  const configuredMapping = existingUpstream?.capabilities.reasoning.levels[level];
+  if (reasoningMappingSupported(protocol, configuredMapping, effectiveOutputTokenLimit)) {
+    return { mapping: configuredMapping ?? null, source: "configured" };
+  }
+  return {
+    mapping: catalogReasoningMappingsForModel(model, protocol, effectiveOutputTokenLimit)[level]
+      ?? null,
+    source: "protocol_suggestion",
+  };
 }
 
 function reasoningLevels(
@@ -138,10 +252,15 @@ function reasoningLevels(
 export function catalogReasoningMappingsForModel(
   model: ProviderCatalogModel,
   protocol: ProviderProtocol,
+  outputTokenLimit: number | null = model.outputTokenLimit ?? null,
 ): Partial<Record<ReasoningLevel, ReasoningMapping>> {
-  const mappings: Partial<Record<ReasoningLevel, ReasoningMapping>> = {
-    ...(model.reasoning?.mappings ?? {}),
-  };
+  const mappings: Partial<Record<ReasoningLevel, ReasoningMapping>> = {};
+  for (const [level, mapping] of Object.entries(model.reasoning?.mappings ?? {}) as Array<[
+    ReasoningLevel,
+    ReasoningMapping,
+  ]>) {
+    if (reasoningMappingSupported(protocol, mapping, outputTokenLimit)) mappings[level] = mapping;
+  }
   if (model.reasoning?.supported === false) return mappings;
 
   const defaults = reasoningLevels(protocol);
@@ -154,12 +273,16 @@ export function catalogReasoningMappingsForModel(
   for (const level of levels) {
     if (mappings[level] !== undefined) continue;
     const mapping = defaults[level as ConfigurableReasoningLevel];
-    if (mapping) mappings[level] = mapping;
+    if (reasoningMappingSupported(protocol, mapping, outputTokenLimit)) mappings[level] = mapping;
   }
   return mappings;
 }
 
-export function customReasoningMapping(protocol: ProviderProtocol, value: string): ReasoningMapping | null {
+export function customReasoningMapping(
+  protocol: ProviderProtocol,
+  value: string,
+  outputTokenLimit: number | null = null,
+): ReasoningMapping | null {
   const normalized = value.trim();
   if (!normalized) return null;
   if (protocol === "openai_chat_completions" || protocol === "openai_responses") {
@@ -167,11 +290,12 @@ export function customReasoningMapping(protocol: ProviderProtocol, value: string
   }
   const budgetTokens = Number(normalized);
   if (Number.isInteger(budgetTokens) && /^\d+$/.test(normalized)) {
-    return budgetTokens >= 1024
-      ? { kind: "budget_tokens", value: budgetTokens }
-      : null;
+    if (budgetTokens < 1_024) return null;
+    const mapping: ReasoningMapping = { kind: "budget_tokens", value: budgetTokens };
+    return reasoningMappingSupported(protocol, mapping, outputTokenLimit) ? mapping : null;
   }
   if (protocol === "anthropic_messages") {
+    if (normalized.toLowerCase() === "adaptive") return { kind: "adaptive" };
     return { kind: "effort", value: normalized };
   }
   if (protocol === "gemini_generate_content") {

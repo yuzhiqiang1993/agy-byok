@@ -192,10 +192,19 @@ pub(super) fn build_request_payload(
                 )
             })?;
         match mapping {
-            ReasoningMapping::Effort(effort) => {
-                payload["reasoning"] = json!({ "effort": effort });
+            ReasoningMapping::Effort(effort) => match payload.get_mut("reasoning") {
+                Some(Value::Object(reasoning)) => {
+                    reasoning.insert("effort".to_string(), json!(effort));
+                }
+                _ => payload["reasoning"] = json!({ "effort": effort }),
+            },
+            ReasoningMapping::Disabled => {
+                // 关闭档位必须清理 extra_body 中可能残留的 reasoning 配置。
+                payload
+                    .as_object_mut()
+                    .expect("Responses payload must be an object")
+                    .remove("reasoning");
             }
-            ReasoningMapping::Disabled => {}
             _ => {
                 return Err(ProxyError::new(
                     ErrorCategory::UnsupportedFeature,

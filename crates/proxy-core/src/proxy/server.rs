@@ -110,6 +110,15 @@ mod tests {
             "GPT Test max(Provider A)"
         );
         assert_eq!(
+            configured_model_display_name(
+                "Claude Test",
+                Some(ReasoningLevel::Adaptive),
+                "Provider A",
+                true
+            ),
+            "Claude Test adaptive(Provider A)"
+        );
+        assert_eq!(
             configured_model_display_name("GPT Test", None, "Provider A", false),
             "GPT Test(Provider A)"
         );

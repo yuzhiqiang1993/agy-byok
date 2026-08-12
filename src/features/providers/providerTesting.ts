@@ -3,7 +3,7 @@ import type { ProviderCatalogModel } from "../../types/catalog";
 import type { ModelConnectionTestResult } from "../../types/proxy";
 import type { ConfigurableReasoningLevel, ReasoningLevel, ReasoningMapping } from "../../types/reasoning";
 import { testProviderModelConnection as testProviderModelConnectionCommand } from "../../controllers/providerController";
-import { catalogReasoningMappingsForModel, reasoningLevelLabel, sortReasoningLevels } from "../../utils/reasoningUtils";
+import { reasoningLevelLabel, resolveReasoningMappingForModel, sortReasoningLevels } from "../../utils/reasoningUtils";
 import { connectionTestErrorMessage } from "../../utils/connectionTestUtils";
 import { t } from "../../i18n";
 
@@ -32,6 +32,7 @@ interface CatalogModelTestContext {
   providerFromForm: () => Provider;
   isReasoningEnabled: () => boolean;
   selectedReasoningLevels: () => ReadonlySet<ConfigurableReasoningLevel>;
+  outputTokenLimit: () => number | null;
   runBusy: (
     button: HTMLButtonElement,
     action: () => Promise<void>,
@@ -49,10 +50,13 @@ export function runCatalogModelTests(context: CatalogModelTestContext): void {
     }> = [];
     if (context.isReasoningEnabled()) {
       for (const level of sortReasoningLevels(context.selectedReasoningLevels())) {
-        const mapping = context.model.reasoning?.mappings?.[level]
-          ?? context.existingUpstream?.capabilities.reasoning.levels[level]
-          ?? catalogReasoningMappingsForModel(context.model, provider.protocol)[level]
-          ?? null;
+        const mapping = resolveReasoningMappingForModel(
+          context.model,
+          provider.protocol,
+          level,
+          context.existingUpstream,
+          context.outputTokenLimit(),
+        ).mapping;
         testCases.push({ label: reasoningLevelLabel(level), reasoningLevel: level, mapping });
       }
     }

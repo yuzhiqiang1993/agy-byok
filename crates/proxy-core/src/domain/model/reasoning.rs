@@ -11,6 +11,7 @@ pub enum ReasoningLevel {
     High,
     XHigh,
     Max,
+    Adaptive,
     Auto,
 }
 

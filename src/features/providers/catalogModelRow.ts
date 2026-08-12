@@ -40,6 +40,9 @@ function createTestArea(
       isReasoningEnabled: () => state.catalogReasoningEnabledModelIds.has(model.id),
       selectedReasoningLevels: () => state.catalogReasoningLevelsByModel.get(model.id)
         ?? new Set<ConfigurableReasoningLevel>(),
+      outputTokenLimit: () => state.catalogTokenLimitsByModel.get(model.id)?.output_token_limit
+        ?? model.outputTokenLimit
+        ?? null,
       runBusy: context.withProviderEditorBusy,
     });
   });

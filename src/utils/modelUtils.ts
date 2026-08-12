@@ -37,7 +37,7 @@ export function nextHostModelId(occupied: Set<string>): string {
 export function stripConfiguredModelSuffix(modelName: string, providerName: string): string {
   const knownSuffixes = [
     ` · ${providerName}`,
-    ...["default", "off", "low", "medium", "high", "xhigh", "max", "auto"]
+    ...["default", "off", "low", "medium", "high", "xhigh", "max", "adaptive", "auto"]
       .map((level) => ` ${level}(${providerName})`),
     `(${providerName})`,
   ];

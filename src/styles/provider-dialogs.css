@@ -11,6 +11,16 @@
   gap: 8px;
   margin-top: 0;
 }
+.reasoning-source-note {
+  margin: 0 0 4px;
+  padding: 9px 11px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.06);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .reasoning-modal-level-row {
   display: flex;
   align-items: center;
@@ -41,6 +51,15 @@
   margin: 0;
   accent-color: var(--accent, #3b82f6);
   cursor: pointer;
+}
+.reasoning-mapping-source {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.1);
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 .reasoning-level-test-area {
   display: flex;
@@ -683,6 +702,10 @@ html[data-theme="dark"] .policy-capacity-badge {
   color: #6ee7b7;
 }
 html[data-theme="dark"] .policy-source-note {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 64, 175, 0.14);
+}
+html[data-theme="dark"] .reasoning-source-note {
   border-color: rgba(96, 165, 250, 0.28);
   background: rgba(30, 64, 175, 0.14);
 }

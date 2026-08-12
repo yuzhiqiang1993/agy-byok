@@ -2,11 +2,21 @@ use super::DEFAULT_MAX_TOKENS;
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
     is_supported_inline_image_mime_type, ErrorCategory, MessageRole, NeutralChatRequest,
-    NeutralContentBlock, Provider, ProxyError,
+    NeutralContentBlock, Provider, ProxyError, TokenLimitSource,
 };
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+
+// 只有目录或用户明确配置的上限才能约束自动生成的 Anthropic 输出预算。
+fn trusted_output_token_limit(route: &ResolvedRoute) -> Option<u32> {
+    matches!(
+        route.upstream_model.token_limits.output_token_limit_source,
+        TokenLimitSource::Catalog | TokenLimitSource::Configured
+    )
+    .then_some(route.upstream_model.token_limits.output_token_limit)
+    .flatten()
+}
 
 fn convert_blocks(blocks: &[NeutralContentBlock]) -> Result<Vec<Value>, ProxyError> {
     let mut out = Vec::new();
@@ -163,8 +173,21 @@ pub(super) fn build_request_payload(
                         ));
                     }
                     None => {
-                        payload["max_tokens"] =
-                            Value::from(budget_tokens.saturating_add(DEFAULT_MAX_TOKENS));
+                        let generated_max_tokens = budget_tokens.saturating_add(DEFAULT_MAX_TOKENS);
+                        let effective_max_tokens = match trusted_output_token_limit(route) {
+                            Some(output_limit) if output_limit <= *budget_tokens => {
+                                return Err(ProxyError::new(
+                                    ErrorCategory::InvalidRequest,
+                                    format!(
+                                        "Anthropic output token limit ({output_limit}) must be greater than thinking budget ({budget_tokens})"
+                                    ),
+                                    400,
+                                ));
+                            }
+                            Some(output_limit) => generated_max_tokens.min(output_limit),
+                            None => generated_max_tokens,
+                        };
+                        payload["max_tokens"] = Value::from(effective_max_tokens);
                     }
                     Some(_) => {}
                 }

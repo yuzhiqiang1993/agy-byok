@@ -8,8 +8,10 @@ import type {
   ThinkingBudgetConfig,
 } from "../types/reasoning";
 import {
+  reasoningConfigurationSource,
+  reasoningMappingSource,
   catalogReasoningLevelsForModel,
-  catalogReasoningMappingsForModel,
+  resolveReasoningMappingForModel,
   reasoningLevelLabel,
   sortReasoningLevels,
 } from "../utils/reasoningUtils";
@@ -19,6 +21,7 @@ import { createModal, type ModalInstance } from "./common/Modal";
 interface ReasoningModalContext {
   providerProtocol: ProviderProtocol;
   existingUpstream?: UpstreamModel;
+  outputTokenLimit: number | null;
   currentLevels: ReadonlySet<ConfigurableReasoningLevel>;
   currentThinkingBudgets: ThinkingBudgetConfig;
   providerFromForm: () => Provider;
@@ -50,6 +53,7 @@ let activeLabels: HTMLSpanElement[] = [];
 let activeTestButtons: HTMLButtonElement[] = [];
 let activeReadOnlyNote: HTMLElement | null = null;
 let activeBudgetLabels: HTMLElement[] = [];
+let activeSourceLabels: HTMLElement[] = [];
 
 subscribeLanguage(() => {
   if (!activeReasoningModel || !activeContext || !currentModal) return;
@@ -58,6 +62,7 @@ subscribeLanguage(() => {
     activeReasoningModel,
     activeContext.providerProtocol,
     activeContext.existingUpstream,
+    activeContext.outputTokenLimit,
   );
   
   activeLabels.forEach((label, index) => {
@@ -77,7 +82,39 @@ subscribeLanguage(() => {
     const key = label.dataset.reasoningBudgetLabel;
     if (key && isTranslationKey(key)) label.textContent = t(key);
   });
+
+  activeSourceLabels.forEach((label) => {
+    const key = label.dataset.reasoningSourceLabel;
+    if (key && isTranslationKey(key)) label.textContent = t(key);
+  });
 });
+
+function configurationSourceLabelKey(
+  model: ProviderCatalogModel,
+  existingUpstream?: UpstreamModel,
+): "models.reasoningSourceCatalog" | "models.reasoningSourceCatalogAdaptive" | "models.reasoningSourceCatalogCapability" | "models.reasoningSourceConfigured" | "models.reasoningSourceSuggested" {
+  switch (reasoningConfigurationSource(model, existingUpstream)) {
+    case "catalog": return "models.reasoningSourceCatalog";
+    case "catalog_adaptive": return "models.reasoningSourceCatalogAdaptive";
+    case "catalog_capability": return "models.reasoningSourceCatalogCapability";
+    case "configured": return "models.reasoningSourceConfigured";
+    case "protocol_suggestion": return "models.reasoningSourceSuggested";
+  }
+}
+
+function mappingSourceLabelKey(
+  model: ProviderCatalogModel,
+  protocol: ProviderProtocol,
+  level: ConfigurableReasoningLevel,
+  existingUpstream?: UpstreamModel,
+  outputTokenLimit?: number | null,
+): "models.reasoningMappingCatalog" | "models.reasoningMappingConfigured" | "models.reasoningMappingSuggested" {
+  switch (reasoningMappingSource(model, protocol, level, existingUpstream, outputTokenLimit)) {
+    case "catalog": return "models.reasoningMappingCatalog";
+    case "configured": return "models.reasoningMappingConfigured";
+    case "protocol_suggestion": return "models.reasoningMappingSuggested";
+  }
+}
 
 export function openReasoningModal(model: ProviderCatalogModel, context: ReasoningModalContext): void {
   activeReasoningModel = model;
@@ -88,15 +125,25 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
   activeTestButtons = [];
   activeReadOnlyNote = null;
   activeBudgetLabels = [];
+  activeSourceLabels = [];
 
   const supportedLevels = catalogReasoningLevelsForModel(
     model,
     context.providerProtocol,
     context.existingUpstream,
+    context.outputTokenLimit,
   );
   
   const body = document.createElement("div");
   body.className = "reasoning-modal-levels";
+
+  const sourceNote = document.createElement("p");
+  sourceNote.className = "reasoning-source-note";
+  const sourceLabelKey = configurationSourceLabelKey(model, context.existingUpstream);
+  sourceNote.dataset.reasoningSourceLabel = sourceLabelKey;
+  sourceNote.textContent = t(sourceLabelKey);
+  activeSourceLabels.push(sourceNote);
+  body.append(sourceNote);
 
   for (const level of supportedLevels) {
     const row = document.createElement("div");
@@ -114,7 +161,19 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
     const text = document.createElement("span");
     text.textContent = reasoningLevelLabel(level);
     activeLabels.push(text);
-    label.append(checkbox, text);
+    const sourceBadge = document.createElement("span");
+    sourceBadge.className = "reasoning-mapping-source";
+    const mappingLabelKey = mappingSourceLabelKey(
+      model,
+      context.providerProtocol,
+      level,
+      context.existingUpstream,
+      context.outputTokenLimit,
+    );
+    sourceBadge.dataset.reasoningSourceLabel = mappingLabelKey;
+    sourceBadge.textContent = t(mappingLabelKey);
+    activeSourceLabels.push(sourceBadge);
+    label.append(checkbox, text, sourceBadge);
 
     const testArea = document.createElement("div");
     testArea.className = "reasoning-level-test-area";
@@ -137,10 +196,13 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
           model.id,
           level,
           null,
-          model.reasoning?.mappings?.[level]
-            ?? context.existingUpstream?.capabilities.reasoning.levels[level]
-            ?? catalogReasoningMappingsForModel(model, context.providerProtocol)[level]
-            ?? null,
+          resolveReasoningMappingForModel(
+            model,
+            context.providerProtocol,
+            level,
+            context.existingUpstream,
+            context.outputTokenLimit,
+          ).mapping,
         );
         if (response.success) {
           result.className = "reasoning-level-test-result success";
@@ -186,6 +248,7 @@ export function openReasoningModal(model: ProviderCatalogModel, context: Reasoni
       activeTestButtons = [];
       activeReadOnlyNote = null;
       activeBudgetLabels = [];
+      activeSourceLabels = [];
     },
   });
 

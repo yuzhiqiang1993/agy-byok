@@ -45,6 +45,7 @@ export function resolveCatalogModelRowState(
       model,
       context.selectedProtocol(),
       existingUpstream,
+      state.catalogTokenLimitsByModel.get(model.id)?.output_token_limit ?? null,
     ),
     reasoningEnabled: state.catalogReasoningEnabledModelIds.has(model.id)
       && hasReasoningConfiguration,

@@ -510,6 +510,8 @@ fn preview_reasoning_mapping(
                         return Err("自定义 thinking budget 不能小于 1024".to_string());
                     }
                     Ok(ReasoningMapping::BudgetTokens(tokens))
+                } else if value.eq_ignore_ascii_case("adaptive") {
+                    Ok(ReasoningMapping::Adaptive)
                 } else {
                     Ok(ReasoningMapping::Effort(value.to_string()))
                 }
@@ -614,5 +616,19 @@ mod tests {
         provider.request_timeout_ms = 0;
 
         assert!(preview_model_config(provider, "model".to_string(), None, None, None).is_err());
+    }
+
+    #[test]
+    fn anthropic_preview_preserves_adaptive_custom_value() {
+        assert_eq!(
+            preview_reasoning_mapping(
+                &ProviderProtocol::AnthropicMessages,
+                ReasoningLevel::Auto,
+                Some("adaptive"),
+                None,
+            )
+            .unwrap(),
+            ReasoningMapping::Adaptive
+        );
     }
 }

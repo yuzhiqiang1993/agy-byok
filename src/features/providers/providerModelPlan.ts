@@ -19,8 +19,8 @@ import {
 } from "../../utils/modelUtils";
 import {
   catalogReasoningLevelsForModel,
-  catalogReasoningMappingsForModel,
   customReasoningMapping,
+  resolveReasoningMappingForModel,
   sortReasoningLevels,
 } from "../../utils/reasoningUtils";
 import {
@@ -181,14 +181,20 @@ function buildReasoningPlan(
 ): ReasoningPlan {
   const reasoningEnabled = input.catalogReasoningEnabledModelIds.has(model.id);
   const selectedLevels = selectedReasoningLevels(input, model.id);
-  const availableMappings = catalogReasoningMappingsForModel(model, input.provider.protocol);
-  const availableLevels = catalogReasoningLevelsForModel(model, input.provider.protocol, existingUpstream);
-  const explicitCatalogMappings = model.reasoning?.mappings ?? {};
+  const outputTokenLimit = input.catalogTokenLimitsByModel.get(model.id)?.output_token_limit
+    ?? model.outputTokenLimit
+    ?? null;
+  const availableLevels = catalogReasoningLevelsForModel(
+    model,
+    input.provider.protocol,
+    existingUpstream,
+    outputTokenLimit,
+  );
   const customReasoningValue = input.catalogCustomReasoningByModel.get(model.id);
   const customMapping = customReasoningValue
-    ? customReasoningMapping(input.provider.protocol, customReasoningValue)
+    ? customReasoningMapping(input.provider.protocol, customReasoningValue, outputTokenLimit)
     : null;
-  const enabledLevels: ReasoningLevel[] = reasoningEnabled
+  const enabledLevels: Array<ConfigurableReasoningLevel | "auto"> = reasoningEnabled
     ? [
         ...sortReasoningLevels([...selectedLevels].filter((level) => availableLevels.includes(level))),
         ...(customMapping ? ["auto" as const] : []),
@@ -198,12 +204,13 @@ function buildReasoningPlan(
   for (const level of enabledLevels) {
     const mapping = level === "auto"
       ? customMapping
-      : (explicitCatalogMappings[level] !== undefined
-          ? explicitCatalogMappings[level]
-          : (input.protocolChanged
-              ? undefined
-              : existingUpstream?.capabilities.reasoning.levels[level]))
-        ?? availableMappings[level];
+      : resolveReasoningMappingForModel(
+          model,
+          input.provider.protocol,
+          level,
+          input.protocolChanged ? undefined : existingUpstream,
+          outputTokenLimit,
+        ).mapping;
     if (mapping) levels[level] = mapping;
   }
   const budgets = input.catalogThinkingBudgetsByModel.get(model.id);

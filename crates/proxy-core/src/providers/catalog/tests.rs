@@ -768,6 +768,27 @@ fn parses_vendor_token_and_reasoning_metadata() {
 }
 
 #[test]
+fn parses_anthropic_adaptive_thinking_as_native_mapping() {
+    let models = parse_catalog_models(
+        &json!({
+            "data": [{
+                "id": "claude-adaptive",
+                "thinking": { "type": "adaptive" }
+            }]
+        }),
+        &ProviderProtocol::AnthropicMessages,
+    );
+
+    let reasoning = models[0].reasoning.as_ref().unwrap();
+    assert_eq!(reasoning.supported, Some(true));
+    assert_eq!(reasoning.levels, vec![ReasoningLevel::Adaptive]);
+    assert_eq!(
+        reasoning.mappings,
+        BTreeMap::from([(ReasoningLevel::Adaptive, ReasoningMapping::Adaptive)])
+    );
+}
+
+#[test]
 fn parses_reasoning_metadata_without_assuming_missing_capability() {
     let models = parse_catalog_models(
         &json!({

@@ -310,6 +310,10 @@ mod tests {
             serde_json::from_str::<ReasoningLevel>("\"x_high\"").unwrap(),
             ReasoningLevel::XHigh
         );
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"adaptive\"").unwrap(),
+            ReasoningLevel::Adaptive
+        );
     }
 
     #[test]
@@ -479,6 +483,47 @@ mod tests {
     }
 
     #[test]
+    fn openai_responses_reasoning_payload_uses_nested_effort() {
+        let adapter = OpenAIResponsesAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::OpenaiResponses,
+            ReasoningMapping::Effort("high".to_string()),
+        );
+        route.final_parameters.extra_body = Some(HashMap::from([(
+            "reasoning".to_string(),
+            json!({ "effort": "low", "summary": "auto" }),
+        )]));
+
+        let payload = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(
+            payload["reasoning"],
+            json!({ "effort": "high", "summary": "auto" })
+        );
+    }
+
+    #[test]
+    fn openai_responses_disabled_reasoning_removes_extra_body_override() {
+        let adapter = OpenAIResponsesAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::OpenaiResponses,
+            ReasoningMapping::Disabled,
+        );
+        route.final_parameters.extra_body = Some(HashMap::from([(
+            "reasoning".to_string(),
+            json!({ "effort": "high" }),
+        )]));
+
+        let payload = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert!(payload.get("reasoning").is_none());
+    }
+
+    #[test]
     fn openai_stream_requests_usage_chunk() {
         let adapter = OpenAIAdapter::new();
         let mut route = create_dummy_route(
@@ -645,6 +690,63 @@ mod tests {
         assert_eq!(payload["thinking"]["type"], "enabled");
         assert_eq!(payload["thinking"]["budget_tokens"], 4096);
         assert_eq!(payload["max_tokens"], 8192);
+    }
+
+    #[test]
+    fn anthropic_generated_max_tokens_respects_catalog_output_limit() {
+        let adapter = AnthropicAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::AnthropicMessages,
+            ReasoningMapping::BudgetTokens(4096),
+        );
+        route.final_parameters.max_tokens = None;
+        route.upstream_model.token_limits.output_token_limit = Some(6_000);
+        route.upstream_model.token_limits.output_token_limit_source = TokenLimitSource::Catalog;
+
+        let payload = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(payload["max_tokens"], 6_000);
+        assert_eq!(payload["thinking"]["budget_tokens"], 4_096);
+    }
+
+    #[test]
+    fn anthropic_rejects_budget_at_catalog_output_limit() {
+        let adapter = AnthropicAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::AnthropicMessages,
+            ReasoningMapping::BudgetTokens(4096),
+        );
+        route.final_parameters.max_tokens = None;
+        route.upstream_model.token_limits.output_token_limit = Some(4_096);
+        route.upstream_model.token_limits.output_token_limit_source = TokenLimitSource::Catalog;
+
+        let error = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::InvalidRequest);
+        assert!(error.message.contains("output token limit"));
+    }
+
+    #[test]
+    fn anthropic_adaptive_mapping_does_not_invent_effort() {
+        let adapter = AnthropicAdapter::new();
+        let mut route = create_dummy_route(
+            ProviderProtocol::AnthropicMessages,
+            ReasoningMapping::Adaptive,
+        );
+        route.final_reasoning_level = Some(ReasoningLevel::Adaptive);
+        route.upstream_model.capabilities.reasoning.levels =
+            BTreeMap::from([(ReasoningLevel::Adaptive, ReasoningMapping::Adaptive)]);
+
+        let payload = adapter
+            .build_request_payload(&route, &basic_request())
+            .unwrap();
+
+        assert_eq!(payload["thinking"]["type"], "adaptive");
+        assert!(payload.get("output_config").is_none());
     }
 
     #[test]

@@ -142,9 +142,12 @@ function providerSelectionError(
   }
   const invalidCustomReasoning = selectedModels.find((model) => {
     const value = catalog.catalogCustomReasoningByModel.get(model.id);
+    const outputTokenLimit = catalog.catalogTokenLimitsByModel.get(model.id)?.output_token_limit
+      ?? model.outputTokenLimit
+      ?? null;
     return catalog.catalogReasoningEnabledModelIds.has(model.id)
       && value !== undefined
-      && customReasoningMapping(provider.protocol, value) === null;
+      && customReasoningMapping(provider.protocol, value, outputTokenLimit) === null;
   });
   if (invalidCustomReasoning) {
     return t("models.invalidReasoningValue", { name: invalidCustomReasoning.displayName });

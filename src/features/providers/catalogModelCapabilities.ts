@@ -65,6 +65,9 @@ function createReasoningButton(
     thinkingBudget: null,
     minThinkingBudget: null,
   };
+  const outputTokenLimit = state.catalogTokenLimitsByModel.get(model.id)?.output_token_limit
+    ?? model.outputTokenLimit
+    ?? null;
   const button = document.createElement("button");
   button.type = "button";
   button.className = `catalog-reasoning-trigger${reasoningEnabled ? " active" : ""}`;
@@ -89,6 +92,7 @@ function createReasoningButton(
     openReasoningModal(model, {
       providerProtocol: context.selectedProtocol(),
       existingUpstream,
+      outputTokenLimit,
       currentLevels: selectedReasoningLevels ?? new Set<ConfigurableReasoningLevel>(),
       currentThinkingBudgets: thinkingBudgets,
       providerFromForm: context.providerFromForm,
