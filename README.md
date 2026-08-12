@@ -60,19 +60,24 @@ Run Overview is the main AGY BYOK console and provides a single place to inspect
 - **Capability configuration**: Configure image input, tool calls, and granular Thinking / Reasoning capabilities (map explicit effort levels to different Providers) for each model.
 - **Connection tests**: Test an entire Provider, an individual model, or a group of models.
 
-> ![Model Management](imgs/en/models.png)
+> **Official Native Models Management**
+> ![Official Native Models](imgs/en/models-official.png)
+
+> **Custom Provider Models Management**
+> ![Custom Provider Models](imgs/en/models-custom.png)
 
 #### 2.1 Add an Upstream Service
 
-When adding an upstream service, you can choose an existing Provider preset or configure a custom service manually:
+Adding an upstream service is simple and takes just 3 steps, supporting both built-in Provider presets and custom services:
 
-- Supports OpenAI, Anthropic, Gemini, and OpenAI-compatible services;
-- API keys are optional for local model services without authentication;
-- Enter the service root URL as the API address; the system completes the model-list and generation paths according to the selected protocol;
-- Advanced settings support custom endpoint URLs;
-- After fetching the model list, save only the models that should be exposed to the host.
+1. **Select Provider**: Choose from official providers, popular recommendations, aggregators, or local LLM presets, or configure a fully custom service.
+   > ![Step 1: Select Provider](imgs/en/add-service-step1-select.png)
 
-> ![Add an upstream service](imgs/en/add-upstream-service.png)
+2. **Connection Config**: Enter API Base URL and Key supporting OpenAI, Anthropic, and Gemini protocols, with advanced endpoint URL customization.
+   > ![Step 2: Connection Config](imgs/en/add-service-step2-connect.png)
+
+3. **Select Models**: Fetch available models from upstream, configure vision, tool call, and reasoning capabilities, and selectively save models to expose to the host.
+   > ![Step 3: Select Models](imgs/en/add-service-step3-models.png)
 
 #### 2.2 Inject Models into Antigravity
 
@@ -81,13 +86,30 @@ After saving models and enabling proxy mode for a host, the models appear in Ant
 > ![Model Selector](imgs/en/model-selector.png)
 
 #### 2.3 Per-model Context Compression
+ 
+Antigravity’s official default compression policy is notably **conservative** (often triggering compression early in a session even when context usage is low). This causes frequent Checkpointer summaries during extended conversations, which adds extra latency, consumes redundant tokens, and risks over-summarizing early code context and chat history.
 
-Official and custom models are displayed together on the Model Management page. Each model provides access to its raw configuration and its own context compression policy:
+With AGY BYOK, you can customize the context compression strategy for each individual official or custom model to reduce compression frequency:
 
-- Choose from presets ranging from **Deep Compression** to **Maximum Fidelity**, or configure the compression threshold, Checkpoint limit, and reserved output tokens manually;
-- Let the compression worker follow the current model, or use a fixed Gemini Flash model to balance context consistency, speed, and cost;
-- Select **Official Default** or **Upstream Default** to preserve the model's original Checkpointer behavior and context limits without adding a model-level override;
-- Restart Antigravity IDE or App after saving compression-policy or model-injection changes for them to take effect.
+- **Presets & Fine-tuning**: Choose from presets ranging from **Deep Compression** to **Maximum Fidelity** (e.g., 128K, 200K, 256K, 372K, 1M), or manually set the **Compression Threshold**, **Checkpoint Limit**, and **Reserved Output Tokens** using quick percentages or exact token counts;
+- **Compression Worker Model**: Let the compression worker follow the active model or use a fixed, lightweight Gemini Flash model to balance context fidelity, speed, and cost;
+- **Default Passthrough**: Select **Official Default** or **Upstream Default** to preserve original limits without injecting custom overrides;
+- **Application**: Compression policies and injection configs take effect after restarting Antigravity IDE or App.
+
+> [!TIP]
+> **💡 Context Compression Configuration Tips & Trade-offs:**
+>
+> - **⚠️ Setting thresholds too low (Triggers too frequently)**:
+>   - Triggers compression after just a few conversational turns or reading a couple of files;
+>   - Each compression incurs an additional LLM summarization call, increasing waiting latency and consuming extra tokens;
+>   - Conversation history is repeatedly compressed and summarized, risking the loss of crucial early requirements and implementation details.
+> - **⚠️ Setting thresholds too high (Too close to model physical limits)**:
+>   - High risk of exceeding the upstream model's maximum context window and failing with request errors (`Context Window Exceeded` / `400 Bad Request`). Real requests contain not only chat history, but also system prompts, tool definitions, intermediate thinking/reasoning tokens, and reserved output buffers;
+>   - Carrying massive contexts in every request significantly increases Time-to-First-Token (TTFT) and API token billing.
+> - **✅ Recommended Practice**:
+>   - Select a matching preset tier based on your upstream model’s actual maximum context window, leaving a **20% ~ 30% safety buffer** for outputs and tools (e.g., triggering compression around 148K for a 200K-context model). This effectively minimizes unnecessary compressions while completely avoiding context overflow errors.
+
+> ![Edit Compression Policy](imgs/en/compression-policy.png)
 
 ### 3. Local Proxy and Host Integration
 
