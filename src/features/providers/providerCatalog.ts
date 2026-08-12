@@ -50,6 +50,7 @@ function emptyCatalogState(): InternalProviderCatalogState {
     catalogVideoInputModelIds: new Set(),
     catalogDocumentInputModelIds: new Set(),
     catalogInputMimeTypesByModel: new Map(),
+    catalogImageGenerationModelIds: new Set(),
     catalogToolsEnabledModelIds: new Set(),
     catalogReasoningEnabledModelIds: new Set(),
     catalogTokenLimitsByModel: new Map(),
@@ -220,6 +221,16 @@ function loadedCatalogState(
       model.id,
       new Set(mediaByModel.get(model.id)?.mimeTypes ?? []),
     ])),
+    catalogImageGenerationModelIds: new Set(models
+      .filter((model) => {
+        const upstream = upstreamByModelId.get(model.id);
+        return upstream
+          ? upstream.capabilities.roles.includes("image_generation")
+            || upstream.capabilities.output_modalities.includes("image")
+          : model.roles?.includes("image_generation") === true
+            || model.outputModalities?.includes("image") === true;
+      })
+      .map((model) => model.id)),
     catalogToolsEnabledModelIds: new Set(models
       .filter((model) => upstreamByModelId.get(model.id)?.capabilities.tools
         ?? catalogCapability(model, "tools")

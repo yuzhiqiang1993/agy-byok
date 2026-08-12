@@ -4,7 +4,8 @@ use super::checkpoint::{
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
 use crate::domain::{
-    ModelModality, Provider, ProviderProtocol, ReasoningMapping, UpstreamModel, VirtualModel,
+    ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningMapping, UpstreamModel,
+    VirtualModel,
 };
 use serde_json::{json, Map, Value};
 
@@ -110,21 +111,46 @@ impl AntigravityModelDescriptor {
 
         let catalog = catalog_container_mut(models_json);
         if catalog.get("models").is_some() {
-            let model_sort_ids = {
+            let model_role_ids = {
                 let target = catalog
                     .get("models")
                     .expect("checked model catalog must exist");
                 models
                     .iter()
-                    .map(|(virtual_model, _, _)| {
-                        if target.is_array() {
+                    .map(|(virtual_model, upstream_model, _)| {
+                        let catalog_id = if target.is_array() {
                             virtual_model.id.clone()
                         } else {
                             virtual_model.catalog_key().into_owned()
-                        }
+                        };
+                        (
+                            catalog_id,
+                            upstream_model
+                                .capabilities
+                                .roles
+                                .contains(&ModelRole::Agent),
+                            upstream_model
+                                .capabilities
+                                .roles
+                                .contains(&ModelRole::ImageGeneration),
+                        )
                     })
                     .collect::<Vec<_>>()
             };
+            let all_catalog_ids = model_role_ids
+                .iter()
+                .map(|(model_id, _, _)| model_id.clone())
+                .collect::<Vec<_>>();
+            let agent_model_ids = model_role_ids
+                .iter()
+                .filter(|(_, is_agent, _)| *is_agent)
+                .map(|(model_id, _, _)| model_id.clone())
+                .collect::<Vec<_>>();
+            let image_generation_model_ids = model_role_ids
+                .iter()
+                .filter(|(_, _, is_image_generation)| *is_image_generation)
+                .map(|(model_id, _, _)| model_id.clone())
+                .collect::<Vec<_>>();
             inject_models(
                 catalog
                     .get_mut("models")
@@ -133,7 +159,17 @@ impl AntigravityModelDescriptor {
                 &checkpoint_output_limits,
                 &aliases,
             );
-            place_catalog_keys_in_byok_sort(catalog.get_mut("agentModelSorts"), &model_sort_ids);
+            place_catalog_keys_in_byok_sort(
+                catalog.get_mut("agentModelSorts"),
+                &all_catalog_ids,
+                &agent_model_ids,
+            );
+            place_catalog_keys_in_role_list(
+                catalog,
+                "imageGenerationModelIds",
+                &all_catalog_ids,
+                &image_generation_model_ids,
+            );
         } else {
             inject_models(catalog, models, &checkpoint_output_limits, &aliases);
         }
@@ -321,13 +357,22 @@ fn inject_models(
     }
 }
 
-fn place_catalog_keys_in_byok_sort(model_sorts: Option<&mut Value>, catalog_keys: &[String]) {
-    if catalog_keys.is_empty() {
+fn place_catalog_keys_in_byok_sort(
+    model_sorts: Option<&mut Value>,
+    all_catalog_keys: &[String],
+    agent_catalog_keys: &[String],
+) {
+    if all_catalog_keys.is_empty() {
         return;
     }
     let Some(model_sorts) = model_sorts.and_then(Value::as_array_mut) else {
         return;
     };
+
+    let non_agent_catalog_keys = all_catalog_keys
+        .iter()
+        .filter(|key| !agent_catalog_keys.contains(key))
+        .collect::<Vec<_>>();
 
     for model_sort in model_sorts.iter_mut() {
         let Some(groups) = model_sort.get_mut("groups").and_then(Value::as_array_mut) else {
@@ -338,12 +383,30 @@ fn place_catalog_keys_in_byok_sort(model_sorts: Option<&mut Value>, catalog_keys
             let Some(model_ids) = group.get_mut("modelIds").and_then(Value::as_array_mut) else {
                 continue;
             };
-            model_ids.retain(|model_id| {
-                model_id
-                    .as_str()
-                    .is_none_or(|model_id| !catalog_keys.iter().any(|key| key == model_id))
-            });
+
+            if !non_agent_catalog_keys.is_empty() {
+                model_ids.retain(|model_id| {
+                    model_id.as_str().is_none_or(|id| {
+                        !non_agent_catalog_keys
+                            .iter()
+                            .any(|non_agent_key| *non_agent_key == id)
+                    })
+                });
+            }
+
+            for catalog_key in agent_catalog_keys {
+                if !model_ids
+                    .iter()
+                    .any(|model_id| model_id.as_str() == Some(catalog_key.as_str()))
+                {
+                    model_ids.push(Value::String(catalog_key.clone()));
+                }
+            }
         }
+    }
+
+    if agent_catalog_keys.is_empty() {
+        return;
     }
 
     let byok_sort_index = model_sorts
@@ -378,8 +441,42 @@ fn place_catalog_keys_in_byok_sort(model_sorts: Option<&mut Value>, catalog_keys
         .get_mut("modelIds")
         .and_then(Value::as_array_mut)
         .expect("BYOK model IDs were normalized to an array");
-    for catalog_key in catalog_keys {
-        model_ids.push(Value::String(catalog_key.clone()));
+    for catalog_key in agent_catalog_keys {
+        if !model_ids
+            .iter()
+            .any(|model_id| model_id.as_str() == Some(catalog_key.as_str()))
+        {
+            model_ids.push(Value::String(catalog_key.clone()));
+        }
+    }
+}
+
+fn place_catalog_keys_in_role_list(
+    catalog: &mut Value,
+    field: &str,
+    _all_catalog_keys: &[String],
+    selected_catalog_keys: &[String],
+) {
+    if selected_catalog_keys.is_empty() {
+        return;
+    }
+    let Some(catalog) = catalog.as_object_mut() else {
+        return;
+    };
+    if !catalog.get(field).is_some_and(Value::is_array) {
+        catalog.insert(field.to_string(), json!([]));
+    }
+    let model_ids = catalog
+        .get_mut(field)
+        .and_then(Value::as_array_mut)
+        .expect("role model IDs were normalized to an array");
+    for catalog_key in selected_catalog_keys {
+        if !model_ids
+            .iter()
+            .any(|model_id| model_id.as_str() == Some(catalog_key.as_str()))
+        {
+            model_ids.push(Value::String(catalog_key.clone()));
+        }
     }
 }
 

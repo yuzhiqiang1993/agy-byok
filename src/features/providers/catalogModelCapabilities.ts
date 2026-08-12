@@ -210,6 +210,16 @@ export function createCatalogModelCapabilities(
     });
   });
   multimodalControl.append(multimodalToggle.element, editMultimodalButton);
+  const imageGenerationToggle = catalogCapabilityToggle(
+    t("models.imageGeneration"),
+    state.catalogImageGenerationModelIds.has(model.id),
+    (enabled) => {
+      if (enabled) state.catalogImageGenerationModelIds.add(model.id);
+      else state.catalogImageGenerationModelIds.delete(model.id);
+      markChanged();
+      rerender();
+    },
+  );
   const toolsToggle = catalogCapabilityToggle(
     t("models.toolCalling"),
     state.catalogToolsEnabledModelIds.has(model.id),
@@ -223,6 +233,7 @@ export function createCatalogModelCapabilities(
 
   capabilities.append(
     multimodalControl,
+    imageGenerationToggle.element,
     toolsToggle.element,
     createReasoningButton(rowState, context, state, rerender),
   );

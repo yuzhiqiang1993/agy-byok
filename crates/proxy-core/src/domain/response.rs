@@ -98,6 +98,11 @@ pub enum NeutralStreamEvent {
         choice_index: u32,
         text: String,
     },
+    InlineData {
+        choice_index: u32,
+        mime_type: String,
+        data_base64: String,
+    },
     ThinkingDelta {
         choice_index: u32,
         text: String,

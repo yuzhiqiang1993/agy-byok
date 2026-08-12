@@ -1,9 +1,9 @@
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
-    NeutralTool, NeutralToolFunction, ParameterOverrides, ProxyError,
+    ErrorCategory, MessageRole, ModelModality, NeutralChatRequest, NeutralContentBlock,
+    NeutralMessage, NeutralTool, NeutralToolFunction, ParameterOverrides, ProxyError,
 };
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub struct AntigravityRequestParser;
 
@@ -227,12 +227,34 @@ impl AntigravityRequestParser {
             top_k: gen_config["topK"].as_u64().map(|v| v as u32),
             extra_body: None,
         };
+        let output_modalities = gen_config
+            .get("responseModalities")
+            .or_else(|| gen_config.get("response_modalities"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(|modality| match modality.to_ascii_lowercase().as_str() {
+                "text" => Some(ModelModality::Text),
+                "image" => Some(ModelModality::Image),
+                "audio" => Some(ModelModality::Audio),
+                "video" => Some(ModelModality::Video),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let image_generation_config = gen_config
+            .get("imageConfig")
+            .or_else(|| gen_config.get("image_config"))
+            .filter(|config| !config.is_null())
+            .cloned();
 
         Ok(NeutralChatRequest {
             virtual_model_id,
             messages,
             system_instruction,
             tools,
+            output_modalities,
+            image_generation_config,
             reasoning_level: None,
             stream,
             generation_parameters,

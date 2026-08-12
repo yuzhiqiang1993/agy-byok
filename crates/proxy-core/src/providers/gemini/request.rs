@@ -1,7 +1,7 @@
 use crate::domain::model::ReasoningMapping;
 use crate::domain::{
-    ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
-    ProxyError, UpstreamModel,
+    ErrorCategory, MessageRole, ModelModality, ModelRole, NeutralChatRequest, NeutralContentBlock,
+    NeutralMessage, Provider, ProxyError, UpstreamModel,
 };
 use crate::routing::ResolvedRoute;
 use reqwest::Url;
@@ -245,6 +245,34 @@ pub(super) fn build_request_payload(
     }
     if let Some(top_k) = params.top_k {
         gen_config["topK"] = json!(top_k);
+    }
+    if !request.output_modalities.is_empty() {
+        gen_config["responseModalities"] = json!(request
+            .output_modalities
+            .iter()
+            .filter_map(|modality| match modality {
+                ModelModality::Text => Some("TEXT"),
+                ModelModality::Image => Some("IMAGE"),
+                ModelModality::Audio => Some("AUDIO"),
+                ModelModality::Video => Some("VIDEO"),
+                ModelModality::Document => None,
+            })
+            .collect::<Vec<_>>());
+    } else if route
+        .upstream_model
+        .capabilities
+        .roles
+        .contains(&ModelRole::ImageGeneration)
+        && !route
+            .upstream_model
+            .capabilities
+            .roles
+            .contains(&ModelRole::Agent)
+    {
+        gen_config["responseModalities"] = json!(["IMAGE"]);
+    }
+    if let Some(image_config) = &request.image_generation_config {
+        gen_config["imageConfig"] = image_config.clone();
     }
 
     if !gen_config.as_object().unwrap().is_empty() {

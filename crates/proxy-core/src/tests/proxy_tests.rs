@@ -108,6 +108,8 @@ mod tests {
             }],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level: None,
             stream: false,
             generation_parameters: ParameterOverrides::default(),
@@ -137,6 +139,8 @@ mod tests {
             messages: vec![],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level: None,
             stream: false,
             generation_parameters: ParameterOverrides::default(),
@@ -212,11 +216,7 @@ mod tests {
         assert!(catalog["response"]["models"][catalog_key.as_str()].is_object());
         assert_eq!(
             catalog["response"]["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["official"])
-        );
-        assert_eq!(
-            catalog["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
-            json!([catalog_key])
+            json!(["official", catalog_key])
         );
         assert_eq!(AntigravityModelDescriptor::model_count(&catalog), 2);
     }
@@ -861,6 +861,8 @@ mod tests {
             }],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level: None,
             stream: false,
             generation_parameters: ParameterOverrides::default(),
@@ -1003,6 +1005,8 @@ mod tests {
             }],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level: None,
             stream: true,
             generation_parameters: ParameterOverrides::default(),
@@ -1122,7 +1126,7 @@ mod tests {
         assert_eq!(models_arr[1]["supportsThinking"], true);
         assert_eq!(
             injected["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["gemini-pro"])
+            json!(["gemini-pro", "vm-claude"])
         );
         assert_eq!(
             injected["agentModelSorts"][1]["groups"][0]["modelIds"],
@@ -1216,11 +1220,11 @@ mod tests {
         assert_eq!(catalog["agentModelSorts"][0]["nativeField"], true);
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["native-model"])
+            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
         );
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][1]["modelIds"],
-            json!(["native-secondary"])
+            json!(["native-secondary", "custom-virtual-1", "custom-virtual-2"])
         );
         assert_eq!(catalog["agentModelSorts"][1]["displayName"], "BYOK");
         assert_eq!(
@@ -1315,7 +1319,7 @@ mod tests {
         );
         assert_eq!(
             mixed_catalog["agentModelSorts"][1]["groups"][0]["modelIds"],
-            json!(["native-model"])
+            json!(["native-model", "custom-virtual-1", "custom-virtual-2"])
         );
         assert_eq!(mixed_catalog["agentModelSorts"][2]["displayName"], "BYOK");
         assert_eq!(

@@ -66,6 +66,8 @@ fn request_with_blocks(blocks: Vec<NeutralContentBlock>) -> NeutralChatRequest {
         }],
         system_instruction: Some("Follow the user request.".to_string()),
         tools: Vec::new(),
+        output_modalities: Default::default(),
+        image_generation_config: None,
         reasoning_level: None,
         stream: false,
         generation_parameters: ParameterOverrides::default(),

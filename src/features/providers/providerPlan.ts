@@ -24,6 +24,7 @@ interface ProviderSavePlanInput {
   catalogVideoInputModelIds: ReadonlySet<string>;
   catalogDocumentInputModelIds: ReadonlySet<string>;
   catalogInputMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
+  catalogImageGenerationModelIds: ReadonlySet<string>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;

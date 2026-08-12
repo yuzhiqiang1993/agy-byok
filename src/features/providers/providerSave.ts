@@ -130,19 +130,6 @@ function providerSelectionError(
   selectedModels: ProviderCatalogModel[],
 ): string | null {
   if (selectedModels.length === 0) return t("models.noValidSelectedModels");
-  const incompatibleRole = selectedModels.find(
-    (model) => model.roles !== undefined && !model.roles.includes("agent"),
-  );
-  if (incompatibleRole) {
-    return t("models.agentRoleRequired", { name: incompatibleRole.displayName });
-  }
-  const incompatibleOutput = selectedModels.find(
-    (model) => model.outputModalities !== undefined
-      && (model.outputModalities.length !== 1 || model.outputModalities[0] !== "text"),
-  );
-  if (incompatibleOutput) {
-    return t("models.textOutputRequired", { name: incompatibleOutput.displayName });
-  }
   const missingReasoningLevels = selectedModels.find(
     (model) => catalog.catalogReasoningEnabledModelIds.has(model.id)
       && (catalog.catalogReasoningLevelsByModel.get(model.id)?.size ?? 0) === 0
@@ -187,6 +174,7 @@ function createProviderSavePlan(
     catalogVideoInputModelIds: catalog.catalogVideoInputModelIds,
     catalogDocumentInputModelIds: catalog.catalogDocumentInputModelIds,
     catalogInputMimeTypesByModel: catalog.catalogInputMimeTypesByModel,
+    catalogImageGenerationModelIds: catalog.catalogImageGenerationModelIds,
     catalogToolsEnabledModelIds: catalog.catalogToolsEnabledModelIds,
     catalogReasoningEnabledModelIds: catalog.catalogReasoningEnabledModelIds,
     catalogTokenLimitsByModel: catalog.catalogTokenLimitsByModel,

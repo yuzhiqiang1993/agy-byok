@@ -153,7 +153,7 @@ pub(super) async fn forward_native_request(
     options: NativeForwardOptions,
 ) -> HttpResponse {
     let forward_fut = send_forward_request(&parts, body, &proxy, endpoint);
-    let response = match tokio::time::timeout(std::time::Duration::from_secs(10), forward_fut).await
+    let response = match tokio::time::timeout(std::time::Duration::from_secs(120), forward_fut).await
     {
         Ok(Ok(response)) => response,
         Ok(Err(response)) => return response,

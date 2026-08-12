@@ -40,6 +40,17 @@ impl AntigravityResponseEncoder {
                 NeutralContentBlock::Text(text) => {
                     parts.push(json!({ "text": text }));
                 }
+                NeutralContentBlock::InlineData {
+                    mime_type,
+                    data_base64,
+                } => {
+                    parts.push(json!({
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": data_base64
+                        }
+                    }));
+                }
                 NeutralContentBlock::Thinking { text, signature } => {
                     let mut part = json!({ "thought": true, "text": text });
                     if let Some(signature) = signature {
@@ -155,6 +166,24 @@ impl AntigravityStreamEncoder {
                     "content": {
                         "role": "model",
                         "parts": [{ "text": text }]
+                    }
+                }]
+            }))]),
+            NeutralStreamEvent::InlineData {
+                choice_index,
+                mime_type,
+                data_base64,
+            } => Ok(vec![self.sse(json!({
+                "candidates": [{
+                    "index": choice_index,
+                    "content": {
+                        "role": "model",
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": data_base64
+                            }
+                        }]
                     }
                 }]
             }))]),

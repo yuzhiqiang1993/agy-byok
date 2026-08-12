@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::antigravity::AntigravityRequestParser;
+    use crate::antigravity::{
+        AntigravityRequestParser, AntigravityResponseEncoder, AntigravityStreamEncoder,
+    };
     use crate::domain::AppConfig;
     use crate::domain::*;
     use crate::providers::*;
@@ -101,6 +103,8 @@ mod tests {
             }],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level: None,
             stream: false,
             generation_parameters: ParameterOverrides::default(),
@@ -194,6 +198,128 @@ mod tests {
             payload["contents"][0]["parts"][0]["inlineData"],
             json!({ "mimeType": "video/mp4", "data": "AAAA" })
         );
+    }
+
+    #[test]
+    fn gemini_forwards_image_generation_options() {
+        let request = AntigravityRequestParser::parse(
+            &json!({
+                "model": "vm-1",
+                "request": {
+                    "contents": [{
+                        "role": "user",
+                        "parts": [{ "text": "生成一张海边日落图" }]
+                    }],
+                    "generationConfig": {
+                        "responseModalities": ["TEXT", "IMAGE"],
+                        "imageConfig": { "aspectRatio": "16:9" }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let route = create_dummy_route(
+            ProviderProtocol::GeminiGenerateContent,
+            ReasoningMapping::NativeLevel("high".to_string()),
+        );
+
+        let payload = GeminiAdapter::new()
+            .build_request_payload(&route, &request)
+            .unwrap();
+
+        assert_eq!(
+            payload["generationConfig"]["responseModalities"],
+            json!(["TEXT", "IMAGE"])
+        );
+        assert_eq!(
+            payload["generationConfig"]["imageConfig"],
+            json!({ "aspectRatio": "16:9" })
+        );
+
+        let mut image_only_route = route;
+        image_only_route.upstream_model.capabilities.roles =
+            std::collections::BTreeSet::from([ModelRole::ImageGeneration]);
+        image_only_route
+            .upstream_model
+            .capabilities
+            .output_modalities = std::collections::BTreeSet::from([ModelModality::Image]);
+        let image_only_payload = GeminiAdapter::new()
+            .build_request_payload(&image_only_route, &basic_request())
+            .unwrap();
+        assert_eq!(
+            image_only_payload["generationConfig"]["responseModalities"],
+            json!(["IMAGE"])
+        );
+    }
+
+    #[test]
+    fn gemini_image_response_is_encoded_for_antigravity() {
+        let adapter = GeminiAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let response = adapter
+            .parse_response(
+                200,
+                &json!({
+                    "candidates": [{
+                        "index": 0,
+                        "content": {
+                            "role": "model",
+                            "parts": [{
+                                "inlineData": {
+                                    "mimeType": "image/png",
+                                    "data": "aW1hZ2U="
+                                }
+                            }]
+                        },
+                        "finishReason": "STOP"
+                    }]
+                })
+                .to_string(),
+                &upstream,
+            )
+            .unwrap();
+
+        let encoded: serde_json::Value =
+            serde_json::from_str(&AntigravityResponseEncoder::encode_response(&response)).unwrap();
+        assert_eq!(
+            encoded["candidates"][0]["content"]["parts"][0]["inlineData"],
+            json!({ "mimeType": "image/png", "data": "aW1hZ2U=" })
+        );
+    }
+
+    #[test]
+    fn gemini_stream_image_is_encoded_for_antigravity() {
+        let adapter = GeminiAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let mut decoder = adapter.create_stream_decoder(&upstream);
+        let events = decoder
+            .decode_data(
+                &json!({
+                    "candidates": [{
+                        "index": 0,
+                        "content": {
+                            "parts": [{
+                                "inlineData": {
+                                    "mimeType": "image/webp",
+                                    "data": "aW1hZ2U="
+                                }
+                            }]
+                        }
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let mut encoder = AntigravityStreamEncoder::new();
+        let frames = events
+            .iter()
+            .flat_map(|event| encoder.encode_event(event).unwrap())
+            .collect::<Vec<_>>();
+
+        assert!(frames.iter().any(|frame| {
+            frame.contains("\"mimeType\":\"image/webp\"") && frame.contains("\"data\":\"aW1hZ2U=\"")
+        }));
     }
 
     #[test]

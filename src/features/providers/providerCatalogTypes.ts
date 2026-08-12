@@ -17,6 +17,7 @@ export interface ProviderCatalogState {
   catalogVideoInputModelIds: ReadonlySet<string>;
   catalogDocumentInputModelIds: ReadonlySet<string>;
   catalogInputMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
+  catalogImageGenerationModelIds: ReadonlySet<string>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
@@ -55,6 +56,7 @@ export interface CatalogModelListState extends CatalogControlState {
   catalogVideoInputModelIds: Set<string>;
   catalogDocumentInputModelIds: Set<string>;
   catalogInputMimeTypesByModel: Map<string, Set<string>>;
+  catalogImageGenerationModelIds: Set<string>;
   catalogToolsEnabledModelIds: Set<string>;
   catalogReasoningEnabledModelIds: Set<string>;
   changedCatalogCapabilityModelIds: Set<string>;

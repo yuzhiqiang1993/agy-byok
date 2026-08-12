@@ -42,6 +42,7 @@ interface ProviderModelPlanInput {
   catalogVideoInputModelIds: ReadonlySet<string>;
   catalogDocumentInputModelIds: ReadonlySet<string>;
   catalogInputMimeTypesByModel: ReadonlyMap<string, ReadonlySet<string>>;
+  catalogImageGenerationModelIds: ReadonlySet<string>;
   catalogToolsEnabledModelIds: ReadonlySet<string>;
   catalogReasoningEnabledModelIds: ReadonlySet<string>;
   catalogTokenLimitsByModel: ReadonlyMap<string, ModelTokenLimits>;
@@ -128,6 +129,27 @@ function selectedInputMimeTypes(
   if (input.catalogVideoInputModelIds.has(model.id)) selectedModalities.add("video");
   if (input.catalogDocumentInputModelIds.has(model.id)) selectedModalities.add("document");
   return normalizeSelectedInputMimeTypes(selectedMimeTypes, selectedModalities);
+}
+
+function selectedRolesAndOutputs(
+  input: ProviderModelPlanInput,
+  model: ProviderCatalogModel,
+  existingUpstream: UpstreamModel | undefined,
+): Pick<UpstreamModel["capabilities"], "roles" | "output_modalities"> {
+  if (!input.catalogImageGenerationModelIds.has(model.id)) {
+    return { roles: ["agent"], output_modalities: ["text"] };
+  }
+  const sourceRoles = existingUpstream?.capabilities.roles ?? model.roles;
+  const sourceOutputs = existingUpstream?.capabilities.output_modalities ?? model.outputModalities;
+  const imageOnly = (sourceRoles?.includes("image_generation") === true
+      && !sourceRoles.includes("agent"))
+    || (sourceOutputs?.includes("image") === true && !sourceOutputs.includes("text"));
+  return imageOnly
+    ? { roles: ["image_generation"], output_modalities: ["image"] }
+    : {
+        roles: ["agent", "image_generation"],
+        output_modalities: ["text", "image"],
+      };
 }
 
 function defaultCompressionPolicy(
@@ -246,12 +268,14 @@ function updatedStableReasoningUpstream(
 ): UpstreamModel {
   const capabilitiesChanged = input.changedCatalogCapabilityModelIds.has(model.id)
     || input.protocolChanged;
+  const rolesAndOutputs = selectedRolesAndOutputs(input, model, existingUpstream);
   return {
     ...existingUpstream,
     capabilities: {
       ...existingUpstream.capabilities,
       ...(capabilitiesChanged
         ? {
+            ...rolesAndOutputs,
             input_modalities: selectedInputModalities(input, model.id),
             tools: input.catalogToolsEnabledModelIds.has(model.id),
           }
@@ -282,10 +306,10 @@ function buildUpstream(
       ? input.catalogTokenLimitsByModel.get(model.id)
       : undefined,
   );
+  const rolesAndOutputs = selectedRolesAndOutputs(input, model, existingUpstream);
   const capabilities = {
-    roles: ["agent" as const],
+    ...rolesAndOutputs,
     input_modalities: selectedInputModalities(input, model.id),
-    output_modalities: ["text" as const],
     tools: input.catalogToolsEnabledModelIds.has(model.id),
     input_mime_types: selectedInputMimeTypes(input, model),
     reasoning,

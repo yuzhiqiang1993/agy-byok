@@ -3,8 +3,8 @@ use super::custom::{
 };
 use super::*;
 use crate::domain::{
-    ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelTokenLimits, ParameterOverrides,
-    Provider, ProviderProtocol, TokenLimitSource, UpstreamModel, VirtualModel,
+    ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelRole, ModelTokenLimits,
+    ParameterOverrides, Provider, ProviderProtocol, TokenLimitSource, UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -359,32 +359,52 @@ fn model_injection_supports_root_and_response_object_and_array_catalogs() {
     assert!(catalogs[1]["response"]["models"]["custom-model"].is_object());
     assert_eq!(catalogs[2]["models"][0]["id"], "custom-model");
     assert_eq!(catalogs[3]["response"]["models"][0]["id"], "custom-model");
-    assert_eq!(
-        catalogs[0]["agentModelSorts"][1]["groups"][0]["modelIds"],
-        json!(["custom-model"])
-    );
-    assert_eq!(
-        catalogs[1]["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
-        json!(["custom-model"])
-    );
-    assert_eq!(
-        catalogs[2]["agentModelSorts"][1]["groups"][0]["modelIds"],
-        json!(["custom-model"])
-    );
-    assert_eq!(
-        catalogs[3]["response"]["agentModelSorts"][1]["groups"][0]["modelIds"],
-        json!(["custom-model"])
-    );
     for catalog in [&catalogs[0], &catalogs[2]] {
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
-            json!(["official"])
+            json!(["official", "custom-model"])
         );
-        assert_eq!(catalog["agentModelSorts"][1]["displayName"], "BYOK");
     }
     for catalog in &catalogs {
         assert_eq!(AntigravityModelDescriptor::model_count(catalog), 1);
     }
+}
+
+#[test]
+fn image_generation_model_is_registered_without_entering_agent_sort() {
+    let (virtual_model, mut upstream_model) = models();
+    upstream_model.capabilities.roles = BTreeSet::from([ModelRole::ImageGeneration]);
+    upstream_model.capabilities.output_modalities = BTreeSet::from([ModelModality::Image]);
+    let mut catalog = json!({
+        "models": {},
+        "agentModelSorts": [{
+            "displayName": "Recommended",
+            "groups": [{ "modelIds": ["official-agent", "custom-model"] }]
+        }],
+        "imageGenerationModelIds": ["official-image", "custom-model"]
+    });
+
+    for _ in 0..2 {
+        AntigravityModelDescriptor::inject_into_model_list(
+            &mut catalog,
+            std::slice::from_ref(&virtual_model),
+            std::slice::from_ref(&upstream_model),
+            &providers(),
+        );
+    }
+
+    assert!(catalog["models"]["custom-model"].is_object());
+    assert_eq!(
+        catalog["imageGenerationModelIds"],
+        json!(["official-image", "custom-model"])
+    );
+    assert_eq!(
+        catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
+        json!(["official-agent"])
+    );
+    assert!(catalog["agentModelSorts"]
+        .as_array()
+        .is_some_and(|sorts| sorts.iter().all(|sort| sort["displayName"] != "BYOK")));
 }
 
 #[test]

@@ -58,6 +58,24 @@ pub(super) fn parse_response(
                         }
                     } else if let Some(text) = part["text"].as_str() {
                         blocks.push(NeutralContentBlock::Text(text.to_string()));
+                    } else if let Some(inline_data) =
+                        part.get("inlineData").or_else(|| part.get("inline_data"))
+                    {
+                        let data_base64 = inline_data
+                            .get("data")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if !data_base64.is_empty() {
+                            let mime_type = inline_data
+                                .get("mimeType")
+                                .or_else(|| inline_data.get("mime_type"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("image/png");
+                            blocks.push(NeutralContentBlock::InlineData {
+                                mime_type: mime_type.to_string(),
+                                data_base64: data_base64.to_string(),
+                            });
+                        }
                     } else if let Some(function_call) = part.get("functionCall") {
                         let name = function_call["name"]
                             .as_str()

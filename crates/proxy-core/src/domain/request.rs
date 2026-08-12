@@ -1,6 +1,6 @@
 use super::{model::ReasoningLevel, provider::ParameterOverrides, ModelModality};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub(crate) fn openai_input_audio_format(mime_type: &str) -> Option<&'static str> {
     if mime_type.eq_ignore_ascii_case("audio/wav") || mime_type.eq_ignore_ascii_case("audio/x-wav")
@@ -117,6 +117,10 @@ pub struct NeutralChatRequest {
     pub messages: Vec<NeutralMessage>,
     pub system_instruction: Option<String>,
     pub tools: Vec<NeutralTool>,
+    /// 宿主本次请求期望的输出模态；为空时由具体协议和模型角色决定。
+    pub output_modalities: BTreeSet<ModelModality>,
+    /// 生图参数保持中立 JSON，由支持生图的协议适配器负责转换。
+    pub image_generation_config: Option<serde_json::Value>,
     pub reasoning_level: Option<ReasoningLevel>,
     pub stream: bool,
     pub generation_parameters: ParameterOverrides,

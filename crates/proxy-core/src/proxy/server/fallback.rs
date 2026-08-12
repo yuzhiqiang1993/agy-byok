@@ -42,6 +42,8 @@ impl ProxyServer {
             }],
             system_instruction: None,
             tools: vec![],
+            output_modalities: Default::default(),
+            image_generation_config: None,
             reasoning_level,
             stream: false,
             generation_parameters: ParameterOverrides {

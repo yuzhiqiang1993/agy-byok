@@ -300,9 +300,15 @@ impl AppConfig {
 }
 
 fn validate_model_media_capabilities(model: &UpstreamModel) -> Result<(), ConfigError> {
-    if model.capabilities.roles != BTreeSet::from([ModelRole::Agent]) {
+    if model.capabilities.roles.is_empty()
+        || model
+            .capabilities
+            .roles
+            .iter()
+            .any(|role| !matches!(role, ModelRole::Agent | ModelRole::ImageGeneration))
+    {
         return Err(ConfigError::InvalidValue(format!(
-            "UpstreamModel {} must declare exactly the agent role",
+            "UpstreamModel {} may only declare agent and image_generation roles",
             model.id
         )));
     }
@@ -312,9 +318,34 @@ fn validate_model_media_capabilities(model: &UpstreamModel) -> Result<(), Config
             model.id
         )));
     }
-    if model.capabilities.output_modalities != BTreeSet::from([ModelModality::Text]) {
+    if model.capabilities.output_modalities.is_empty()
+        || model
+            .capabilities
+            .output_modalities
+            .iter()
+            .any(|modality| !matches!(modality, ModelModality::Text | ModelModality::Image))
+    {
         return Err(ConfigError::InvalidValue(format!(
-            "UpstreamModel {} must declare text as its only output modality",
+            "UpstreamModel {} may only declare text and image output modalities",
+            model.id
+        )));
+    }
+    if model.capabilities.roles.contains(&ModelRole::Agent)
+        != model.capabilities.supports_output(ModelModality::Text)
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} must pair the agent role with text output",
+            model.id
+        )));
+    }
+    if model
+        .capabilities
+        .roles
+        .contains(&ModelRole::ImageGeneration)
+        != model.capabilities.supports_output(ModelModality::Image)
+    {
+        return Err(ConfigError::InvalidValue(format!(
+            "UpstreamModel {} must pair the image_generation role with image output",
             model.id
         )));
     }
@@ -594,17 +625,36 @@ mod tests {
     }
 
     #[test]
-    fn custom_models_require_agent_role_and_text_only_output() {
+    fn custom_models_accept_agent_and_image_generation_roles() {
         let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
         config.upstream_models[0].capabilities.roles = BTreeSet::from([ModelRole::Command]);
         let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("agent role"));
+        assert!(error.to_string().contains("image_generation roles"));
 
         let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0].capabilities.roles = BTreeSet::from([ModelRole::ImageGeneration]);
         config.upstream_models[0].capabilities.output_modalities =
             BTreeSet::from([ModelModality::Image]);
+        assert!(config.validate().is_ok());
+
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0]
+            .capabilities
+            .roles
+            .insert(ModelRole::ImageGeneration);
+        config.upstream_models[0]
+            .capabilities
+            .output_modalities
+            .insert(ModelModality::Image);
+        assert!(config.validate().is_ok());
+
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.upstream_models[0]
+            .capabilities
+            .roles
+            .insert(ModelRole::ImageGeneration);
         let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("only output modality"));
+        assert!(error.to_string().contains("image_generation role"));
     }
 
     #[test]

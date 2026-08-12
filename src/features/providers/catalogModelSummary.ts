@@ -53,7 +53,11 @@ function createModelSummary(
   const tools = document.createElement("span");
   tools.className = `catalog-model-summary-item${state.catalogToolsEnabledModelIds.has(model.id) ? " active" : " disabled"}`;
   tools.textContent = t("models.toolCalling");
-  summary.append(token, multimodal, tools);
+  const imageGeneration = document.createElement("span");
+  const supportsImageGeneration = state.catalogImageGenerationModelIds.has(model.id);
+  imageGeneration.className = `catalog-model-summary-item${supportsImageGeneration ? " active" : " disabled"}`;
+  imageGeneration.textContent = t("models.imageGeneration");
+  summary.append(token, multimodal, imageGeneration, tools);
 
   if (reasoningEnabled && selectedReasoningLevels) {
     const reasoning = document.createElement("span");
