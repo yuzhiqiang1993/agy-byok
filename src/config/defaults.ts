@@ -10,6 +10,10 @@ export function createDefaultAppConfig(): AppConfig {
     upstream_models: [],
     virtual_models: [],
     model_compression_policies: {},
-    custom_host_paths: {},
+    disabled_official_models: [],
+    custom_host_paths: {
+      app: null,
+      ide: null,
+    },
   };
 }

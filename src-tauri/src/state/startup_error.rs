@@ -64,6 +64,12 @@ fn config_failure_reason(locale: NativeLocale, error: &ConfigStoreError) -> Stri
         (NativeLocale::EnUs, ConfigStoreError::Read { .. }) => {
             "The file could not be read; check its permissions and the disk state".to_string()
         }
+        (NativeLocale::ZhCn, ConfigStoreError::DeleteIncompatible { .. }) => {
+            "检测到配置与当前版本不兼容，但无法删除该文件，请检查目录权限".to_string()
+        }
+        (NativeLocale::EnUs, ConfigStoreError::DeleteIncompatible { .. }) => {
+            "The configuration is incompatible with this version but could not be deleted; check the directory permissions".to_string()
+        }
         (locale, ConfigStoreError::Parse { source, .. }) => parse_failure_reason(locale, source),
         (locale, ConfigStoreError::Invalid(source)) => validation_failure_reason(locale, source),
         (NativeLocale::ZhCn, ConfigStoreError::Serialize(_)) => {

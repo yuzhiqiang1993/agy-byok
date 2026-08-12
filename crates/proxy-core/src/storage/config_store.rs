@@ -18,6 +18,10 @@ pub enum ConfigStoreError {
         path: PathBuf,
         source: io::Error,
     },
+    DeleteIncompatible {
+        path: PathBuf,
+        source: io::Error,
+    },
     Parse {
         path: PathBuf,
         source: serde_json::Error,
@@ -58,6 +62,11 @@ impl fmt::Display for ConfigStoreError {
                     path.display()
                 )
             }
+            Self::DeleteIncompatible { path, source } => write!(
+                formatter,
+                "Failed to delete incompatible config {}: {source}",
+                path.display()
+            ),
             Self::Parse { path, source } => {
                 write!(
                     formatter,
@@ -90,6 +99,7 @@ impl std::error::Error for ConfigStoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Read { source, .. }
+            | Self::DeleteIncompatible { source, .. }
             | Self::SecurePermissions { source, .. }
             | Self::CreateDirectory { source, .. }
             | Self::Write { source, .. }
@@ -128,7 +138,7 @@ impl ConfigStore {
 
     pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, ConfigStoreError> {
         let path_buf = path.as_ref().to_path_buf();
-        let config = match fs::symlink_metadata(&path_buf) {
+        let (config, loaded_from_file) = match fs::symlink_metadata(&path_buf) {
             Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                 secure_config_permissions(&path_buf, &metadata)?;
                 let content =
@@ -136,19 +146,25 @@ impl ConfigStore {
                         path: path_buf.clone(),
                         source,
                     })?;
-                serde_json::from_str::<AppConfig>(&content).map_err(|source| {
-                    ConfigStoreError::Parse {
-                        path: path_buf.clone(),
-                        source,
+                match serde_json::from_str::<AppConfig>(&content) {
+                    Ok(config) => (config, true),
+                    Err(source) if source.classify() == serde_json::error::Category::Data => {
+                        (delete_incompatible_config(&path_buf, &source)?, false)
                     }
-                })?
+                    Err(source) => {
+                        return Err(ConfigStoreError::Parse {
+                            path: path_buf.clone(),
+                            source,
+                        });
+                    }
+                }
             }
             Ok(_) => {
                 return Err(ConfigStoreError::InvalidFileType {
                     path: path_buf.clone(),
                 });
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => AppConfig::default(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (AppConfig::default(), false),
             Err(source) => {
                 return Err(ConfigStoreError::Read {
                     path: path_buf.clone(),
@@ -157,7 +173,11 @@ impl ConfigStore {
             }
         };
 
-        config.validate()?;
+        let config = match config.validate() {
+            Ok(()) => config,
+            Err(source) if loaded_from_file => delete_incompatible_config(&path_buf, &source)?,
+            Err(source) => return Err(ConfigStoreError::Invalid(source)),
+        };
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -234,6 +254,21 @@ impl ConfigStore {
         }
         Ok(())
     }
+}
+
+fn delete_incompatible_config(
+    path: &Path,
+    reason: &dyn fmt::Display,
+) -> Result<AppConfig, ConfigStoreError> {
+    fs::remove_file(path).map_err(|source| ConfigStoreError::DeleteIncompatible {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    tracing::warn!(path = %path.display(), %reason, "已删除与当前版本不兼容的配置文件");
+    if let Err(error) = sync_parent_directory(path) {
+        tracing::warn!(path = %path.display(), %error, "不兼容配置已删除，但父目录同步失败");
+    }
+    Ok(AppConfig::default())
 }
 
 fn write_private_file(path: &Path, content: &[u8]) -> io::Result<()> {

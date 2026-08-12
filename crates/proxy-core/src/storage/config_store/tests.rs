@@ -173,6 +173,44 @@ fn parse_error_identifies_the_config_file() {
         } if error_path == &path
     ));
     assert!(error.to_string().contains(path.to_str().unwrap()));
+    assert!(path.exists());
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn incompatible_schema_is_deleted_and_replaced_with_defaults_in_memory() {
+    let directory =
+        std::env::temp_dir().join(format!("agy-byok-config-test-{}", uuid::Uuid::new_v4()));
+    let path = directory.join("config.v1.json");
+    fs::create_dir_all(&directory).unwrap();
+    let mut value = serde_json::to_value(sample_config()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("disabled_official_models");
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let store = ConfigStore::load_from_file(&path).unwrap();
+
+    assert!(!path.exists());
+    assert!(store.get_config().providers.is_empty());
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn invalid_config_is_deleted_and_replaced_with_defaults_in_memory() {
+    let directory =
+        std::env::temp_dir().join(format!("agy-byok-config-test-{}", uuid::Uuid::new_v4()));
+    let path = directory.join("config.v1.json");
+    fs::create_dir_all(&directory).unwrap();
+    let mut config = sample_config();
+    config.proxy_port = MIN_PROXY_PORT - 1;
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+
+    let store = ConfigStore::load_from_file(&path).unwrap();
+
+    assert!(!path.exists());
+    assert_eq!(store.get_config().proxy_port, DEFAULT_PROXY_PORT);
     let _ = fs::remove_dir_all(directory);
 }
 
@@ -274,6 +312,10 @@ fn config_rejects_missing_model_token_limits() {
 #[test]
 fn config_rejects_missing_nullable_fields() {
     for (parent_pointer, field) in [
+        ("", "disabled_official_models"),
+        ("", "custom_host_paths"),
+        ("/custom_host_paths", "app"),
+        ("/custom_host_paths", "ide"),
         ("/providers/0/default_parameters", "temperature"),
         ("/providers/0/default_parameters", "max_tokens"),
         ("/providers/0/default_parameters", "top_p"),

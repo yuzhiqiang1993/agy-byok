@@ -1,3 +1,4 @@
+use super::serde_helpers::required_nullable;
 use super::{
     is_supported_inline_image_mime_type, ModelCompressionPolicy, ParameterOverrides, Provider,
     ProviderProtocol, UpstreamModel, VirtualModel,
@@ -72,9 +73,9 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomHostPaths {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "required_nullable")]
     pub app: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "required_nullable")]
     pub ide: Option<PathBuf>,
 }
 
@@ -86,9 +87,7 @@ pub struct AppConfig {
     pub upstream_models: Vec<UpstreamModel>,
     pub virtual_models: Vec<VirtualModel>,
     pub model_compression_policies: BTreeMap<String, ModelCompressionPolicy>,
-    #[serde(default)]
     pub disabled_official_models: HashSet<String>,
-    #[serde(default)]
     pub custom_host_paths: CustomHostPaths,
 }
 

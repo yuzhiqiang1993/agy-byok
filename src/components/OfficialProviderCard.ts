@@ -50,7 +50,7 @@ function isOfficialSourceUnavailable(error: unknown): boolean {
 export function getCachedOfficialModelCount(): number | null {
   if (!cachedOfficialModels) return null;
   const mainModels = filterMainAgentModels(cachedOfficialModels);
-  const disabledSet = new Set(store.config.disabled_official_models ?? []);
+  const disabledSet = new Set(store.config.disabled_official_models);
   return mainModels.filter((model) => !disabledSet.has(model.id)).length;
 }
 
@@ -123,7 +123,7 @@ function buildOfficialModelCards(
         groupRelatedModelIds.add(relatedId);
       }
     }
-    const disabledSet = new Set(store.config.disabled_official_models ?? []);
+    const disabledSet = new Set(store.config.disabled_official_models);
     const isDisabled = Array.from(groupRelatedModelIds).some((id) => disabledSet.has(id));
 
     const toggleBtn = document.createElement("button");
@@ -140,7 +140,7 @@ function buildOfficialModelCards(
     toggleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void updateConfig((current) => {
-        const nextDisabled = new Set(current.disabled_official_models ?? []);
+        const nextDisabled = new Set(current.disabled_official_models);
         if (isDisabled) {
           for (const id of groupRelatedModelIds) nextDisabled.delete(id);
         } else {
