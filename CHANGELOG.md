@@ -1,5 +1,34 @@
 # 更新日志
 
+## [1.2.0] - 2026-08-12
+
+### What's New
+
+- **Brand New 3-Step Upstream Service Wizard**: Redesigned the upstream provider onboarding flow into an intuitive 3-step wizard (Select Provider Preset -> Connection & Endpoint Config -> Select & Configure Models). Built-in presets cover major official providers (OpenAI, Anthropic, Gemini, xAI, DeepSeek, etc.), popular aggregators, and local LLMs (Ollama), featuring instant connection testing and fine-grained capability mapping.
+- **Manage & Hide Official Native Models**: Added the ability to selectively disable or hide Antigravity's built-in official models in the model management interface, keeping your IDE and App model selector clean and clutter-free.
+- **Custom Context Compression Policies**: Support multiple physical capacity tiers (128K, 200K, 256K, 372K, 1M) with visual capacity allocation bars. You can now fine-tune compression triggers, checkpoint limits, and output buffers using percentage shortcuts or exact token counts to avoid frequent, conservative official summaries.
+- **Custom Host Installation Paths**: Support manually setting custom installation directories for Antigravity IDE and App, improving host discovery and integration when apps are installed in non-standard locations.
+- **Raw Catalog Inspector Panel**: Added raw payload inspection for upstream and official model catalogs to streamline debugging and metadata troubleshooting.
+
+### Improvements & UI Refinements
+
+- **Modern Minimalist UI System Upgrade**: Redesigned model cards with a clean, Vercel-inspired aesthetic, improved contrast and typography hierarchy, and standardized Modal and Notice components across the entire app.
+- **Layout & Bottom Bar Fixes**: Refined the fixed header/footer architecture for wizards and settings dialogs, eliminating negative margins and ensuring zero clipping for 58px sticky action bars.
+- **Enhanced Overview & Diagnostics**: Improved proxy status awareness, host process detection, and activity log diagnostics. Added confirmation dialogs before restarting client applications.
+- **Documentation & Asset Refresh**: Fully updated high-resolution bilingual screenshots and comprehensive guides on context compression optimization.
+
+### Bug Fixes
+
+- **macOS Host Lifecycle Management**: Fixed macOS Antigravity App launch argument ordering and abnormal exit handling; aligned proxy teardown logic between App and CLI.
+- **Proxy Timeout & Concurrency**: Enhanced native passthrough timeout controls, fixed Host header destination parsing, and boosted request concurrency handling with queued dispatch.
+- **Policy & Worker Constraints**: Fixed compression policy disable logic, default limit synchronization, and custom model worker clamps; resolved full payload display issues in BYOK data modals.
+
+### Build & Release
+
+- Upgraded desktop application version to `1.2.0`.
+- Maintained cross-platform builds and auto-updater signatures across macOS (Apple Silicon / Intel) and Windows.
+
+
 ## [1.1.3] - 2026-08-10
 
 ### 问题修复
