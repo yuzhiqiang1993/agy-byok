@@ -75,6 +75,11 @@ impl AntigravityModelDescriptor {
             "supportsVideo": caps.supports_input(ModelModality::Video),
             "supportedMimeTypes": input_mime_types(caps)
         });
+        let provider_name = provider.name.trim();
+        if !provider_name.is_empty() {
+            descriptor["tagTitle"] = Value::String(provider_name.to_string());
+            descriptor["tagDescription"] = Value::String(format!("Provider: {}", provider_name));
+        }
         apply_reasoning_metadata(&mut descriptor, virtual_model, upstream_model);
         descriptor
     }

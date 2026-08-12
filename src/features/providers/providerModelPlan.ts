@@ -337,6 +337,22 @@ function buildUpstream(
   };
 }
 
+export function semanticModelSlug(
+  model: ProviderCatalogModel,
+  fallbackUuid: string,
+  reasoningLevel: ReasoningLevel | null = null,
+): string {
+  const sourceName = (model.displayName || model.id || "").trim();
+  const cleaned = sourceName
+    .toLowerCase()
+    .replace(/[^\w\s.-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const baseSlug = cleaned.length > 0 ? cleaned : fallbackUuid;
+  return reasoningLevel ? `${baseSlug}-${reasoningLevel}` : baseSlug;
+}
+
 function newVirtualModel(
   input: ProviderModelPlanInput,
   model: ProviderCatalogModel,
@@ -344,8 +360,16 @@ function newVirtualModel(
   id: string,
   defaultReasoningLevel: ReasoningLevel | null,
 ): VirtualModel {
+  const slug = semanticModelSlug(model, id, defaultReasoningLevel);
+  const baseCustomId = slug.startsWith("custom-") ? slug : `custom-${slug}`;
+  let finalId = baseCustomId;
+  let counter = 1;
+  while (input.currentConfig.virtual_models.some((v: VirtualModel) => v.id === finalId)) {
+    finalId = `${baseCustomId}-${counter}`;
+    counter++;
+  }
   return {
-    id: `custom-${id}`,
+    id: finalId,
     host_model_id: nextHostModelId(input.occupiedHostModelIds),
     upstream_model_id: upstreamId,
     display_name: model.displayName,

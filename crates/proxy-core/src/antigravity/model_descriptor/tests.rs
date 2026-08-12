@@ -518,6 +518,8 @@ fn descriptor_uses_experience_defaults_for_missing_model_limits() {
             "supportsImages",
             "supportsThinking",
             "supportsVideo",
+            "tagDescription",
+            "tagTitle",
         ])
     );
 }
