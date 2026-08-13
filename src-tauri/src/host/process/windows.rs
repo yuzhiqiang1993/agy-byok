@@ -154,6 +154,7 @@ pub(super) fn launch_application_with_environment(
     environment: &[(&str, &str)],
 ) -> Result<(), String> {
     let mut command = Command::new(executable);
+    command.env_remove("CLOUD_CODE_URL");
     for (name, value) in environment {
         command.env(name, value);
     }

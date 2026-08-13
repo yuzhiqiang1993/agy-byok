@@ -563,7 +563,7 @@ fn preview_model_config(
         );
     }
     let default_reasoning_level = reasoning_level;
-    let is_image_model = agy_byok::routing::route_table::is_official_image_model_id(upstream_model_id);
+    let is_image_model = agy_byok::is_official_image_model_id(&upstream_model_id);
     let roles = if is_image_model {
         std::collections::BTreeSet::from([ModelRole::ImageGeneration])
     } else {

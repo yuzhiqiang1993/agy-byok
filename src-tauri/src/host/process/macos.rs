@@ -51,12 +51,20 @@ fn get_process_pids(executable: &Path, label: &str) -> Result<Vec<u32>, String> 
 
 fn parse_matching_pids(stdout: &str, executable: &Path) -> Vec<u32> {
     let executable_text = executable.display().to_string();
+    let app_bundle_prefix = executable
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app")))
+        .map(|p| format!("{}/", p.display()));
+
     let mut pids = Vec::new();
     for line in stdout.lines() {
         let trimmed = line.trim();
         if let Some((pid_str, cmd)) = trimmed.split_once(' ') {
             let cmd = cmd.trim_start();
-            if cmd == executable_text || cmd.starts_with(&format!("{} ", executable_text)) {
+            let is_match = cmd == executable_text
+                || cmd.starts_with(&format!("{} ", executable_text))
+                || app_bundle_prefix.as_ref().is_some_and(|prefix| cmd.contains(prefix));
+            if is_match {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     pids.push(pid);
                 }
@@ -84,8 +92,10 @@ pub(super) fn launch_application_with_environment(
 
 fn build_open_command(installation: &Path, environment: &[(&str, &str)]) -> Command {
     let mut command = Command::new("open");
+    command.arg("-n");
     command.arg("-a");
     command.arg(installation);
+    command.env_remove("CLOUD_CODE_URL");
     for (name, value) in environment {
         command.arg("--env");
         command.arg(format!("{name}={value}"));
@@ -104,7 +114,7 @@ mod tests {
             stdout,
             Path::new("/Applications/Antigravity IDE.app/Contents/MacOS/Electron"),
         );
-        assert_eq!(pids, vec![1465]);
+        assert_eq!(pids, vec![1465, 1468, 9494]);
     }
 
     #[test]
@@ -119,6 +129,7 @@ mod tests {
         assert_eq!(
             args,
             vec![
+                "-n",
                 "-a",
                 "/Applications/Antigravity.app",
                 "--env",

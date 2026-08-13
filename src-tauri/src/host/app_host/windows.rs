@@ -36,8 +36,8 @@ pub(super) fn request_app_exit(paths: &AppPaths) -> Result<(), String> {
 
 pub(super) fn launch(paths: &AppPaths, endpoint: Option<&str>) -> Result<(), String> {
     let environment: Vec<_> = endpoint
+        .map(|ep| ("CLOUD_CODE_URL", ep))
         .into_iter()
-        .map(|endpoint| ("CLOUD_CODE_URL", endpoint))
         .collect();
     launch_application_with_environment(
         &paths.installation,

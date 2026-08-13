@@ -214,7 +214,7 @@ fn strip_known_level_suffix(id: &str) -> &str {
 }
 
 /// 判断模型 ID 是否属于官方/系统内置生图模型标识
-pub(crate) fn is_official_image_model_id(model_id: &str) -> bool {
+pub fn is_official_image_model_id(model_id: &str) -> bool {
     let lower = model_id.to_ascii_lowercase();
     lower.contains("flash-image")
         || lower.contains("imagen")
