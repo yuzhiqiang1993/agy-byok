@@ -89,16 +89,16 @@ mod tests {
                 "Provider A",
                 true
             ),
-            "GPT Test high(Provider A)"
+            "GPT Test (High)"
         );
         assert_eq!(
             configured_model_display_name(
-                "GPT Test high(Provider A)",
+                "GPT Test (High)",
                 Some(ReasoningLevel::High),
                 "Provider A",
                 true
             ),
-            "GPT Test high(Provider A)"
+            "GPT Test (High)"
         );
         assert_eq!(
             configured_model_display_name(
@@ -107,7 +107,7 @@ mod tests {
                 "Provider A",
                 true
             ),
-            "GPT Test max(Provider A)"
+            "GPT Test (Max)"
         );
         assert_eq!(
             configured_model_display_name(
@@ -116,11 +116,15 @@ mod tests {
                 "Provider A",
                 true
             ),
-            "Claude Test adaptive(Provider A)"
+            "Claude Test (Adaptive)"
         );
         assert_eq!(
             configured_model_display_name("GPT Test", None, "Provider A", false),
             "GPT Test(Provider A)"
+        );
+        assert_eq!(
+            configured_model_display_name("GPT Test high(Provider A)", None, "Provider A", true),
+            "GPT Test"
         );
         assert_eq!(
             configured_model_display_name("GPT Test high(Provider A)", None, "Provider A", false),

@@ -3,6 +3,14 @@ use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::ReasoningLevel;
 use crate::proxy::http_server::forwarding::rewrite_official_urls_str;
 
+fn strip_ascii_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
+    value
+        .len()
+        .checked_sub(suffix.len())
+        .filter(|start| value[*start..].eq_ignore_ascii_case(suffix))
+        .map(|start| &value[..start])
+}
+
 impl ProxyServer {
     pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
         self.config_store
@@ -93,33 +101,46 @@ pub(super) fn configured_model_display_name(
     supports_reasoning: bool,
 ) -> String {
     let provider_suffix = format!("({provider_name})");
-    let mut base_name = model_name;
+    let mut base_name = model_name.trim();
+    base_name = strip_ascii_case_insensitive_suffix(base_name, &provider_suffix)
+        .unwrap_or(base_name)
+        .trim_end();
+    // 兼容旧版目录中的 `Model high(Provider)`，以及官方风格的
+    // `Model (High)`，避免重复保存配置后不断叠加档位后缀。
     for known_reasoning in [
-        "default", "off", "low", "medium", "high", "xhigh", "max", "adaptive", "auto",
+        "default", "off", "low", "medium", "high", "xhigh", "x-high", "max", "adaptive", "auto",
+        "custom",
     ] {
-        let known_suffix = format!(" {known_reasoning}({provider_name})");
-        if let Some(stripped) = base_name.strip_suffix(&known_suffix) {
-            base_name = stripped;
-            break;
+        for suffix in [
+            format!(" ({known_reasoning})"),
+            format!(" {known_reasoning}"),
+        ] {
+            if let Some(stripped) = strip_ascii_case_insensitive_suffix(base_name, &suffix) {
+                base_name = stripped.trim_end();
+                break;
+            }
         }
     }
-    base_name = base_name
-        .strip_suffix(&provider_suffix)
-        .unwrap_or(base_name);
     if !supports_reasoning {
         return format!("{base_name}{provider_suffix}");
     }
 
-    let reasoning = match reasoning_level {
-        None => "default",
-        Some(ReasoningLevel::Off) => "off",
-        Some(ReasoningLevel::Low) => "low",
-        Some(ReasoningLevel::Medium) => "medium",
-        Some(ReasoningLevel::High) => "high",
-        Some(ReasoningLevel::XHigh) => "xhigh",
-        Some(ReasoningLevel::Max) => "max",
-        Some(ReasoningLevel::Adaptive) => "adaptive",
-        Some(ReasoningLevel::Auto) => "custom",
+    let Some(reasoning) = reasoning_level else {
+        // 供应商通过 tagTitle/tagDescription 展示；推理模型的主条目不再
+        // 把 `default(Provider)` 混入名称，否则官方 IDE 无法聚类档位。
+        return base_name.to_string();
     };
-    format!("{base_name} {reasoning}({provider_name})")
+    let reasoning = match reasoning {
+        ReasoningLevel::Off => "Off",
+        ReasoningLevel::Low => "Low",
+        ReasoningLevel::Medium => "Medium",
+        ReasoningLevel::High => "High",
+        ReasoningLevel::XHigh => "X-High",
+        ReasoningLevel::Max => "Max",
+        ReasoningLevel::Adaptive => "Adaptive",
+        ReasoningLevel::Auto => "Custom",
+    };
+    // Antigravity 当前模型选择器按 `Base (Low|Medium|High)` 聚类，
+    // 供应商信息由模型目录的 tagTitle/tagDescription 单独承载。
+    format!("{base_name} ({reasoning})")
 }

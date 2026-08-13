@@ -8,6 +8,7 @@ use crate::domain::{
     VirtualModel,
 };
 use serde_json::{json, Map, Value};
+use std::collections::HashSet;
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
 // 只要目录返回了模型级限制，token_limits() 就会优先使用真实值。
@@ -156,6 +157,9 @@ impl AntigravityModelDescriptor {
                 .filter(|(_, _, is_image_generation)| *is_image_generation)
                 .map(|(model_id, _, _)| model_id.clone())
                 .collect::<Vec<_>>();
+            // 为启用推理的自定义模型生成 tiered 母条目并注册 tieredModelIds，
+            // 供新版 Antigravity 模型选择器按「单模型 + 档位子菜单」聚类。
+            inject_tiered_catalog(catalog, &models);
             inject_models(
                 catalog
                     .get_mut("models")
@@ -179,6 +183,124 @@ impl AntigravityModelDescriptor {
             inject_models(catalog, models, &checkpoint_output_limits, &aliases);
         }
     }
+}
+
+/// 按上游模型聚合档位条目，为每个启用推理的自定义模型生成一个
+/// `-tiered` 母条目并注册到 `tieredModelIds`，供 Antigravity 新版
+/// 模型选择器按「单模型 + 档位子菜单」聚类显示。
+fn inject_tiered_catalog(
+    catalog: &mut Value,
+    models: &[(&VirtualModel, &UpstreamModel, &Provider)],
+) {
+    // 同一上游模型只生成一个母条目（取第一个档位条目作为模板）。
+    let mut groups: Vec<(&VirtualModel, &UpstreamModel, &Provider)> = Vec::new();
+    let mut seen_upstreams: HashSet<&str> = HashSet::new();
+    for (virtual_model, upstream_model, provider) in models {
+        if !upstream_model.capabilities.reasoning.supports_reasoning() {
+            continue;
+        }
+        if seen_upstreams.insert(upstream_model.id.as_str()) {
+            groups.push((virtual_model, upstream_model, provider));
+        }
+    }
+    if groups.is_empty() {
+        return;
+    }
+
+    // 先构建母条目，避免在持有 models 可变借用时迭代 groups。
+    let mut entries_to_insert: Vec<(String, Value)> = Vec::new();
+    for (virtual_model, upstream_model, provider) in &groups {
+        let catalog_key = virtual_model.catalog_key();
+        let base_id = strip_level_suffix(catalog_key.as_ref());
+        let tiered_key = format!("{base_id}-tiered");
+        let base_display_name = strip_display_level_suffix(&virtual_model.display_name);
+        let mut entry = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
+            virtual_model,
+            upstream_model,
+            provider,
+        );
+        entry["displayName"] = json!(base_display_name);
+        // 母条目表示「动态档位」，由 IDE 侧子菜单选择后以具体档位条目发请求。
+        entry["thinkingBudget"] = json!(-1);
+        entries_to_insert.push((tiered_key, entry));
+    }
+    if entries_to_insert.is_empty() {
+        return;
+    }
+
+    let Some(models_obj) = catalog.get_mut("models").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let mut tiered_entries: Vec<String> = Vec::new();
+    for (tiered_key, entry) in entries_to_insert {
+        if !models_obj.contains_key(&tiered_key) {
+            models_obj.insert(tiered_key.clone(), entry);
+            tiered_entries.push(tiered_key);
+        }
+    }
+    if tiered_entries.is_empty() {
+        return;
+    }
+
+    // 注册到 tieredModelIds。分组 key 先使用实验值 "custom"，
+    // 待实测确认 Antigravity 对非官方分组 key 的处理后再调整。
+    let group_key = "custom";
+    let mut tiered_model_ids = catalog
+        .get_mut("tieredModelIds")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let existing = tiered_model_ids
+        .get_mut(group_key)
+        .and_then(Value::as_array_mut);
+    if let Some(array) = existing {
+        for key in &tiered_entries {
+            if !array.iter().any(|item| item.as_str() == Some(key)) {
+                array.push(json!(key));
+            }
+        }
+    } else {
+        tiered_model_ids[group_key] = json!(tiered_entries);
+    }
+    catalog["tieredModelIds"] = tiered_model_ids;
+}
+
+/// 去掉 ID 末尾的档位后缀（长后缀优先，避免 `-x-high` 被 `-high` 误拆）。
+fn strip_level_suffix(id: &str) -> &str {
+    const LEVELS: &[&str] = &[
+        "adaptive", "x-high", "medium", "auto", "high", "max", "low", "off",
+    ];
+    for level in LEVELS {
+        let suffix = format!("-{level}");
+        if let Some(base) = id.strip_suffix(&suffix) {
+            return base;
+        }
+    }
+    id
+}
+
+/// 去掉 displayName 末尾的档位后缀（如 ` (High)` / ` (X-High)` / ` high`）。
+fn strip_display_level_suffix(display_name: &str) -> String {
+    const LEVELS: &[&str] = &[
+        "adaptive", "x-high", "medium", "auto", "custom", "default", "high", "max", "low", "off",
+    ];
+    let result = display_name.trim().to_string();
+    for level in LEVELS {
+        for suffix in [format!(" ({level})"), format!(" {level}")] {
+            if let Some(stripped) = strip_case_insensitive_suffix(&result, &suffix) {
+                return stripped.trim_end().to_string();
+            }
+        }
+    }
+    result
+}
+
+fn strip_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
+    value
+        .len()
+        .checked_sub(suffix.len())
+        .filter(|start| value[*start..].eq_ignore_ascii_case(suffix))
+        .map(|start| &value[..start])
 }
 
 fn token_limits(upstream_model: &UpstreamModel) -> (u32, u32, u32) {

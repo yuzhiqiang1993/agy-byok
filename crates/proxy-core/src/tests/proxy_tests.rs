@@ -400,10 +400,7 @@ mod tests {
         let catalog = server.handle_model_list(json!({ "models": {} }));
         let model = &catalog["models"]["custom-vm-connection"];
 
-        assert_eq!(
-            model["displayName"],
-            "Connection Model high(Connection Provider)"
-        );
+        assert_eq!(model["displayName"], "Connection Model (High)");
         assert_eq!(model["supportsThinking"], true);
         assert_eq!(model["thinkingBudget"], -1);
         assert!(model.get("reasoningEffort").is_none());
@@ -439,11 +436,11 @@ mod tests {
 
         assert_eq!(
             catalog["models"]["custom-vm-connection"]["displayName"],
-            "Connection Model low(Connection Provider)"
+            "Connection Model (Low)"
         );
         assert_eq!(
             catalog["models"]["custom-vm-connection-high"]["displayName"],
-            "Connection Model high(Connection Provider)"
+            "Connection Model (High)"
         );
         assert_eq!(
             catalog["models"]["custom-vm-connection"]["thinkingBudget"],
@@ -459,6 +456,47 @@ mod tests {
         assert!(catalog["models"]["custom-vm-connection-high"]
             .get("reasoningEffort")
             .is_none());
+    }
+
+    #[test]
+    fn model_catalog_registers_tiered_parent_for_reasoning_variants() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-vm-connection-low".to_string();
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+        let mut high_model = config.virtual_models[0].clone();
+        high_model.id = "custom-vm-connection-high".to_string();
+        high_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        high_model.default_reasoning_level = Some(ReasoningLevel::High);
+        config.virtual_models.push(high_model);
+
+        let catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
+            .handle_model_list(json!({ "models": {} }));
+
+        // 生成一个 tiered 母条目（无档位后缀、动态思考预算）
+        let tiered = &catalog["models"]["custom-vm-connection-tiered"];
+        assert_eq!(tiered["displayName"], "Connection Model");
+        assert_eq!(tiered["thinkingBudget"], -1);
+        // 注册进 tieredModelIds（实验分组 key "custom"）
+        assert_eq!(
+            catalog["tieredModelIds"]["custom"],
+            json!(["custom-vm-connection-tiered"])
+        );
+        // 具体档位条目保留，现有路由不受影响
+        assert!(catalog["models"].get("custom-vm-connection-low").is_some());
+        assert!(catalog["models"].get("custom-vm-connection-high").is_some());
     }
 
     #[test]
