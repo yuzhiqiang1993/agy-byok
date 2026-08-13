@@ -30,6 +30,26 @@ import {
 } from "./modelMediaCapabilities";
 import { resolveCatalogTokenLimits } from "./modelTokenLimits";
 
+export function isLikelyImageModel(model: ProviderCatalogModel): boolean {
+  if (model.roles?.includes("image_generation") && !model.roles?.includes("agent")) {
+    return true;
+  }
+  const text = `${model.id} ${model.displayName}`.toLowerCase();
+  return (
+    text.includes("flash-image")
+    || text.includes("imagen")
+    || text.includes("nano-banana-pro")
+    || text.includes("image-generation")
+    || text.includes("dall-e")
+    || text.includes("flux")
+    || text.includes("midjourney")
+    || text.includes("sdxl")
+    || text.includes("stable-diffusion")
+    || text.includes("recraft")
+    || text.includes("kolors")
+  );
+}
+
 export type { ProviderCatalogContext, ProviderCatalogState } from "./providerCatalogTypes";
 
 interface InternalProviderCatalogState extends CatalogModelListState {
@@ -229,19 +249,29 @@ function loadedCatalogState(
         const upstream = upstreamByModelId.get(model.id);
         return upstream
           ? upstream.capabilities.roles.includes("image_generation")
-            || upstream.capabilities.output_modalities.includes("image")
-          : model.roles?.includes("image_generation") === true
-            || model.outputModalities?.includes("image") === true;
+            && !upstream.capabilities.roles.includes("agent")
+          : isLikelyImageModel(model);
       })
       .map((model) => model.id)),
     catalogToolsEnabledModelIds: new Set(models
-      .filter((model) => upstreamByModelId.get(model.id)?.capabilities.tools
-        ?? catalogCapability(model, "tools")
-        ?? true)
+      .filter((model) => {
+        const upstream = upstreamByModelId.get(model.id);
+        const isImage = upstream
+          ? upstream.capabilities.roles.includes("image_generation")
+            && !upstream.capabilities.roles.includes("agent")
+          : isLikelyImageModel(model);
+        if (isImage) return false;
+        return upstream?.capabilities.tools ?? catalogCapability(model, "tools") ?? true;
+      })
       .map((model) => model.id)),
     catalogReasoningEnabledModelIds: new Set(models
       .filter((model) => {
         const upstream = upstreamByModelId.get(model.id);
+        const isImage = upstream
+          ? upstream.capabilities.roles.includes("image_generation")
+            && !upstream.capabilities.roles.includes("agent")
+          : isLikelyImageModel(model);
+        if (isImage) return false;
         return upstream
           ? upstream.capabilities.reasoning.supported ?? (
               Object.keys(upstream.capabilities.reasoning.levels).length > 0

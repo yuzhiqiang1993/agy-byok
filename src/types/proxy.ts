@@ -11,6 +11,9 @@ export interface ModelConnectionTestResult {
   durationMs: number;
   errorCategory: ModelConnectionErrorCategory | null;
   statusCode: number | null;
+  requestBody: string | null;
+  responseBody: string | null;
+  errorMessage: string | null;
 }
 
 export type ProxyErrorCategory =

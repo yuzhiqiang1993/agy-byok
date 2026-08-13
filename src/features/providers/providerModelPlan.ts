@@ -134,22 +134,12 @@ function selectedInputMimeTypes(
 function selectedRolesAndOutputs(
   input: ProviderModelPlanInput,
   model: ProviderCatalogModel,
-  existingUpstream: UpstreamModel | undefined,
+  _existingUpstream: UpstreamModel | undefined,
 ): Pick<UpstreamModel["capabilities"], "roles" | "output_modalities"> {
-  if (!input.catalogImageGenerationModelIds.has(model.id)) {
-    return { roles: ["agent"], output_modalities: ["text"] };
+  if (input.catalogImageGenerationModelIds.has(model.id)) {
+    return { roles: ["image_generation"], output_modalities: ["image"] };
   }
-  const sourceRoles = existingUpstream?.capabilities.roles ?? model.roles;
-  const sourceOutputs = existingUpstream?.capabilities.output_modalities ?? model.outputModalities;
-  const imageOnly = (sourceRoles?.includes("image_generation") === true
-      && !sourceRoles.includes("agent"))
-    || (sourceOutputs?.includes("image") === true && !sourceOutputs.includes("text"));
-  return imageOnly
-    ? { roles: ["image_generation"], output_modalities: ["image"] }
-    : {
-        roles: ["agent", "image_generation"],
-        output_modalities: ["text", "image"],
-      };
+  return { roles: ["agent"], output_modalities: ["text"] };
 }
 
 function defaultCompressionPolicy(
@@ -261,6 +251,15 @@ function buildReasoningPlan(
   };
 }
 
+const EMPTY_IMAGE_TOKEN_LIMITS: ModelTokenLimits = {
+  context_window: null,
+  context_window_source: "unknown",
+  input_token_limit: null,
+  input_token_limit_source: "unknown",
+  output_token_limit: null,
+  output_token_limit_source: "unknown",
+};
+
 function updatedStableReasoningUpstream(
   input: ProviderModelPlanInput,
   model: ProviderCatalogModel,
@@ -268,6 +267,7 @@ function updatedStableReasoningUpstream(
 ): UpstreamModel {
   const capabilitiesChanged = input.changedCatalogCapabilityModelIds.has(model.id)
     || input.protocolChanged;
+  const isImage = input.catalogImageGenerationModelIds.has(model.id);
   const rolesAndOutputs = selectedRolesAndOutputs(input, model, existingUpstream);
   return {
     ...existingUpstream,
@@ -276,19 +276,21 @@ function updatedStableReasoningUpstream(
       ...(capabilitiesChanged
         ? {
             ...rolesAndOutputs,
-            input_modalities: selectedInputModalities(input, model.id),
-            tools: input.catalogToolsEnabledModelIds.has(model.id),
+            input_modalities: isImage ? ["text"] : selectedInputModalities(input, model.id),
+            tools: isImage ? false : input.catalogToolsEnabledModelIds.has(model.id),
           }
         : {}),
-      input_mime_types: selectedInputMimeTypes(input, model),
+      input_mime_types: isImage ? [] : selectedInputMimeTypes(input, model),
     },
-    token_limits: tokenLimitsFromCatalog(
-      model,
-      existingUpstream.token_limits,
-      input.changedCatalogTokenLimitModelIds.has(model.id)
-        ? input.catalogTokenLimitsByModel.get(model.id)
-        : undefined,
-    ),
+    token_limits: isImage
+      ? EMPTY_IMAGE_TOKEN_LIMITS
+      : tokenLimitsFromCatalog(
+          model,
+          existingUpstream.token_limits,
+          input.changedCatalogTokenLimitModelIds.has(model.id)
+            ? input.catalogTokenLimitsByModel.get(model.id)
+            : undefined,
+        ),
   };
 }
 
@@ -299,20 +301,23 @@ function buildUpstream(
   existingUpstream: UpstreamModel | undefined,
   reasoning: ReasoningPlan["reasoning"],
 ): UpstreamModel {
-  const tokenLimits = tokenLimitsFromCatalog(
-    model,
-    existingUpstream?.token_limits,
-    input.changedCatalogTokenLimitModelIds.has(model.id)
-      ? input.catalogTokenLimitsByModel.get(model.id)
-      : undefined,
-  );
+  const isImage = input.catalogImageGenerationModelIds.has(model.id);
+  const tokenLimits = isImage
+    ? EMPTY_IMAGE_TOKEN_LIMITS
+    : tokenLimitsFromCatalog(
+        model,
+        existingUpstream?.token_limits,
+        input.changedCatalogTokenLimitModelIds.has(model.id)
+          ? input.catalogTokenLimitsByModel.get(model.id)
+          : undefined,
+      );
   const rolesAndOutputs = selectedRolesAndOutputs(input, model, existingUpstream);
   const capabilities = {
     ...rolesAndOutputs,
-    input_modalities: selectedInputModalities(input, model.id),
-    tools: input.catalogToolsEnabledModelIds.has(model.id),
-    input_mime_types: selectedInputMimeTypes(input, model),
-    reasoning,
+    input_modalities: isImage ? ["text" as const] : selectedInputModalities(input, model.id),
+    tools: isImage ? false : input.catalogToolsEnabledModelIds.has(model.id),
+    input_mime_types: isImage ? [] : selectedInputMimeTypes(input, model),
+    reasoning: isImage ? { supported: false, levels: {}, thinking_budget: null, min_thinking_budget: null } : reasoning,
   };
 
   if (existingUpstream) {
@@ -320,6 +325,7 @@ function buildUpstream(
       ...existingUpstream,
       capabilities,
       token_limits: tokenLimits,
+      compression_policy: isImage ? null : existingUpstream.compression_policy,
     };
   }
 
@@ -330,7 +336,7 @@ function buildUpstream(
     display_name: model.displayName,
     capabilities,
     token_limits: tokenLimits,
-    compression_policy: defaultCompressionPolicy(model, tokenLimits),
+    compression_policy: isImage ? null : defaultCompressionPolicy(model, tokenLimits),
     tokenizer: null,
     parameter_overrides: emptyParameters(),
     enabled: true,

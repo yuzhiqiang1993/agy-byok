@@ -157,11 +157,37 @@
   }
   html[data-theme="dark"] .catalog-model-summary-item { border-color: rgba(255, 255, 255, 0.1); background: rgba(15, 23, 42, 0.55); color: #94a3b8; }
   html[data-theme="dark"] .catalog-model-summary-item.token { border-color: transparent; background: transparent; }
-  html[data-theme="dark"] .catalog-model-summary-item.active { border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
-  html[data-theme="dark"] .catalog-model-expand { border-color: rgba(255, 255, 255, 0.12); background: rgba(30, 41, 59, 0.75); color: #cbd5e1; }
-  html[data-theme="dark"] .catalog-model-expand:hover:not(:disabled) { border-color: rgba(96, 165, 250, 0.45); background: rgba(59, 130, 246, 0.16); color: #93c5fd; }
-  html[data-theme="dark"] .catalog-reasoning-trigger { border-color: rgba(255, 255, 255, 0.1); background: rgba(30, 41, 59, 0.6); color: #cbd5e1; }
-  html[data-theme="dark"] .catalog-reasoning-trigger.active { border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+  html[data-theme="dark"] .catalog-model-row.unselected { background: rgba(30, 41, 59, 0.45); border-color: rgba(255, 255, 255, 0.08); opacity: 1; }
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-model-select strong { color: #e2e8f0; }
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-token-badge { color: #94a3b8; }
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-capability-toggle { color: #cbd5e1; }
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-reasoning-trigger:disabled { opacity: 0.7; color: #94a3b8; border-color: rgba(255, 255, 255, 0.12); }
+  html[data-theme="dark"] .catalog-model-type-badge,
+  html[data-theme="dark"] .catalog-model-type-select {
+    color: #c4b5fd;
+    background: rgba(139, 92, 246, 0.12);
+    border-color: rgba(139, 92, 246, 0.25);
+    box-shadow: none;
+  }
+  html[data-theme="dark"] .catalog-model-type-select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23a78bfa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") !important;
+  }
+  html[data-theme="dark"] .catalog-model-type-badge .catalog-model-type-icon,
+  html[data-theme="dark"] .catalog-model-type-select-container .catalog-model-type-icon {
+    color: #a78bfa;
+  }
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-model-type-badge,
+  html[data-theme="dark"] .catalog-model-row.unselected .catalog-model-type-select {
+    color: #a78bfa;
+    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba(139, 92, 246, 0.18);
+  }
+  html[data-theme="dark"] .catalog-model-type-select:hover:not(:disabled) {
+    border-color: rgba(139, 92, 246, 0.45);
+    background: rgba(139, 92, 246, 0.2);
+    color: #ddd6fe;
+  }
+  html[data-theme="dark"] .catalog-image-active-badge { border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.16); color: #86efac; }
   html[data-theme="dark"] .reasoning-modal-level-row { border-color: rgba(255, 255, 255, 0.08); background: rgba(30, 41, 59, 0.6); }
   html[data-theme="dark"] .reasoning-modal-footer { border-top-color: rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.95); }
   html[data-theme="dark"] .catalog-capability-toggle { border-color: rgba(255, 255, 255, 0.1); background: rgba(30, 41, 59, 0.6); color: #cbd5e1; }

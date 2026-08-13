@@ -4,8 +4,8 @@ import type { ModelConnectionTestResult } from "../../types/proxy";
 import type { ConfigurableReasoningLevel, ReasoningLevel, ReasoningMapping } from "../../types/reasoning";
 import { testProviderModelConnection as testProviderModelConnectionCommand } from "../../controllers/providerController";
 import { reasoningLevelLabel, resolveReasoningMappingForModel, sortReasoningLevels } from "../../utils/reasoningUtils";
-import { connectionTestErrorMessage } from "../../utils/connectionTestUtils";
 import { t } from "../../i18n";
+import { showConnectionTestDebugModal } from "../../components/providerCard/ConnectionTestDebugModal";
 
 export async function testProviderModelConnection(
   provider: Provider,
@@ -25,7 +25,7 @@ export async function testProviderModelConnection(
 
 interface CatalogModelTestContext {
   button: HTMLButtonElement;
-  result: HTMLSpanElement;
+  result: HTMLButtonElement;
   modelId: string;
   model: ProviderCatalogModel;
   existingUpstream?: UpstreamModel;
@@ -64,36 +64,68 @@ export function runCatalogModelTests(context: CatalogModelTestContext): void {
       testCases.push({ label: t("models.normalRequest"), reasoningLevel: null, mapping: null });
     }
 
-    const results: string[] = [];
+    const testCasesContext: Array<{ label: string; response: ModelConnectionTestResult }> = [];
+
+    // 从测试一开始就绑定点击弹窗事件，随时可以点击查看已有结果
+    context.result.removeAttribute("title");
+    context.result.disabled = true;
+    context.result.onclick = () => {
+      if (testCasesContext.length > 0) {
+        showConnectionTestDebugModal(testCasesContext);
+      }
+    };
+
     let allSucceeded = true;
     let failedCount = 0;
-    for (const [index, testCase] of testCases.entries()) {
-      context.result.className = "catalog-model-test-result pending";
-      context.result.textContent = t("models.testProgress", {
-        current: index + 1,
-        total: testCases.length,
-        label: testCase.label,
-      });
-      const response = await testProviderModelConnection(
-        provider,
-        context.modelId,
-        testCase.reasoningLevel,
-        null,
-        testCase.mapping,
-      );
-      allSucceeded = allSucceeded && response.success;
-      if (!response.success) failedCount += 1;
-      results.push(response.success
-        ? t("models.testCasePassed", { label: testCase.label, time: response.durationMs })
-        : t("models.testCaseFailed", {
+
+    try {
+      for (const [index, testCase] of testCases.entries()) {
+        context.result.className = "catalog-model-test-result pending";
+        context.result.textContent = t("models.testProgress", {
+          current: index + 1,
+          total: testCases.length,
+          label: testCase.label,
+        });
+
+        try {
+          const response = await testProviderModelConnection(
+            provider,
+            context.modelId,
+            testCase.reasoningLevel,
+            null,
+            testCase.mapping,
+          );
+          allSucceeded = allSucceeded && response.success;
+          if (!response.success) failedCount += 1;
+          testCasesContext.push({ label: testCase.label, response });
+          context.result.disabled = false;
+        } catch (err) {
+          allSucceeded = false;
+          failedCount += 1;
+          const errMessage = err instanceof Error ? err.message : String(err);
+          testCasesContext.push({
             label: testCase.label,
-            msg: connectionTestErrorMessage(response),
-          }));
+            response: {
+              success: false,
+              durationMs: 0,
+              errorCategory: "internal",
+              statusCode: null,
+              requestBody: null,
+              errorMessage: errMessage,
+              responseBody: `Execution Exception: ${errMessage}`,
+            },
+          });
+          context.result.disabled = false;
+        }
+      }
+      context.result.className = `catalog-model-test-result ${allSucceeded ? "success" : "error"}`;
+      context.result.textContent = allSucceeded
+        ? t("models.allTestsPassed", { count: testCases.length })
+        : t("models.testsCompleted", { failed: failedCount });
+    } catch (outerErr) {
+      context.result.className = "catalog-model-test-result error";
+      context.result.textContent = t("models.testsCompleted", { failed: testCases.length });
+      context.result.disabled = testCasesContext.length === 0;
     }
-    context.result.className = `catalog-model-test-result ${allSucceeded ? "success" : "error"}`;
-    context.result.textContent = allSucceeded
-      ? t("models.allTestsPassed", { count: testCases.length })
-      : t("models.testsCompleted", { failed: failedCount });
-    context.result.title = results.join("\n");
   }, t("models.testing"));
 }

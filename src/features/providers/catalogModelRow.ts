@@ -26,9 +26,12 @@ function createTestArea(
   button.className = "secondary compact-button";
   button.textContent = t("models.testConnectionShort");
   button.title = t("models.testSelectedReasoning");
-  const result = document.createElement("span");
+  const result = document.createElement("button");
+  result.type = "button";
   result.className = "catalog-model-test-result";
-  result.setAttribute("role", "status");
+  result.setAttribute("aria-live", "polite");
+  result.setAttribute("aria-label", t("models.testDebugDetails"));
+  result.disabled = true;
   button.addEventListener("click", () => {
     runCatalogModelTests({
       button,
@@ -208,11 +211,56 @@ export function createCatalogModelRow(
     });
   }
 
+  const isImage = state.catalogImageGenerationModelIds.has(model.id);
+
   const nameLine = document.createElement("span");
   nameLine.className = "catalog-model-name-line";
   const name = document.createElement("strong");
   name.textContent = model.displayName;
   nameLine.append(name);
+
+  if (isImage) {
+    const iconSvg = `<svg class="catalog-model-type-icon" viewBox="0 0 16 16" width="10" height="10" fill="currentColor"><path d="M8 0a1.5 1.5 0 0 1 1.415 1.002l.504 1.512a2.5 2.5 0 0 0 1.567 1.567l1.512.504a1.5 1.5 0 0 1 0 2.83l-1.512.504a2.5 2.5 0 0 0-1.567 1.567l-.504 1.512a1.5 1.5 0 0 1-2.83 0l-.504-1.512a2.5 2.5 0 0 0-1.567-1.567l-1.512-.504a1.5 1.5 0 0 1 0-2.83l1.512-.504a2.5 2.5 0 0 0 1.567-1.567l.504-1.512A1.5 1.5 0 0 1 8 0z"/></svg>`;
+
+    if (!selected) {
+      const typeBadge = document.createElement("span");
+      typeBadge.className = "catalog-model-type-badge";
+      typeBadge.innerHTML = `${iconSvg}<span>${t("models.imageModelType")}</span>`;
+      nameLine.append(typeBadge);
+    } else {
+      const typeSelectContainer = document.createElement("div");
+      typeSelectContainer.className = "catalog-model-type-select-container";
+      typeSelectContainer.innerHTML = iconSvg;
+
+      const typeSelect = document.createElement("select");
+      typeSelect.className = "catalog-model-type-select";
+      const imageOption = document.createElement("option");
+      imageOption.value = "image";
+      imageOption.textContent = t("models.imageModelType");
+      const chatOption = document.createElement("option");
+      chatOption.value = "chat";
+      chatOption.textContent = t("models.switchToChatModel");
+      typeSelect.append(imageOption, chatOption);
+      typeSelect.value = "image";
+      typeSelect.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      typeSelect.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const nextKind = typeSelect.value as "chat" | "image";
+        if (nextKind === "chat") {
+          state.catalogImageGenerationModelIds.delete(model.id);
+          state.catalogToolsEnabledModelIds.add(model.id);
+          state.changedCatalogCapabilityModelIds.add(model.id);
+          context.setProviderEditorDirty(true);
+          rerender();
+        }
+      });
+      typeSelectContainer.append(typeSelect);
+      nameLine.append(typeSelectContainer);
+    }
+  }
+
   if (state.unavailableCatalogModelIds.has(model.id)) {
     const unavailableBadge = document.createElement("span");
     unavailableBadge.className = "unavailable-badge";
@@ -226,16 +274,16 @@ export function createCatalogModelRow(
   const testArea = createTestArea(rowState, context, state);
   topRow.append(select, testArea);
 
-  // Bottom Row: Token Limits + Capabilities (Vision, Video, Tools, Reasoning)
-  const bottomRow = document.createElement("div");
-  bottomRow.className = "catalog-model-bottom-row";
-
-  const tokenLimitsControl = createTokenLimitsControl(rowState, context, state);
-  bottomRow.append(tokenLimitsControl);
-
-  const capabilities = createCatalogModelCapabilities(rowState, context, state, rerender);
-  bottomRow.append(capabilities);
-
-  row.append(topRow, bottomRow);
+  if (!isImage) {
+    const bottomRow = document.createElement("div");
+    bottomRow.className = "catalog-model-bottom-row";
+    const tokenLimitsControl = createTokenLimitsControl(rowState, context, state);
+    bottomRow.append(tokenLimitsControl);
+    const capabilities = createCatalogModelCapabilities(rowState, context, state, rerender);
+    bottomRow.append(capabilities);
+    row.append(topRow, bottomRow);
+  } else {
+    row.append(topRow);
+  }
   return row;
 }

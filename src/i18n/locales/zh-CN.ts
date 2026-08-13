@@ -2,6 +2,7 @@ export const zhCN = {
   common: {
     save: "保存",
     cancel: "取消",
+    close: "关闭",
   },
 
   // Navigation
@@ -392,6 +393,10 @@ export const zhCN = {
     testCaseFailed: "{label}：失败 · {msg}",
     allTestsPassed: "全部通过 · {count} 项",
     testsCompleted: "测试完成 · {failed} 项失败",
+    testDebugDetails: "连通性测试详情",
+    httpStatus: "HTTP 状态",
+    requestPayload: "请求载荷：",
+    responseBody: "上游响应体：",
     noMatchingModels: "没有匹配的模型",
     noValidSelectedModels: "当前模型列表中没有有效选项，请重新获取模型",
     reasoningLevelRequired: "“{name}”已开启推理强度，请至少选择一个等级",
@@ -415,6 +420,8 @@ export const zhCN = {
     inspectRemovedModels: "查看将移除的模型入口",
     addKicker: "添加上游服务",
     editKicker: "编辑上游服务",
+    imageModelType: "生图模型",
+    switchToChatModel: "设为对话模型",
     editorBusy: "上游服务配置正在处理中，请稍候",
     discardChanges: "当前有未保存的上游服务修改，确定放弃吗？",
     discardModelChanges: "当前有未保存的模型修改，确定放弃吗？",
