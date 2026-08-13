@@ -66,6 +66,7 @@ test-results/
 
 # AI collaboration records and local temporary files
 .ai-local/
+.workbuddy/
 *.log
 .tmp/
 temp/
