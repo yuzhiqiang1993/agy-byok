@@ -712,13 +712,13 @@ mod tests {
             0,
         );
 
-        let error = server
+        let context = server
             .test_model_connection("vm-connection")
             .await
-            .unwrap_err();
+            .unwrap();
 
-        assert_eq!(error.category, ErrorCategory::Authentication);
-        assert_eq!(error.status_code, 401);
+        assert!(!context.success);
+        assert_eq!(context.status_code, Some(401));
     }
 
     #[tokio::test]
@@ -1868,5 +1868,76 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.category, ErrorCategory::StreamInterrupted);
+    }
+
+    #[tokio::test]
+    async fn official_image_request_redirects_to_active_custom_image_model() {
+        let config = AppConfig {
+            proxy_port: 51234,
+            providers: vec![Provider {
+                id: "p-image".to_string(),
+                name: "Image Provider".to_string(),
+                protocol: ProviderProtocol::OpenaiChatCompletions,
+                models_endpoint: "http://127.0.0.1:8080/v1/models".to_string(),
+                generate_endpoint: "http://127.0.0.1:8080/v1/chat/completions".to_string(),
+                api_key: "sk-test".to_string(),
+                headers: HashMap::new(),
+                default_parameters: ParameterOverrides::default(),
+                connect_timeout_ms: 3000,
+                request_timeout_ms: 5000,
+                stream_idle_timeout_ms: 5000,
+                enabled: true,
+            }],
+            upstream_models: vec![UpstreamModel {
+                id: "um-image".to_string(),
+                provider_id: "p-image".to_string(),
+                upstream_model_id: "gpt-image-2".to_string(),
+                display_name: "GPT Image 2".to_string(),
+                capabilities: ModelCapabilities {
+                    roles: std::collections::BTreeSet::from([ModelRole::ImageGeneration]),
+                    input_modalities: std::collections::BTreeSet::from([ModelModality::Text]),
+                    output_modalities: std::collections::BTreeSet::from([ModelModality::Image]),
+                    tools: false,
+                    input_mime_types: vec![],
+                    reasoning: ReasoningCapability::default(),
+                },
+                token_limits: ModelTokenLimits::default(),
+                compression_policy: None,
+                tokenizer: None,
+                parameter_overrides: ParameterOverrides::default(),
+                enabled: true,
+            }],
+            virtual_models: vec![VirtualModel {
+                id: "custom-gpt-image-2".to_string(),
+                host_model_id: Some("MODEL_PLACEHOLDER_M450".to_string()),
+                upstream_model_id: "um-image".to_string(),
+                display_name: "GPT Image 2".to_string(),
+                default_reasoning_level: None,
+                parameter_overrides: ParameterOverrides::default(),
+                fallback_virtual_model_id: None,
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+
+        let request = NeutralChatRequest {
+            virtual_model_id: "gemini-3.1-flash-image".to_string(),
+            messages: vec![NeutralMessage {
+                role: MessageRole::User,
+                blocks: vec![NeutralContentBlock::Text("Draw a dog".to_string())],
+            }],
+            system_instruction: None,
+            tools: vec![],
+            output_modalities: std::collections::BTreeSet::from([ModelModality::Image]),
+            image_generation_config: None,
+            reasoning_level: None,
+            stream: true,
+            generation_parameters: ParameterOverrides::default(),
+            extra_body: HashMap::new(),
+        };
+
+        let route = RouteTable::resolve(&config, &request).unwrap();
+        assert_eq!(route.virtual_model.id, "custom-gpt-image-2");
+        assert_eq!(route.upstream_model.upstream_model_id, "gpt-image-2");
     }
 }

@@ -41,13 +41,22 @@ pub(super) fn parse_response(
         for (item_position, item) in data.iter().enumerate() {
             let mut blocks = Vec::new();
             if let Some(b64_json) = item["b64_json"].as_str().filter(|s| !s.is_empty()) {
+                let clean_b64 = b64_json.replace(['\r', '\n', ' '], "");
                 blocks.push(NeutralContentBlock::InlineData {
                     mime_type: "image/png".to_string(),
-                    data_base64: b64_json.to_string(),
+                    data_base64: clean_b64,
                 });
             } else if let Some(url) = item["url"].as_str().filter(|s| !s.is_empty()) {
-                // 上游只返回 URL（未用 b64_json）：以文本形式回传链接。
-                blocks.push(NeutralContentBlock::Text(url.to_string()));
+                let clean_url = url.replace(['\r', '\n', ' '], "");
+                let markdown = if clean_url.starts_with("http://")
+                    || clean_url.starts_with("https://")
+                    || clean_url.starts_with("data:")
+                {
+                    format!("![generated_image]({clean_url})")
+                } else {
+                    clean_url
+                };
+                blocks.push(NeutralContentBlock::Text(markdown));
             }
             choices.push(NeutralChoice {
                 index: item_position as u32,

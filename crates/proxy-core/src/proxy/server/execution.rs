@@ -212,10 +212,13 @@ impl ProxyServer {
                     NeutralContentBlock::InlineData {
                         mime_type,
                         data_base64,
-                    } => NeutralStreamEvent::InlineData {
-                        choice_index: choice.index,
-                        mime_type: mime_type.clone(),
-                        data_base64: data_base64.clone(),
+                    } => {
+                        let clean_base64 = data_base64.replace(['\r', '\n', ' '], "");
+                        NeutralStreamEvent::InlineData {
+                            choice_index: choice.index,
+                            mime_type: mime_type.clone(),
+                            data_base64: clean_base64,
+                        }
                     },
                     _ => continue,
                 };
@@ -245,7 +248,7 @@ impl ProxyServer {
         Ok(usage)
     }
 
-    async fn send_upstream(
+    pub(super) async fn send_upstream(
         &self,
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
@@ -260,7 +263,24 @@ impl ProxyServer {
             request.stream,
             request,
         )?;
-        let request_timeout_ms = route.provider.request_timeout_ms;
+        let is_image_request = route
+            .upstream_model
+            .capabilities
+            .roles
+            .contains(&crate::domain::ModelRole::ImageGeneration)
+            || route
+                .upstream_model
+                .capabilities
+                .supports_output(crate::domain::ModelModality::Image)
+            || request
+                .output_modalities
+                .contains(&crate::domain::ModelModality::Image);
+
+        let request_timeout_ms = if is_image_request {
+            route.provider.request_timeout_ms.max(120_000)
+        } else {
+            route.provider.request_timeout_ms
+        };
         let connect_timeout_ms = route.provider.connect_timeout_ms;
         let client = self.provider_http_client(connect_timeout_ms)?;
 

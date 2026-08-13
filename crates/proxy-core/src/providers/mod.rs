@@ -46,15 +46,12 @@ pub(crate) fn is_image_generation_request(
     }
 
     let wants_image = request.output_modalities.contains(&ModelModality::Image);
-    let wants_text = request.output_modalities.contains(&ModelModality::Text);
     let is_agent = roles.contains(&ModelRole::Agent);
 
-    // 请求明确要求图片输出（即使是 text+image 混合，图片部分只能由 images 端点满足）。
     if wants_image {
         return true;
     }
-    // 纯生图模型（未声明 agent 对话角色），且请求未明确只要文本。
-    if !is_agent && !wants_text {
+    if !is_agent {
         return true;
     }
     false

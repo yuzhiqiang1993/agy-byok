@@ -7,9 +7,10 @@ use crate::host::app_host::{discover_app_sync, AppStatus};
 use crate::host::ide_host::{discover_ide_sync, IdeStatus};
 use crate::state::{proxy_runtime_snapshot, DesktopState};
 use agy_byok::domain::{
-    AppConfig, ModelCapabilities, ModelCompressionPolicy, ModelTokenLimits, ParameterOverrides,
-    Provider, ProviderProtocol, ProxyError, ReasoningCapability, ReasoningLevel, ReasoningMapping,
-    UpstreamModel, VirtualModel, DEFAULT_PROXY_PORT,
+    AppConfig, ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelRole,
+    ModelTokenLimits, ParameterOverrides, Provider, ProviderProtocol, ProxyError,
+    ReasoningCapability, ReasoningLevel, ReasoningMapping, UpstreamModel, VirtualModel,
+    DEFAULT_PROXY_PORT,
 };
 use agy_byok::providers::{
     fetch_official_models_catalog, fetch_official_models_catalog_raw, fetch_provider_models,
@@ -32,6 +33,9 @@ pub struct ModelConnectionTestResult {
     pub duration_ms: u64,
     pub error_category: Option<&'static str>,
     pub status_code: Option<u16>,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+    pub error_message: Option<String>,
 }
 
 #[tauri::command]
@@ -446,6 +450,9 @@ pub(crate) async fn test_provider_model_connection(
                 duration_ms: started.elapsed().as_millis() as u64,
                 error_category: Some("invalid_configuration"),
                 status_code: None,
+                request_body: None,
+                response_body: None,
+                error_message: Some(error),
             };
         }
     };
@@ -464,21 +471,27 @@ pub(crate) async fn test_provider_model_connection(
 }
 
 fn connection_test_result(
-    result: Result<(), ProxyError>,
+    result: Result<agy_byok::domain::ConnectionTestContext, ProxyError>,
     duration_ms: u64,
 ) -> ModelConnectionTestResult {
     match result {
-        Ok(()) => ModelConnectionTestResult {
-            success: true,
+        Ok(context) => ModelConnectionTestResult {
+            success: context.success,
             duration_ms,
-            error_category: None,
-            status_code: None,
+            error_category: context.error_category.map(|c| c.as_str()),
+            status_code: context.status_code,
+            request_body: context.request_body,
+            response_body: context.response_body,
+            error_message: context.error_message,
         },
         Err(error) => ModelConnectionTestResult {
             success: false,
             duration_ms,
             error_category: Some(error.category.as_str()),
-            status_code: (error.status_code > 0).then_some(error.status_code),
+            status_code: Some(error.status_code),
+            request_body: None,
+            response_body: error.upstream_body,
+            error_message: Some(error.message),
         },
     }
 }
@@ -550,6 +563,18 @@ fn preview_model_config(
         );
     }
     let default_reasoning_level = reasoning_level;
+    let is_image_model = agy_byok::routing::route_table::is_official_image_model_id(upstream_model_id);
+    let roles = if is_image_model {
+        std::collections::BTreeSet::from([ModelRole::ImageGeneration])
+    } else {
+        std::collections::BTreeSet::from([ModelRole::Agent])
+    };
+    let output_modalities = if is_image_model {
+        std::collections::BTreeSet::from([ModelModality::Image])
+    } else {
+        std::collections::BTreeSet::from([ModelModality::Text])
+    };
+
     let config = AppConfig {
         proxy_port: DEFAULT_PROXY_PORT,
         providers: vec![provider],
@@ -560,6 +585,8 @@ fn preview_model_config(
             upstream_model_id,
             display_name: "连接预检模型".to_string(),
             capabilities: ModelCapabilities {
+                roles,
+                output_modalities,
                 reasoning,
                 ..ModelCapabilities::default()
             },

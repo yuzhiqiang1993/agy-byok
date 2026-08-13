@@ -15,6 +15,16 @@ pub enum ErrorCategory {
     Internal,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConnectionTestContext {
+    pub success: bool,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+    pub status_code: Option<u16>,
+    pub error_category: Option<ErrorCategory>,
+    pub error_message: Option<String>,
+}
+
 impl ErrorCategory {
     /// 跨 Rust、Tauri 与前端边界使用的稳定错误代码。
     pub const fn as_str(&self) -> &'static str {

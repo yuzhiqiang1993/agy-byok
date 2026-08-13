@@ -44,6 +44,7 @@ impl RouteTable {
             .iter()
             .find(|vm| vm.enabled && vm.matches_id(&request.virtual_model_id))
             .or_else(|| resolve_tiered_fallback(config, &request.virtual_model_id))
+            .or_else(|| resolve_image_generation_route(config, request))
             .ok_or_else(|| {
                 ProxyError::new(
                     ErrorCategory::ModelNotFound,
@@ -210,5 +211,54 @@ fn strip_known_level_suffix(id: &str) -> &str {
         }
     }
     id
+}
+
+/// 判断模型 ID 是否属于官方/系统内置生图模型标识
+pub(crate) fn is_official_image_model_id(model_id: &str) -> bool {
+    let lower = model_id.to_ascii_lowercase();
+    lower.contains("flash-image")
+        || lower.contains("imagen")
+        || lower.contains("nano-banana-pro")
+        || lower.contains("image-generation")
+        || lower.contains("dall-e")
+        || lower.contains("flux")
+        || lower.contains("midjourney")
+        || lower.contains("sdxl")
+        || lower.contains("stable-diffusion")
+        || lower.contains("recraft")
+        || lower.contains("kolors")
+}
+
+/// 查找当前配置中已启用的自定义生图模型
+pub(crate) fn find_active_custom_image_model(config: &AppConfig) -> Option<&VirtualModel> {
+    config.virtual_models.iter().find(|vm| {
+        if !vm.enabled {
+            return false;
+        }
+        config.upstream_models.iter().any(|um| {
+            um.id == vm.upstream_model_id
+                && um.enabled
+                && um
+                    .capabilities
+                    .roles
+                    .contains(&crate::domain::ModelRole::ImageGeneration)
+        })
+    })
+}
+
+/// 当请求带有图片输出诉求或直接请求官方生图模型时，重定向到用户启用的自定义生图模型
+fn resolve_image_generation_route<'a>(
+    config: &'a AppConfig,
+    request: &NeutralChatRequest,
+) -> Option<&'a VirtualModel> {
+    let wants_image = request
+        .output_modalities
+        .contains(&crate::domain::ModelModality::Image)
+        || is_official_image_model_id(&request.virtual_model_id);
+    if wants_image {
+        find_active_custom_image_model(config)
+    } else {
+        None
+    }
 }
 
