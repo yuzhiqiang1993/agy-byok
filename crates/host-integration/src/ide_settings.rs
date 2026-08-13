@@ -126,13 +126,10 @@ pub fn disable_ide_settings(
     let ownership = ownership::read_ownership_if_present(&ownership_path, &settings_path)?;
     let ownership = match ownership {
         Some(ownership) if ownership.managed_endpoint == configured_endpoint => ownership,
-        _ if configured_endpoint == endpoint => {
+        _ if configured_endpoint == endpoint || is_local_proxy_endpoint(configured_endpoint) => {
             let updated = jsonc_editor::remove_setting(&current, false)?;
             atomic_file::write_settings_file(&settings_path, &updated)?;
             return Ok(disabled_status());
-        }
-        _ if is_local_proxy_endpoint(configured_endpoint) => {
-            return Ok(external_status(false));
         }
         _ => return Ok(disabled_status()),
     };
@@ -167,6 +164,7 @@ fn disabled_status() -> IdeSettingsStatus {
     }
 }
 
+#[allow(dead_code)]
 fn external_status(endpoint_matches: bool) -> IdeSettingsStatus {
     IdeSettingsStatus {
         state: IdeSettingsState::External,

@@ -195,20 +195,20 @@ fn local_endpoint_without_ownership_is_detected_as_external_mismatch() {
 }
 
 #[test]
-fn external_local_endpoint_is_not_modified_without_ownership() {
+fn external_local_endpoint_is_removed_on_disable_without_ownership() {
     let fixture = Fixture::new();
     let stale_endpoint = "http://127.0.0.1:54321";
     fixture.write_settings(&format!(
         "{{\n  \"jetski.cloudCodeUrl\": \"{stale_endpoint}\",\n  \"editor.fontSize\": 14\n}}\n"
     ));
 
-    let unchanged =
+    let disabled =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
 
-    assert_eq!(unchanged.state, IdeSettingsState::External);
-    assert!(!unchanged.endpoint_matches);
+    assert_eq!(disabled.state, IdeSettingsState::Disabled);
+    assert!(!disabled.endpoint_matches);
     let settings = fs::read_to_string(&fixture.settings_path).unwrap();
-    assert!(settings.contains(stale_endpoint));
+    assert!(!settings.contains(stale_endpoint));
     assert!(settings.contains("editor.fontSize"));
 }
 
@@ -302,7 +302,7 @@ fn stale_managed_endpoint_remains_disableable_after_proxy_port_changes() {
 }
 
 #[test]
-fn user_endpoint_change_is_external_and_is_not_overwritten_on_disable() {
+fn user_endpoint_change_is_external_and_is_removed_on_disable() {
     let fixture = Fixture::new();
     fixture.write_settings("{}\n");
     enable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
@@ -316,11 +316,10 @@ fn user_endpoint_change_is_external_and_is_not_overwritten_on_disable() {
     assert!(!inspected.endpoint_matches);
     let disabled =
         disable_ide_settings(&fixture.settings_path, &fixture.integration_root, ENDPOINT).unwrap();
-    assert_eq!(disabled.state, IdeSettingsState::External);
-    assert!(!disabled.endpoint_matches);
-    let unchanged = fs::read_to_string(&fixture.settings_path).unwrap();
-    assert!(unchanged.contains("http://127.0.0.1:60000"));
-    assert!(unchanged.contains("\"userSetting\": true"));
+    assert_eq!(disabled.state, IdeSettingsState::Disabled);
+    let updated = fs::read_to_string(&fixture.settings_path).unwrap();
+    assert!(!updated.contains(IDE_CLOUD_CODE_SETTING));
+    assert!(updated.contains("\"userSetting\": true"));
 }
 
 #[cfg(unix)]
