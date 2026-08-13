@@ -612,7 +612,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       pillRow = document.createElement("div");
       pillRow.className = "policy-percentage-row policy-percentage-row-reserves";
 
-      const reserves = [16_384, 32_768, 44_640, 65_535, 65_536];
+      const reserves = [16_384, 32_768, 44_640, 65_535];
       const pillButtons: HTMLButtonElement[] = [];
 
       for (const val of reserves) {
