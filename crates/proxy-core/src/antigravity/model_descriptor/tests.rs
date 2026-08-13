@@ -4,7 +4,8 @@ use super::custom::{
 use super::*;
 use crate::domain::{
     ModelCapabilities, ModelCompressionPolicy, ModelModality, ModelRole, ModelTokenLimits,
-    ParameterOverrides, Provider, ProviderProtocol, TokenLimitSource, UpstreamModel, VirtualModel,
+    ParameterOverrides, Provider, ProviderProtocol, ReasoningCapability, ReasoningLevel,
+    ReasoningMapping, TokenLimitSource, UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -368,6 +369,32 @@ fn model_injection_supports_root_and_response_object_and_array_catalogs() {
     for catalog in &catalogs {
         assert_eq!(AntigravityModelDescriptor::model_count(catalog), 1);
     }
+}
+
+#[test]
+fn non_ascii_reasoning_model_names_are_safe_in_tiered_catalog() {
+    let (mut virtual_model, mut upstream_model) = models();
+    virtual_model.display_name = "中文模型".to_string();
+    upstream_model.capabilities.reasoning = ReasoningCapability {
+        levels: BTreeMap::from([(
+            ReasoningLevel::High,
+            ReasoningMapping::NativeLevel("high".to_string()),
+        )]),
+        ..ReasoningCapability::default()
+    };
+    let mut catalog = json!({ "models": {} });
+
+    AntigravityModelDescriptor::inject_into_model_list(
+        &mut catalog,
+        std::slice::from_ref(&virtual_model),
+        std::slice::from_ref(&upstream_model),
+        &providers(),
+    );
+
+    assert_eq!(
+        catalog["models"]["custom-model-tiered"]["displayName"],
+        "中文模型"
+    );
 }
 
 #[test]

@@ -160,7 +160,7 @@ impl VirtualModel {
     }
 }
 
-fn stable_hash(value: &str) -> u16 {
+pub fn stable_hash(value: &str) -> u16 {
     let mut hash = 0x811c9dc5_u32;
     for byte in value.bytes() {
         hash ^= u32::from(byte);

@@ -2,7 +2,7 @@ use super::{token_guard, ProxyServer};
 use crate::antigravity::AntigravityStreamEncoder;
 use crate::domain::{
     ErrorCategory, NeutralChatRequest, NeutralChatResponse, NeutralContentBlock,
-    NeutralStreamEvent, ProxyError, UsageInfo,
+    NeutralStreamEvent, ProviderProtocol, ProxyError, UsageInfo,
 };
 use crate::providers::{get_adapter, is_image_generation_request, ProviderAdapter};
 use crate::proxy::streaming::{NeutralEventSink, StreamPipe};
@@ -62,6 +62,13 @@ impl NeutralEventSink for AntigravityEventSink<'_> {
     }
 }
 
+fn should_downgrade_image_generation_stream(
+    protocol: &ProviderProtocol,
+    is_image_generation: bool,
+) -> bool {
+    is_image_generation && matches!(protocol, ProviderProtocol::OpenaiChatCompletions)
+}
+
 impl ProxyServer {
     pub(super) async fn execute_route(
         &self,
@@ -108,7 +115,10 @@ impl ProxyServer {
         emitted_frame: &mut bool,
     ) -> Result<Option<UsageInfo>, ProxyError> {
         // OpenAI images 端点不支持流式，生图请求统一降级为非流式处理后回传流式事件。
-        if is_image_generation_request(&route.upstream_model, request) {
+        if should_downgrade_image_generation_stream(
+            &route.provider.protocol,
+            is_image_generation_request(&route.upstream_model, request),
+        ) {
             return self
                 .execute_image_generation_stream(route, request, frame_sink, emitted_frame)
                 .await;
@@ -308,4 +318,30 @@ fn upstream_body_too_large_error() -> ProxyError {
         ),
         502,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_downgrade_image_generation_stream;
+    use crate::domain::ProviderProtocol;
+
+    #[test]
+    fn only_openai_chat_image_requests_use_non_streaming_fallback() {
+        assert!(should_downgrade_image_generation_stream(
+            &ProviderProtocol::OpenaiChatCompletions,
+            true,
+        ));
+        assert!(!should_downgrade_image_generation_stream(
+            &ProviderProtocol::GeminiGenerateContent,
+            true,
+        ));
+        assert!(!should_downgrade_image_generation_stream(
+            &ProviderProtocol::AnthropicMessages,
+            true,
+        ));
+        assert!(!should_downgrade_image_generation_stream(
+            &ProviderProtocol::OpenaiChatCompletions,
+            false,
+        ));
+    }
 }

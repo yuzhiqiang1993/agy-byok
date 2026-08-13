@@ -4,8 +4,8 @@ use super::checkpoint::{
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
 use crate::domain::{
-    ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningMapping, UpstreamModel,
-    VirtualModel,
+    stable_hash, ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningMapping,
+    UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -159,7 +159,12 @@ impl AntigravityModelDescriptor {
                 .collect::<Vec<_>>();
             // 为启用推理的自定义模型生成 tiered 母条目并注册 tieredModelIds，
             // 供新版 Antigravity 模型选择器按「单模型 + 档位子菜单」聚类。
-            inject_tiered_catalog(catalog, &models);
+            inject_tiered_catalog(
+                catalog,
+                &models,
+                &checkpoint_output_limits,
+                &aliases,
+            );
             inject_models(
                 catalog
                     .get_mut("models")
@@ -191,6 +196,8 @@ impl AntigravityModelDescriptor {
 fn inject_tiered_catalog(
     catalog: &mut Value,
     models: &[(&VirtualModel, &UpstreamModel, &Provider)],
+    checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
+    aliases: &std::collections::BTreeMap<String, String>,
 ) {
     // 同一上游模型只生成一个母条目（取第一个档位条目作为模板）。
     let mut groups: Vec<(&VirtualModel, &UpstreamModel, &Provider)> = Vec::new();
@@ -207,6 +214,12 @@ fn inject_tiered_catalog(
         return;
     }
 
+    // 收集所有子档位已占用的 placeholder，防止母条目与子条目共用造成键覆盖冲突
+    let occupied_placeholders: HashSet<String> = models
+        .iter()
+        .map(|(virtual_model, _, _)| virtual_model.effective_host_model_id().into_owned())
+        .collect();
+
     // 先构建母条目，避免在持有 models 可变借用时迭代 groups。
     let mut entries_to_insert: Vec<(String, Value)> = Vec::new();
     for (virtual_model, upstream_model, provider) in &groups {
@@ -214,14 +227,36 @@ fn inject_tiered_catalog(
         let base_id = strip_level_suffix(catalog_key.as_ref());
         let tiered_key = format!("{base_id}-tiered");
         let base_display_name = strip_display_level_suffix(&virtual_model.display_name);
+
+        // 为母条目分配一个独立且未被子档位占用的专用 placeholder (400-599)
+        let mut candidate_num = 400 + (stable_hash(&tiered_key) % 200);
+        for _ in 0..200 {
+            let candidate = format!("MODEL_PLACEHOLDER_M{candidate_num}");
+            if !occupied_placeholders.contains(&candidate) {
+                break;
+            }
+            candidate_num = (candidate_num + 1 - 400) % 200 + 400;
+        }
+        let tiered_host_model_id = format!("MODEL_PLACEHOLDER_M{candidate_num}");
+
         let mut entry = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
             virtual_model,
             upstream_model,
             provider,
         );
         entry["displayName"] = json!(base_display_name);
+        entry["model"] = json!(tiered_host_model_id.clone());
+        entry["planModel"] = json!(tiered_host_model_id.clone());
+        entry["requestedModel"] = json!(tiered_host_model_id);
         // 母条目表示「动态档位」，由 IDE 侧子菜单选择后以具体档位条目发请求。
         entry["thinkingBudget"] = json!(-1);
+        // 母条目继承上游模型的 Checkpoint 压缩策略，保证元数据完备
+        apply_custom_model_compression_policy(
+            &mut entry,
+            upstream_model,
+            checkpoint_output_limits,
+            aliases,
+        );
         entries_to_insert.push((tiered_key, entry));
     }
     if entries_to_insert.is_empty() {
@@ -296,11 +331,12 @@ fn strip_display_level_suffix(display_name: &str) -> String {
 }
 
 fn strip_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
-    value
-        .len()
-        .checked_sub(suffix.len())
-        .filter(|start| value[*start..].eq_ignore_ascii_case(suffix))
-        .map(|start| &value[..start])
+    let start = value.len().checked_sub(suffix.len())?;
+    let suffix_value = value.get(start..)?;
+    if !suffix_value.eq_ignore_ascii_case(suffix) {
+        return None;
+    }
+    value.get(..start)
 }
 
 fn token_limits(upstream_model: &UpstreamModel) -> (u32, u32, u32) {

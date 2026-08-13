@@ -4,11 +4,12 @@ use crate::domain::ReasoningLevel;
 use crate::proxy::http_server::forwarding::rewrite_official_urls_str;
 
 fn strip_ascii_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
-    value
-        .len()
-        .checked_sub(suffix.len())
-        .filter(|start| value[*start..].eq_ignore_ascii_case(suffix))
-        .map(|start| &value[..start])
+    let start = value.len().checked_sub(suffix.len())?;
+    let suffix_value = value.get(start..)?;
+    if !suffix_value.eq_ignore_ascii_case(suffix) {
+        return None;
+    }
+    value.get(..start)
 }
 
 impl ProxyServer {

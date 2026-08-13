@@ -111,7 +111,7 @@ pub struct NeutralTool {
     pub function: NeutralToolFunction,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct NeutralChatRequest {
     pub virtual_model_id: String,
     pub messages: Vec<NeutralMessage>,

@@ -43,6 +43,7 @@ impl RouteTable {
             .virtual_models
             .iter()
             .find(|vm| vm.enabled && vm.matches_id(&request.virtual_model_id))
+            .or_else(|| resolve_tiered_fallback(config, &request.virtual_model_id))
             .ok_or_else(|| {
                 ProxyError::new(
                     ErrorCategory::ModelNotFound,
@@ -152,3 +153,62 @@ impl RouteTable {
         Ok(Some(fallback_route))
     }
 }
+
+/// 当请求 ID 是母条目（如 `*-tiered`）时，自动查找并 Fallback 到该模型已启用的默认档位（优先 High -> Medium -> Low）。
+fn resolve_tiered_fallback<'a>(
+    config: &'a AppConfig,
+    requested_id: &str,
+) -> Option<&'a VirtualModel> {
+    let base_id = requested_id.strip_suffix("-tiered")?;
+    let candidates: Vec<&'a VirtualModel> = config
+        .virtual_models
+        .iter()
+        .filter(|vm| vm.enabled)
+        .filter(|vm| {
+            let cat_key = vm.catalog_key();
+            let cat_base = strip_known_level_suffix(cat_key.as_ref());
+            let id_base = strip_known_level_suffix(vm.id.as_str());
+            cat_base == base_id || id_base == base_id || cat_key.starts_with(base_id) || vm.id.starts_with(base_id)
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    // 默认档位优先级: High -> Medium -> Low -> XHigh -> Max -> 其它
+    const PREFERRED_ORDER: &[ReasoningLevel] = &[
+        ReasoningLevel::High,
+        ReasoningLevel::Medium,
+        ReasoningLevel::Low,
+        ReasoningLevel::XHigh,
+        ReasoningLevel::Max,
+        ReasoningLevel::Adaptive,
+        ReasoningLevel::Auto,
+        ReasoningLevel::Off,
+    ];
+
+    for preferred in PREFERRED_ORDER {
+        if let Some(vm) = candidates
+            .iter()
+            .find(|vm| vm.default_reasoning_level == Some(*preferred))
+        {
+            return Some(*vm);
+        }
+    }
+
+    candidates.first().copied()
+}
+
+fn strip_known_level_suffix(id: &str) -> &str {
+    const LEVELS: &[&str] = &[
+        "-adaptive", "-x-high", "-medium", "-auto", "-high", "-max", "-low", "-off",
+    ];
+    for suffix in LEVELS {
+        if let Some(base) = id.strip_suffix(suffix) {
+            return base;
+        }
+    }
+    id
+}
+

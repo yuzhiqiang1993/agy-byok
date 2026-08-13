@@ -130,6 +130,10 @@ mod tests {
             configured_model_display_name("GPT Test high(Provider A)", None, "Provider A", false),
             "GPT Test(Provider A)"
         );
+        assert_eq!(
+            configured_model_display_name("中文模型", None, "Provider A", true),
+            "中文模型"
+        );
     }
 
     #[test]

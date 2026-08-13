@@ -485,10 +485,16 @@ mod tests {
         let catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
             .handle_model_list(json!({ "models": {} }));
 
-        // 生成一个 tiered 母条目（无档位后缀、动态思考预算）
+        // 生成一个 tiered 母条目（无档位后缀、动态思考预算、独立 placeholder）
         let tiered = &catalog["models"]["custom-vm-connection-tiered"];
         assert_eq!(tiered["displayName"], "Connection Model");
         assert_eq!(tiered["thinkingBudget"], -1);
+        let low_entry = &catalog["models"]["custom-vm-connection-low"];
+        let high_entry = &catalog["models"]["custom-vm-connection-high"];
+        // 验证母条目拥有独立 placeholder，不与子档位冲突
+        assert_ne!(tiered["model"], low_entry["model"]);
+        assert_ne!(tiered["model"], high_entry["model"]);
+
         // 注册进 tieredModelIds（实验分组 key "custom"）
         assert_eq!(
             catalog["tieredModelIds"]["custom"],
@@ -497,6 +503,41 @@ mod tests {
         // 具体档位条目保留，现有路由不受影响
         assert!(catalog["models"].get("custom-vm-connection-low").is_some());
         assert!(catalog["models"].get("custom-vm-connection-high").is_some());
+    }
+
+    #[test]
+    fn tiered_parent_route_resolves_to_preferred_variant() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-vm-connection-low".to_string();
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+        let mut high_model = config.virtual_models[0].clone();
+        high_model.id = "custom-vm-connection-high".to_string();
+        high_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        high_model.default_reasoning_level = Some(ReasoningLevel::High);
+        config.virtual_models.push(high_model);
+
+        // 模拟直接向母条目 ID 发送请求
+        let request = NeutralChatRequest {
+            virtual_model_id: "custom-vm-connection-tiered".to_string(),
+            ..NeutralChatRequest::default()
+        };
+        let resolved = RouteTable::resolve(&config, &request).expect("母条目应当能成功Fallback解析");
+        // 应当优先解析到 High 档位
+        assert_eq!(resolved.virtual_model.id, "custom-vm-connection-high");
+        assert_eq!(resolved.final_reasoning_level, Some(ReasoningLevel::High));
     }
 
     #[test]
