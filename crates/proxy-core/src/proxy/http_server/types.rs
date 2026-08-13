@@ -43,7 +43,7 @@ impl Default for HttpServerOptions {
             max_concurrent_requests: 256,
             control_plane_concurrency: 64,
             stream_buffer_capacity: 32,
-            graceful_shutdown_timeout: Duration::from_secs(15),
+            graceful_shutdown_timeout: Duration::from_secs(2),
             official_cloud_code_endpoint: None,
         }
     }

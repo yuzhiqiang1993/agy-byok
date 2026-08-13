@@ -139,10 +139,15 @@ pub(crate) async fn stop_proxy(state: State<'_, DesktopState>) -> Result<ProxySt
 async fn stop_proxy_inner(state: &DesktopState) -> Result<ProxyStatus, String> {
     let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let handle = state.proxy_handle.lock().await.take();
-    if let Some(handle) = handle {
-        handle.shutdown().await.map_err(|error| error.to_string())?;
-    }
     let port = state.config_store.get_config().proxy_port;
+
+    if let Some(handle) = handle {
+        if let Err(error) =
+            tokio::time::timeout(std::time::Duration::from_millis(2500), handle.shutdown()).await
+        {
+            tracing::warn!("代理服务停止超时（2.5s），后台 Socket 将由 Drop 强行断开：{error}");
+        }
+    }
     Ok(ProxyStatus {
         state: ProxyRuntimeState::Stopped,
         address: Some(format!("127.0.0.1:{port}")),
