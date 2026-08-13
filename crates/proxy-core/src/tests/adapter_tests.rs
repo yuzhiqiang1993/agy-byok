@@ -134,6 +134,7 @@ mod tests {
     fn gemini_resolves_stream_and_non_stream_endpoints() {
         let adapter = GeminiAdapter::new();
         let upstream = create_upstream_model(ReasoningCapability::default());
+        let request = basic_request();
         let mut provider = create_provider(ProviderProtocol::GeminiGenerateContent);
         provider.generate_endpoint =
             "https://example.com/v1beta/models/{model}:generateContent?alt=json&custom=1"
@@ -141,7 +142,7 @@ mod tests {
 
         assert_eq!(
             adapter
-                .build_generate_endpoint(&provider, &upstream, true)
+                .build_generate_endpoint(&provider, &upstream, true, &request)
                 .unwrap(),
             "https://example.com/v1beta/models/test-model:streamGenerateContent?alt=sse&custom=1"
         );
@@ -151,7 +152,7 @@ mod tests {
                 .to_string();
         assert_eq!(
             adapter
-                .build_generate_endpoint(&provider, &upstream, false)
+                .build_generate_endpoint(&provider, &upstream, false, &request)
                 .unwrap(),
             "https://example.com/v1beta/models/test-model:generateContent?custom=1"
         );
@@ -1736,5 +1737,123 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn image_generation_request() -> NeutralChatRequest {
+        let mut request = basic_request();
+        request.output_modalities = std::collections::BTreeSet::from([ModelModality::Image]);
+        request.image_generation_config = Some(json!({ "aspectRatio": "16:9" }));
+        request
+    }
+
+    fn image_only_route(protocol: ProviderProtocol) -> ResolvedRoute {
+        let mut route =
+            create_dummy_route(protocol, ReasoningMapping::NativeLevel("high".to_string()));
+        route.upstream_model.capabilities.roles =
+            std::collections::BTreeSet::from([ModelRole::ImageGeneration]);
+        route.upstream_model.capabilities.output_modalities =
+            std::collections::BTreeSet::from([ModelModality::Image]);
+        route
+    }
+
+    #[test]
+    fn openai_image_generation_switches_to_images_endpoint() {
+        let adapter = OpenAIAdapter::new();
+        let route = image_only_route(ProviderProtocol::OpenaiChatCompletions);
+        let upstream = route.upstream_model.clone();
+        let provider = create_provider(ProviderProtocol::OpenaiChatCompletions);
+        let request = image_generation_request();
+
+        assert_eq!(
+            adapter
+                .build_generate_endpoint(&provider, &upstream, false, &request)
+                .unwrap(),
+            "http://localhost/images/generations"
+        );
+    }
+
+    #[test]
+    fn openai_image_generation_builds_images_payload() {
+        let route = image_only_route(ProviderProtocol::OpenaiChatCompletions);
+        let payload = OpenAIAdapter::new()
+            .build_request_payload(&route, &image_generation_request())
+            .unwrap();
+
+        assert_eq!(payload["model"], "test-model");
+        assert_eq!(payload["prompt"], "Hello");
+        assert_eq!(payload["response_format"], "b64_json");
+        assert_eq!(payload["size"], "1536x1024");
+        assert!(payload.get("stream").is_none());
+    }
+
+    #[test]
+    fn openai_image_generation_parses_b64_json() {
+        let adapter = OpenAIAdapter::new();
+        let upstream = create_upstream_model(ReasoningCapability::default());
+        let response = adapter
+            .parse_response(
+                200,
+                &json!({
+                    "created": 1,
+                    "data": [{ "b64_json": "aW1hZ2U=" }]
+                })
+                .to_string(),
+                &upstream,
+            )
+            .unwrap();
+
+        assert_eq!(response.choices.len(), 1);
+        assert!(matches!(
+            &response.choices[0].blocks[0],
+            NeutralContentBlock::InlineData { mime_type, data_base64 }
+                if mime_type == "image/png" && data_base64 == "aW1hZ2U="
+        ));
+    }
+
+    #[test]
+    fn anthropic_image_generation_is_rejected() {
+        let route = image_only_route(ProviderProtocol::AnthropicMessages);
+        let error = AnthropicAdapter::new()
+            .build_request_payload(&route, &image_generation_request())
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
+        assert_eq!(error.status_code, 400);
+    }
+
+    #[test]
+    fn openai_responses_image_generation_is_rejected() {
+        let route = image_only_route(ProviderProtocol::OpenaiResponses);
+        let error = OpenAIResponsesAdapter::new()
+            .build_request_payload(&route, &image_generation_request())
+            .unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::UnsupportedFeature);
+        assert_eq!(error.status_code, 400);
+    }
+
+    #[test]
+    fn openai_agent_plus_image_model_generates_image_when_requested() {
+        let mut route = create_dummy_route(
+            ProviderProtocol::OpenaiChatCompletions,
+            ReasoningMapping::Effort("medium".to_string()),
+        );
+        route.upstream_model.capabilities.roles =
+            std::collections::BTreeSet::from([ModelRole::Agent, ModelRole::ImageGeneration]);
+        route.upstream_model.capabilities.output_modalities =
+            std::collections::BTreeSet::from([ModelModality::Text, ModelModality::Image]);
+
+        let mut request = basic_request();
+        request.output_modalities =
+            std::collections::BTreeSet::from([ModelModality::Text, ModelModality::Image]);
+        request.image_generation_config = Some(json!({ "aspectRatio": "1:1" }));
+
+        let payload = OpenAIAdapter::new()
+            .build_request_payload(&route, &request)
+            .unwrap();
+
+        assert_eq!(payload["response_format"], "b64_json");
+        assert_eq!(payload["size"], "1024x1024");
+        assert!(payload.get("stream").is_none());
     }
 }

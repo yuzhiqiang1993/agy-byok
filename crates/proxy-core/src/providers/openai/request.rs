@@ -4,6 +4,7 @@ use crate::domain::{
     MessageRole, ModelModality, NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider,
     ProxyError,
 };
+use crate::providers::is_image_generation_request;
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -165,10 +166,102 @@ fn convert_message(msg: &NeutralMessage) -> Result<Value, ProxyError> {
     Ok(obj)
 }
 
+/// 从请求消息中提取图片生成的文本提示词（取最后一条用户消息的文本）。
+fn image_generation_prompt(request: &NeutralChatRequest) -> String {
+    for message in request.messages.iter().rev() {
+        if message.role != MessageRole::User {
+            continue;
+        }
+        let mut prompt = String::new();
+        for block in &message.blocks {
+            if let NeutralContentBlock::Text(text) = block {
+                if !prompt.is_empty() {
+                    prompt.push('\n');
+                }
+                prompt.push_str(text);
+            }
+        }
+        if !prompt.is_empty() {
+            return prompt;
+        }
+    }
+    String::new()
+}
+
+/// 由 Gemini 形 `imageConfig`（`aspectRatio` 等）推导 OpenAI 的 `size`，
+/// 优先透传用户显式提供的 OpenAI 原生字段。
+fn image_generation_size(image_config: &Option<Value>) -> Option<String> {
+    let config = image_config.as_ref()?;
+    if let Some(size) = config.get("size").and_then(Value::as_str) {
+        return Some(size.to_string());
+    }
+    let aspect = config
+        .get("aspectRatio")
+        .or_else(|| config.get("aspect_ratio"))
+        .and_then(Value::as_str)?;
+    match aspect {
+        "1:1" => Some("1024x1024".to_string()),
+        "16:9" => Some("1536x1024".to_string()),
+        "9:16" => Some("1024x1536".to_string()),
+        "4:3" => Some("1024x768".to_string()),
+        "3:4" => Some("768x1024".to_string()),
+        "21:9" => Some("1792x768".to_string()),
+        "9:21" => Some("768x1792".to_string()),
+        _ => None,
+    }
+}
+
+/// 将图片生成请求转换为 OpenAI images 端点（`/v1/images/generations`）的请求体。
+fn build_image_generation_payload(
+    route: &ResolvedRoute,
+    request: &NeutralChatRequest,
+) -> Result<Value, ProxyError> {
+    let prompt = image_generation_prompt(request);
+    if prompt.trim().is_empty() {
+        return Err(ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            "Image generation requires a non-empty text prompt",
+            400,
+        ));
+    }
+
+    let mut payload = json!({
+        "model": route.upstream_model.upstream_model_id,
+        "prompt": prompt,
+        "n": 1,
+        "response_format": "b64_json",
+    });
+
+    if let Some(size) = image_generation_size(&request.image_generation_config) {
+        payload["size"] = json!(size);
+    }
+    if let Some(quality) = request
+        .image_generation_config
+        .as_ref()
+        .and_then(|config| config.get("quality"))
+        .cloned()
+    {
+        payload["quality"] = quality;
+    }
+
+    // extra_body 允许用户覆盖/补充 images 参数（如 size、quality、style）。
+    if let Some(ref extra) = route.final_parameters.extra_body {
+        for (key, value) in extra {
+            payload[key] = value.clone();
+        }
+    }
+
+    Ok(payload)
+}
+
 pub(super) fn build_request_payload(
     route: &ResolvedRoute,
     request: &NeutralChatRequest,
 ) -> Result<Value, ProxyError> {
+    if is_image_generation_request(&route.upstream_model, request) {
+        return build_image_generation_payload(route, request);
+    }
+
     let mut payload = json!({
         "model": route.upstream_model.upstream_model_id,
         "stream": request.stream,

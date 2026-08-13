@@ -1,6 +1,7 @@
 use super::activity_recorder::ActivityOutcome;
 use super::execution::{EncodedFrameSink, StringFrameSink};
 use super::ProxyServer;
+use crate::antigravity::AntigravityResponseEncoder;
 use crate::domain::{
     ErrorCategory, MessageRole, NeutralChatRequest, NeutralContentBlock, NeutralMessage,
     ParameterOverrides, ProxyError, ReasoningLevel, ReasoningMapping,
@@ -122,7 +123,7 @@ impl ProxyServer {
                         usage.as_ref(),
                     ),
                 );
-                Ok(response)
+                Ok(AntigravityResponseEncoder::encode_response(&response))
             }
             Err(primary_error) => {
                 if primary_error.is_retryable_for_fallback() {
@@ -146,7 +147,9 @@ impl ProxyServer {
                                             usage.as_ref(),
                                         ),
                                     );
-                                    return Ok(fallback_response);
+                                    return Ok(AntigravityResponseEncoder::encode_response(
+                                        &fallback_response,
+                                    ));
                                 }
                                 Err(fallback_error) => {
                                     self.record_activity(

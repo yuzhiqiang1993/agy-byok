@@ -19,6 +19,7 @@ pub trait ProviderAdapter: Send + Sync {
         provider: &Provider,
         upstream_model: &UpstreamModel,
         _stream: bool,
+        _request: &NeutralChatRequest,
     ) -> Result<String, ProxyError> {
         Ok(provider
             .generate_endpoint

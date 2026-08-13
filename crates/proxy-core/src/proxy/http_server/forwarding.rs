@@ -153,18 +153,18 @@ pub(super) async fn forward_native_request(
     options: NativeForwardOptions,
 ) -> HttpResponse {
     let forward_fut = send_forward_request(&parts, body, &proxy, endpoint);
-    let response = match tokio::time::timeout(std::time::Duration::from_secs(120), forward_fut).await
-    {
-        Ok(Ok(response)) => response,
-        Ok(Err(response)) => return response,
-        Err(_) => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                "Failed to forward request to official Cloud Code within timeout",
-                ActivityErrorCategory::NativeForwardingFailed,
-            );
-        }
-    };
+    let response =
+        match tokio::time::timeout(std::time::Duration::from_secs(120), forward_fut).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(response)) => return response,
+            Err(_) => {
+                return error_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Failed to forward request to official Cloud Code within timeout",
+                    ActivityErrorCategory::NativeForwardingFailed,
+                );
+            }
+        };
     let status = response.status();
     tracing::info!("NATIVE FORWARD STATUS: {}", status);
     let headers = response.headers().clone();

@@ -86,6 +86,7 @@ impl ProviderAdapter for GeminiAdapter {
         provider: &Provider,
         upstream_model: &UpstreamModel,
         stream: bool,
+        _request: &NeutralChatRequest,
     ) -> Result<String, ProxyError> {
         request::build_generate_endpoint(provider, upstream_model, stream)
     }

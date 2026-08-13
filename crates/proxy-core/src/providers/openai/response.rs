@@ -1,5 +1,5 @@
 use super::{normalize_finish_reason, parse_index, parse_usage};
-use crate::domain::response::NeutralChoice;
+use crate::domain::response::{FinishReason, NeutralChoice};
 use crate::domain::{
     ErrorCategory, NeutralChatResponse, NeutralContentBlock, ProxyError, UpstreamModel,
 };
@@ -34,6 +34,36 @@ pub(super) fn parse_response(
         .to_string();
 
     let mut choices = Vec::new();
+
+    // OpenAI images API 响应：`{ "data": [ { "b64_json": "..." } ] }`。
+    // 图片生成走独立端点，响应形状与 chat completions 不同，需单独解析。
+    if let Some(data) = val["data"].as_array() {
+        for (item_position, item) in data.iter().enumerate() {
+            let mut blocks = Vec::new();
+            if let Some(b64_json) = item["b64_json"].as_str().filter(|s| !s.is_empty()) {
+                blocks.push(NeutralContentBlock::InlineData {
+                    mime_type: "image/png".to_string(),
+                    data_base64: b64_json.to_string(),
+                });
+            } else if let Some(url) = item["url"].as_str().filter(|s| !s.is_empty()) {
+                // 上游只返回 URL（未用 b64_json）：以文本形式回传链接。
+                blocks.push(NeutralContentBlock::Text(url.to_string()));
+            }
+            choices.push(NeutralChoice {
+                index: item_position as u32,
+                blocks,
+                finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
+            });
+        }
+        return Ok(NeutralChatResponse {
+            id,
+            model,
+            choices,
+            usage: None,
+        });
+    }
+
     if let Some(upstream_choices) = val["choices"].as_array() {
         for (choice_position, choice) in upstream_choices.iter().enumerate() {
             let index = parse_index(choice, choice_position);

@@ -1,7 +1,10 @@
 use super::{token_guard, ProxyServer};
-use crate::antigravity::{AntigravityResponseEncoder, AntigravityStreamEncoder};
-use crate::domain::{ErrorCategory, NeutralChatRequest, NeutralStreamEvent, ProxyError, UsageInfo};
-use crate::providers::{get_adapter, ProviderAdapter};
+use crate::antigravity::AntigravityStreamEncoder;
+use crate::domain::{
+    ErrorCategory, NeutralChatRequest, NeutralChatResponse, NeutralContentBlock,
+    NeutralStreamEvent, ProxyError, UsageInfo,
+};
+use crate::providers::{get_adapter, is_image_generation_request, ProviderAdapter};
 use crate::proxy::streaming::{NeutralEventSink, StreamPipe};
 use crate::routing::ResolvedRoute;
 use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
@@ -64,7 +67,7 @@ impl ProxyServer {
         &self,
         route: &ResolvedRoute,
         request: &NeutralChatRequest,
-    ) -> Result<(String, Option<UsageInfo>), ProxyError> {
+    ) -> Result<(NeutralChatResponse, Option<UsageInfo>), ProxyError> {
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         let buffered =
@@ -94,10 +97,7 @@ impl ProxyServer {
                 .clone_from(&route.upstream_model.upstream_model_id);
         }
         let usage = neutral_response.usage.clone();
-        Ok((
-            AntigravityResponseEncoder::encode_response(&neutral_response),
-            usage,
-        ))
+        Ok((neutral_response, usage))
     }
 
     pub(super) async fn execute_stream_route(
@@ -107,6 +107,13 @@ impl ProxyServer {
         frame_sink: &mut dyn EncodedFrameSink,
         emitted_frame: &mut bool,
     ) -> Result<Option<UsageInfo>, ProxyError> {
+        // OpenAI images 端点不支持流式，生图请求统一降级为非流式处理后回传流式事件。
+        if is_image_generation_request(&route.upstream_model, request) {
+            return self
+                .execute_image_generation_stream(route, request, frame_sink, emitted_frame)
+                .await;
+        }
+
         let (adapter, response) = self.send_upstream(route, request).await?;
         let status = response.status().as_u16();
         if status >= 400 {
@@ -171,6 +178,63 @@ impl ProxyServer {
         Ok(usage)
     }
 
+    /// 图片生成降级路径：走非流式 images 请求，再把完整结果按流式事件回传。
+    async fn execute_image_generation_stream(
+        &self,
+        route: &ResolvedRoute,
+        request: &NeutralChatRequest,
+        frame_sink: &mut dyn EncodedFrameSink,
+        emitted_frame: &mut bool,
+    ) -> Result<Option<UsageInfo>, ProxyError> {
+        let (response, usage) = self.execute_route(route, request).await?;
+        frame_sink.stream_started();
+
+        let mut encoder = AntigravityStreamEncoder::new()
+            .with_model_version(&route.upstream_model.upstream_model_id);
+
+        for choice in &response.choices {
+            for block in &choice.blocks {
+                let event = match block {
+                    NeutralContentBlock::Text(text) => NeutralStreamEvent::TextDelta {
+                        choice_index: choice.index,
+                        text: text.clone(),
+                    },
+                    NeutralContentBlock::InlineData {
+                        mime_type,
+                        data_base64,
+                    } => NeutralStreamEvent::InlineData {
+                        choice_index: choice.index,
+                        mime_type: mime_type.clone(),
+                        data_base64: data_base64.clone(),
+                    },
+                    _ => continue,
+                };
+                for frame in encoder.encode_event(&event)? {
+                    *emitted_frame = true;
+                    frame_sink.send(frame).await?;
+                }
+            }
+            if let Some(reason) = choice.finish_reason {
+                for frame in encoder.encode_event(&NeutralStreamEvent::Finish {
+                    choice_index: choice.index,
+                    reason,
+                    raw_finish_reason: choice.raw_finish_reason.clone(),
+                })? {
+                    *emitted_frame = true;
+                    frame_sink.send(frame).await?;
+                }
+            }
+        }
+
+        for frame in encoder.encode_event(&NeutralStreamEvent::ResponseEnd {
+            usage: usage.clone(),
+        })? {
+            *emitted_frame = true;
+            frame_sink.send(frame).await?;
+        }
+        Ok(usage)
+    }
+
     async fn send_upstream(
         &self,
         route: &ResolvedRoute,
@@ -184,6 +248,7 @@ impl ProxyServer {
             &route.provider,
             &route.upstream_model,
             request.stream,
+            request,
         )?;
         let request_timeout_ms = route.provider.request_timeout_ms;
         let connect_timeout_ms = route.provider.connect_timeout_ms;

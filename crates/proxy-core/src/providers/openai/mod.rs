@@ -2,10 +2,12 @@ mod request;
 mod response;
 mod stream;
 
+use super::is_image_generation_request;
 use super::traits::{ProviderAdapter, ProviderStreamDecoder};
 use crate::domain::response::FinishReason;
 use crate::domain::{
-    NeutralChatRequest, NeutralChatResponse, Provider, ProxyError, UpstreamModel, UsageInfo,
+    ErrorCategory, NeutralChatRequest, NeutralChatResponse, Provider, ProxyError, UpstreamModel,
+    UsageInfo,
 };
 use crate::routing::ResolvedRoute;
 use async_trait::async_trait;
@@ -19,6 +21,25 @@ impl OpenAIAdapter {
     pub fn new() -> Self {
         Self
     }
+}
+
+/// 由 chat/responses 生成端点推导同源的 images 端点。
+/// 例如 `https://api.openai.com/v1/chat/completions` -> `https://api.openai.com/v1/images/generations`。
+fn images_generation_endpoint(generate_endpoint: &str) -> Result<String, ProxyError> {
+    let mut url = reqwest::Url::parse(generate_endpoint).map_err(|error| {
+        ProxyError::new(
+            ErrorCategory::InvalidRequest,
+            format!("Invalid OpenAI generate endpoint: {error}"),
+            400,
+        )
+    })?;
+    let path = url.path().trim_end_matches('/');
+    let base = path
+        .strip_suffix("/chat/completions")
+        .or_else(|| path.strip_suffix("/responses"))
+        .unwrap_or("/v1");
+    url.set_path(&format!("{base}/images/generations"));
+    Ok(url.to_string())
 }
 
 fn normalize_finish_reason(raw_finish_reason: &str) -> FinishReason {
@@ -72,6 +93,21 @@ fn parse_usage(value: &Value) -> Option<UsageInfo> {
 
 #[async_trait]
 impl ProviderAdapter for OpenAIAdapter {
+    fn build_generate_endpoint(
+        &self,
+        provider: &Provider,
+        upstream_model: &UpstreamModel,
+        _stream: bool,
+        request: &NeutralChatRequest,
+    ) -> Result<String, ProxyError> {
+        if is_image_generation_request(upstream_model, request) {
+            return images_generation_endpoint(&provider.generate_endpoint);
+        }
+        Ok(provider
+            .generate_endpoint
+            .replace("{model}", &upstream_model.upstream_model_id))
+    }
+
     fn build_request_payload(
         &self,
         route: &ResolvedRoute,

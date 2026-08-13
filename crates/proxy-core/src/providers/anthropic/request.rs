@@ -4,6 +4,7 @@ use crate::domain::{
     input_modality_for_mime_type, ErrorCategory, MessageRole, ModelModality, NeutralChatRequest,
     NeutralContentBlock, Provider, ProxyError, TokenLimitSource,
 };
+use crate::providers::is_image_generation_request;
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -95,6 +96,14 @@ pub(super) fn build_request_payload(
     route: &ResolvedRoute,
     request: &NeutralChatRequest,
 ) -> Result<Value, ProxyError> {
+    if is_image_generation_request(&route.upstream_model, request) {
+        return Err(ProxyError::new(
+            ErrorCategory::UnsupportedFeature,
+            "Anthropic does not support image generation; use a Gemini or OpenAI-compatible image model",
+            400,
+        ));
+    }
+
     let max_tokens = route
         .final_parameters
         .max_tokens

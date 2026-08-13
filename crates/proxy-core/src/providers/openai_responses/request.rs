@@ -3,6 +3,7 @@ use crate::domain::{
     inline_data_filename, input_modality_for_mime_type, ErrorCategory, MessageRole, ModelModality,
     NeutralChatRequest, NeutralContentBlock, NeutralMessage, Provider, ProxyError,
 };
+use crate::providers::is_image_generation_request;
 use crate::routing::ResolvedRoute;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -127,6 +128,14 @@ pub(super) fn build_request_payload(
     route: &ResolvedRoute,
     request: &NeutralChatRequest,
 ) -> Result<Value, ProxyError> {
+    if is_image_generation_request(&route.upstream_model, request) {
+        return Err(ProxyError::new(
+            ErrorCategory::UnsupportedFeature,
+            "OpenAI Responses API does not support image generation; use the Gemini or OpenAI Chat Completions protocol",
+            400,
+        ));
+    }
+
     let mut payload = json!({
         "model": route.upstream_model.upstream_model_id,
         "input": [],
