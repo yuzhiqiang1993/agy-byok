@@ -350,7 +350,8 @@ export function semanticModelSlug(
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   const baseSlug = cleaned.length > 0 ? cleaned : fallbackUuid;
-  return reasoningLevel ? `${baseSlug}-${reasoningLevel}` : baseSlug;
+  const levelSlug = reasoningLevel ? reasoningLevel.replace(/_/g, "-") : null;
+  return levelSlug ? `${baseSlug}-${levelSlug}` : baseSlug;
 }
 
 function newVirtualModel(
