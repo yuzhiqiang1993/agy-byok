@@ -70,22 +70,14 @@ function refreshProviderEditorControls(): void {
   const hasSelection = providerCatalog.getProviderCatalogState().selectedCatalogModelIds.size > 0;
   const saveProviderButton = element<HTMLButtonElement>("#save-provider");
   const cancelProviderButton = element<HTMLButtonElement>("#cancel-provider");
-  const pendingProviderSavePlan = providerSave.getPendingProviderSavePlan();
   saveProviderButton.disabled = providerEditorBusy || !getProviderEditorDirty() || !hasSelection;
   cancelProviderButton.disabled = providerEditorBusy;
   if (!providerEditorBusy) {
-    if (pendingProviderSavePlan) {
-      delete saveProviderButton.dataset.i18n;
-      saveProviderButton.textContent = t("models.confirmSaveRemoval", {
-        count: pendingProviderSavePlan.summary.removedVirtualModels.length,
-      });
-    } else {
-      const saveKey = providerEditorMode.kind === "model"
-        ? "models.saveModel" as const
-        : "models.saveProvider" as const;
-      saveProviderButton.dataset.i18n = saveKey;
-      saveProviderButton.textContent = t(saveKey);
-    }
+    const saveKey = providerEditorMode.kind === "model"
+      ? "models.saveModel" as const
+      : "models.saveProvider" as const;
+    saveProviderButton.dataset.i18n = saveKey;
+    saveProviderButton.textContent = t(saveKey);
   }
 }
 

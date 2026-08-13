@@ -207,20 +207,14 @@ export async function saveProvider(context: ProviderSaveContext): Promise<void> 
   }
 
   const plan = createProviderSavePlan(context, provider, catalog);
-  renderProviderChangeSummary(plan.summary);
   if (plan.summary.fallbackBlockers.length > 0) {
+    renderProviderChangeSummary(plan.summary);
     context.notify(
       t("models.cannotSave", {
         reason: t("models.fallbackBlocker", plan.summary.fallbackBlockers[0]),
       }),
       "error",
     );
-    return;
-  }
-  if (plan.summary.removedVirtualModels.length > 0) {
-    pendingProviderSavePlan = plan;
-    context.refreshProviderEditorControls();
-    context.notify(t("models.confirmRemoval"), "error");
     return;
   }
   await executeProviderSave(plan, context);
