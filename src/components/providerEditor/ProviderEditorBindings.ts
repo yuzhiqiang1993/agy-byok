@@ -1,5 +1,4 @@
 import { subscribeLanguage, t } from "../../i18n";
-import { store } from "../../store/appStore";
 import { element, visibleFocusableElements } from "../../utils/domUtils";
 import * as providerCatalog from "../../features/providers/providerCatalog";
 import * as providerForm from "../../features/providers/providerForm";
@@ -19,6 +18,7 @@ interface ProviderEditorBindings {
   closeEditor: () => Promise<boolean>;
   openEditor: () => Promise<void>;
   refreshControls: () => void;
+  refreshHeader: () => void;
   createCatalogContext: () => providerCatalog.ProviderCatalogContext;
 }
 
@@ -205,15 +205,7 @@ function bindLanguageRefresh(bindings: ProviderEditorBindings): void {
       providerCatalog.updateCatalogSelection(bindings.createCatalogContext());
     }
     bindings.refreshControls();
-    if (element<HTMLElement>("#provider-form-panel").hidden) return;
-    if (providerForm.editingProviderId) {
-      const provider = store.config.providers.find((item) => item.id === providerForm.editingProviderId);
-      if (provider) {
-        element<HTMLElement>("#provider-form-title").textContent = `${t("models.editProviderTitle")} · ${provider.name}`;
-      }
-    } else {
-      element<HTMLElement>("#provider-form-title").textContent = t("models.addProviderTitle");
-    }
+    bindings.refreshHeader();
   });
 }
 

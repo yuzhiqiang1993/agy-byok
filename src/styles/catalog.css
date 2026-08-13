@@ -116,6 +116,14 @@
   padding-left: 25px;
 }
 
+.catalog-model-row.focused-editor .catalog-model-bottom-row {
+  padding-left: 0;
+}
+
+.catalog-model-row.focused-editor .catalog-model-select {
+  cursor: default;
+}
+
 .catalog-token-badge {
   display: inline-flex;
   align-items: center;

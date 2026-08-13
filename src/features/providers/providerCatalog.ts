@@ -36,6 +36,7 @@ interface InternalProviderCatalogState extends CatalogModelListState {
   catalogCustomReasoningByModel: Map<string, string>;
   fetchedCount: number;
   hasUnavailableModels: boolean;
+  source: "empty" | "fetched" | "configured";
 }
 
 function emptyCatalogState(): InternalProviderCatalogState {
@@ -61,6 +62,7 @@ function emptyCatalogState(): InternalProviderCatalogState {
     expandedCatalogModelIds: new Set(),
     fetchedCount: 0,
     hasUnavailableModels: false,
+    source: "empty",
   };
 }
 
@@ -123,6 +125,7 @@ function loadedCatalogState(
   fetched: ProviderCatalogModel[],
   existingUpstreams: UpstreamModel[],
   protocol: ProviderProtocol,
+  source: InternalProviderCatalogState["source"] = "fetched",
 ): InternalProviderCatalogState {
   const { models, unavailableModelIds } = mergedCatalogModels(fetched, existingUpstreams);
   const upstreamByModelId = new Map(
@@ -265,12 +268,15 @@ function loadedCatalogState(
     expandedCatalogModelIds: new Set(),
     fetchedCount: fetched.length,
     hasUnavailableModels: unavailableModelIds.size > 0,
+    source,
   };
 }
 
 export function renderCatalogStatus(): void {
   const status = element<HTMLElement>("#catalog-status");
-  status.textContent = catalogState.fetchedCount === 0
+  status.textContent = catalogState.source === "configured"
+    ? t("models.configuredModelLoaded")
+    : catalogState.fetchedCount === 0
     ? t("models.fetching")
     : catalogState.hasUnavailableModels
       ? t("models.catalogFetchedWithUnavailable", {
@@ -325,6 +331,30 @@ export async function fetchProviderCatalog(context: ProviderCatalogContext): Pro
   element<HTMLElement>(".provider-modal-body").scrollTop = 0;
 }
 
+export function loadConfiguredProviderCatalog(
+  context: ProviderCatalogContext,
+  providerId: string,
+): void {
+  const existingUpstreams = store.config.upstream_models.filter(
+    (upstream) => upstream.provider_id === providerId,
+  );
+  // 单模型编辑只读取当前持久化配置，不静默发起目录请求。
+  const configuredModels: ProviderCatalogModel[] = existingUpstreams.map((upstream) => ({
+    id: upstream.upstream_model_id,
+    displayName: upstream.display_name,
+  }));
+  catalogState = loadedCatalogState(
+    configuredModels,
+    existingUpstreams,
+    context.selectedProtocol(),
+    "configured",
+  );
+  showCatalogResultsStep();
+  renderCatalogStatus();
+  renderCatalogModels(context);
+  element<HTMLElement>(".provider-modal-body").scrollTop = 0;
+}
+
 export function updateCatalogSelection(context: ProviderCatalogContext): void {
   const count = catalogState.selectedCatalogModelIds.size;
   element<HTMLElement>("#selected-model-count").textContent = count > 0
@@ -332,8 +362,12 @@ export function updateCatalogSelection(context: ProviderCatalogContext): void {
     : t("models.noModelSelected");
   context.refreshProviderEditorControls();
   const query = element<HTMLInputElement>("#catalog-search").value.trim().toLowerCase();
+  const focusedModelId = context.getFocusedCatalogModelId();
   const visibleIds = catalogState.catalogModels
-    .filter((model) => `${model.displayName} ${model.id}`.toLowerCase().includes(query))
+    .filter((model) => (
+      (!focusedModelId || model.id === focusedModelId)
+      && `${model.displayName} ${model.id}`.toLowerCase().includes(query)
+    ))
     .map((model) => model.id);
   const selectAll = element<HTMLInputElement>("#select-all-models");
   selectAll.checked = visibleIds.length > 0

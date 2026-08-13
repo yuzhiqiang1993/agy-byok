@@ -69,6 +69,8 @@ function checkModelFallbackBlocker(upstreamId: string): string | null {
 function createModelGroup(
   upstream: UpstreamModel,
   virtualModels: VirtualModel[],
+  providerId: string,
+  onEditModel: (upstreamId: string) => void,
   onChanged?: () => void,
 ): HTMLElement {
   // --- Header ---
@@ -85,6 +87,21 @@ function createModelGroup(
   if (Object.keys(upstream.capabilities.reasoning.levels).length > 0) {
     capabilities.append(capabilityBadge("reasoning"));
   }
+
+  // 编辑入口沿用卡片动作样式，并复用 Provider Editor 的单模型模式。
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "capability-badge action-badge model-edit-btn";
+  editBtn.dataset.providerId = providerId;
+  editBtn.dataset.upstreamId = upstream.id;
+  editBtn.title = t("models.editModelFor", { name: upstream.display_name });
+  editBtn.setAttribute("aria-label", t("models.editModelFor", { name: upstream.display_name }));
+  editBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+  editBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onEditModel(upstream.id);
+  });
+  capabilities.append(editBtn);
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
@@ -210,6 +227,8 @@ function createModelGroup(
 export function createProviderModels(
   upstreams: UpstreamModel[],
   modelLinks: ProviderModelLink[],
+  providerId: string,
+  onEditModel: (upstreamId: string) => void,
   onChanged?: () => void,
 ): HTMLDivElement {
   const wrapper = document.createElement("div");
@@ -236,7 +255,7 @@ export function createProviderModels(
   for (const upstream of upstreams) {
     const virtualModels = virtualsByUpstreamId.get(upstream.id);
     if (!virtualModels || virtualModels.length === 0) continue;
-    models.append(createModelGroup(upstream, virtualModels, onChanged));
+    models.append(createModelGroup(upstream, virtualModels, providerId, onEditModel, onChanged));
   }
 
   wrapper.append(models);

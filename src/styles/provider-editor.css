@@ -43,6 +43,17 @@ body.modal-open { overflow: hidden; }
   flex-direction: column;
   animation: modalWindowSlide 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* 单模型模式复用目录编辑器，但收紧弹窗高度与底部操作区。 */
+.provider-modal[data-editor-mode="model"] .provider-modal-dialog {
+  height: min(540px, calc(100vh - 48px));
+  min-height: min(540px, calc(100vh - 48px));
+  max-height: min(540px, calc(100vh - 48px));
+}
+
+.provider-modal[data-editor-mode="model"] .catalog-save-row {
+  justify-content: flex-end;
+}
 .provider-modal-header {
   position: sticky;
   z-index: 2;

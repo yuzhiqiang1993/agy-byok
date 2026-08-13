@@ -210,6 +210,13 @@ export const enUS: TranslationDict = {
     debugOfficialCopy: "Copy JSON",
     debugOfficialCopied: "JSON copied",
 
+    editModel: "Edit Model",
+    editModelFor: "Edit model: {name}",
+    modelConfigTitle: "Model Configuration",
+    saveModel: "Save Model",
+    modelSaved: "Model \"{name}\" saved",
+    modelEditUnavailable: "This model cannot be edited safely. Refresh the configuration and try again.",
+    configuredModelLoaded: "Current configuration loaded",
     deleteModel: "Delete Model",
     deleteModelConfirmTitle: "Confirm Delete Model",
     deleteModelConfirmMessage: "Are you sure you want to delete model \"{name}\"? This action cannot be undone.",
@@ -453,6 +460,7 @@ export const enUS: TranslationDict = {
     confirmSaveRemoval: "Confirm Save and Remove {count} Model Entries",
     editorBusy: "The upstream service configuration is being processed. Please wait.",
     discardChanges: "Discard unsaved upstream service changes?",
+    discardModelChanges: "Discard unsaved model changes?",
 
     defaultVariant: "Default",
     retryFailed: "Retry Failed ({count})",

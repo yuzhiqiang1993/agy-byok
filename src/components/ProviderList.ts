@@ -14,7 +14,7 @@ import { t } from "../i18n";
 import { showNotice } from "./NoticeBar";
 import { renderSingleProviderCard } from "./ProviderCard";
 import { renderOfficialProviderCard, getCachedOfficialModelCount } from "./OfficialProviderCard";
-import { openProviderEditor } from "./ProviderEditor";
+import { openProviderEditor, openProviderModelEditor } from "./ProviderEditor";
 import { createByokModelsDebugButton } from "./ByokModelsDebug";
 
 let disposeActiveProviderCard: (() => void) | null = null;
@@ -163,6 +163,7 @@ export function renderProviders(): void {
 
   const activeCard = renderSingleProviderCard(activeProvider, {
     onEdit: () => void openProviderEditor(activeProvider.id),
+    onEditModel: (upstreamId) => void openProviderModelEditor(activeProvider.id, upstreamId),
     onChanged: renderProviders,
   });
   disposeActiveProviderCard = activeCard.dispose;

@@ -34,6 +34,7 @@ export interface ProviderSaveContext {
   setProviderEditorDirty: (dirty: boolean) => void;
   refreshProviderEditorControls: () => void;
   closeProviderEditor: (force?: boolean) => Promise<boolean>;
+  savedMessage?: (plan: ProviderSavePlan) => string;
   // 通知由 UI 层装配，features 不直接依赖通知组件。
   notify: (message: string, kind?: "success" | "error") => void;
 }
@@ -111,13 +112,14 @@ async function executeProviderSave(
   const currentCount = plan.nextConfig.virtual_models.filter(
     (virtualModel) => providerUpstreamIds.has(virtualModel.upstream_model_id),
   ).length;
-  context.setProviderEditorDirty(false);
-  void context.closeProviderEditor(true);
-  context.notify(t("models.providerSaved", {
+  const savedMessage = context.savedMessage?.(plan) ?? t("models.providerSaved", {
     action: plan.wasEditing ? t("models.updated") : t("models.added"),
     name: plan.provider.name,
     count: currentCount,
-  }));
+  });
+  context.setProviderEditorDirty(false);
+  void context.closeProviderEditor(true);
+  context.notify(savedMessage);
 }
 
 function selectedCatalogModels(catalog: ProviderCatalogState): ProviderCatalogModel[] {

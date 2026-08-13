@@ -17,6 +17,7 @@ import type { ProviderModelLink } from "./ProviderCardModels";
 
 export interface ProviderCardActions {
   onEdit: () => void;
+  onEditModel: (upstreamId: string) => void;
   onChanged: () => void;
 }
 

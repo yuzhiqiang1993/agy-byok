@@ -29,6 +29,7 @@ export interface ProviderCatalogState {
 
 export interface ProviderCatalogContext {
   getEditingProviderId: () => string | null;
+  getFocusedCatalogModelId: () => string | null;
   selectedProtocol: () => ProviderProtocol;
   providerFromForm: () => Provider;
   setProviderEditorDirty: (dirty: boolean) => void;

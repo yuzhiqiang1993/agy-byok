@@ -183,27 +183,30 @@ export function createCatalogModelRow(
 ): HTMLDivElement {
   const rowState = resolveCatalogModelRowState(model, context, state);
   const { selected } = rowState;
+  const focused = context.getFocusedCatalogModelId() === model.id;
   const row = document.createElement("div");
-  row.className = `catalog-model-row${selected ? " selected" : " unselected"}${state.unavailableCatalogModelIds.has(model.id) ? " unavailable" : ""}`;
+  row.className = `catalog-model-row${selected ? " selected" : " unselected"}${state.unavailableCatalogModelIds.has(model.id) ? " unavailable" : ""}${focused ? " focused-editor" : ""}`;
 
   // Top Row: Selection (Checkbox + Model Name + Unavailable Badge) + Test Area
   const topRow = document.createElement("div");
   topRow.className = "catalog-model-top-row";
 
-  const select = document.createElement("label");
+  const select = focused ? document.createElement("div") : document.createElement("label");
   select.className = "catalog-model-select";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = selected;
-  checkbox.addEventListener("change", () => {
-    if (checkbox.checked) {
-      state.selectedCatalogModelIds.add(model.id);
-    } else {
-      state.selectedCatalogModelIds.delete(model.id);
-    }
-    context.setProviderEditorDirty(true);
-    rerender();
-  });
+  const checkbox = focused ? null : document.createElement("input");
+  if (checkbox) {
+    checkbox.type = "checkbox";
+    checkbox.checked = selected;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        state.selectedCatalogModelIds.add(model.id);
+      } else {
+        state.selectedCatalogModelIds.delete(model.id);
+      }
+      context.setProviderEditorDirty(true);
+      rerender();
+    });
+  }
 
   const nameLine = document.createElement("span");
   nameLine.className = "catalog-model-name-line";
@@ -217,7 +220,8 @@ export function createCatalogModelRow(
     unavailableBadge.title = t("models.currentCatalogMissingHint");
     nameLine.append(unavailableBadge);
   }
-  select.append(checkbox, nameLine);
+  if (checkbox) select.append(checkbox);
+  select.append(nameLine);
 
   const testArea = createTestArea(rowState, context, state);
   topRow.append(select, testArea);

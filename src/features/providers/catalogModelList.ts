@@ -13,9 +13,12 @@ export function renderCatalogModelList(
 ): void {
   const catalogModelList = element<HTMLDivElement>("#catalog-model-list");
   const query = element<HTMLInputElement>("#catalog-search").value.trim().toLowerCase();
-  const visibleModels = state.catalogModels.filter((model) =>
-    `${model.displayName} ${model.id}`.toLowerCase().includes(query)
-  );
+  const focusedModelId = context.getFocusedCatalogModelId();
+  // 单模型模式只收敛可见行，完整 Provider 状态仍参与保存计划。
+  const visibleModels = state.catalogModels.filter((model) => (
+    (!focusedModelId || model.id === focusedModelId)
+    && `${model.displayName} ${model.id}`.toLowerCase().includes(query)
+  ));
   const rerender = () => renderCatalogModelList(context, state, onSelectionChange);
 
   catalogModelList.replaceChildren(

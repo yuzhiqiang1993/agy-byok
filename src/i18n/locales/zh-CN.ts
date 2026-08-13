@@ -170,6 +170,13 @@ export const zhCN = {
     debugOfficialCopy: "复制 JSON",
     debugOfficialCopied: "JSON 已复制",
 
+    editModel: "编辑模型",
+    editModelFor: "编辑模型：{name}",
+    modelConfigTitle: "模型配置",
+    saveModel: "保存模型",
+    modelSaved: "已保存模型“{name}”",
+    modelEditUnavailable: "当前模型配置无法安全编辑，请刷新配置后重试",
+    configuredModelLoaded: "已载入当前配置",
     deleteModel: "删除模型",
     deleteModelConfirmTitle: "确认删除模型",
     deleteModelConfirmMessage: "确定要删除模型“{name}”吗？此操作无法撤销。",
@@ -412,6 +419,7 @@ export const zhCN = {
     confirmSaveRemoval: "确认保存并移除 {count} 个模型入口",
     editorBusy: "上游服务配置正在处理中，请稍候",
     discardChanges: "当前有未保存的上游服务修改，确定放弃吗？",
+    discardModelChanges: "当前有未保存的模型修改，确定放弃吗？",
 
     defaultVariant: "默认",
     retryFailed: "重试失败项（{count}）",
