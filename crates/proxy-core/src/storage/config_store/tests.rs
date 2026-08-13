@@ -95,6 +95,21 @@ fn config_store_persists_and_reloads_valid_config() {
     let _ = fs::remove_dir_all(directory);
 }
 
+#[test]
+fn config_updates_clear_the_raw_official_catalog() {
+    let store = ConfigStore::in_memory(sample_config());
+
+    store.set_raw_official_catalog("first catalog".to_string());
+    store.update_config(sample_config()).unwrap();
+    assert!(store.get_raw_official_catalog().is_none());
+
+    store.set_raw_official_catalog("second catalog".to_string());
+    store
+        .update_config_with(|config| config.providers[0].name = "Updated Provider".to_string())
+        .unwrap();
+    assert!(store.get_raw_official_catalog().is_none());
+}
+
 #[cfg(unix)]
 #[test]
 fn private_temporary_write_never_follows_an_existing_symlink() {

@@ -462,6 +462,52 @@ mod tests {
     }
 
     #[test]
+    fn model_catalog_keeps_x_high_variant_visible_to_antigravity() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::XHigh,
+                    ReasoningMapping::Effort("xhigh".to_string()),
+                ),
+                (
+                    ReasoningLevel::Max,
+                    ReasoningMapping::Effort("max".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-vm-connection-x_high".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::XHigh);
+        let mut max_model = config.virtual_models[0].clone();
+        max_model.id = "custom-vm-connection-max".to_string();
+        max_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        max_model.default_reasoning_level = Some(ReasoningLevel::Max);
+        config.virtual_models.push(max_model);
+
+        let x_high_catalog_key = config.virtual_models[0].catalog_key().into_owned();
+        let max_catalog_key = config.virtual_models[1].catalog_key().into_owned();
+        let catalog =
+            ProxyServer::new(ConfigStore::in_memory(config), 0).handle_model_list(json!({
+                "models": {},
+                "agentModelSorts": [{
+                    "displayName": "Recommended",
+                    "groups": [{ "modelIds": [] }]
+                }]
+            }));
+
+        assert_eq!(x_high_catalog_key, "custom-byok-m400");
+        assert!(!x_high_catalog_key.contains('_'));
+        assert!(catalog["models"][&x_high_catalog_key].is_object());
+        assert!(catalog["models"][&max_catalog_key].is_object());
+        assert_eq!(
+            catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
+            json!([x_high_catalog_key, max_catalog_key])
+        );
+    }
+
+    #[test]
     fn model_catalog_maps_budget_reasoning_preferences_to_ide_modes() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].capabilities.reasoning = ReasoningCapability {

@@ -369,10 +369,7 @@ pub(crate) async fn fetch_official_models_debug(
 
         match fetch_desktop_official_models_raw(source, RUNNING_HOST_RETRY_TIMEOUT).await {
             Ok(raw) => {
-                let actual_raw_body = state
-                    .config_store
-                    .get_raw_official_catalog()
-                    .unwrap_or(raw.body.clone());
+                let actual_raw_body = raw.body.clone();
                 match parse_official_catalog_response(&actual_raw_body, raw.source.as_str()) {
                     Ok(_) => {
                         let mut base_json: serde_json::Value =

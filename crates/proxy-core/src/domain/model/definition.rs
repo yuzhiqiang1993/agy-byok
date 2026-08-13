@@ -119,11 +119,22 @@ impl VirtualModel {
     }
 
     pub fn catalog_key(&self) -> Cow<'_, str> {
-        if self.id.starts_with("custom-") {
+        let prefixed_id = if self.id.starts_with("custom-") {
             Cow::Borrowed(self.id.as_str())
         } else {
             Cow::Owned(format!("custom-{}", self.id))
+        };
+        if !prefixed_id.contains('_') {
+            return prefixed_id;
         }
+
+        // Antigravity 会转换模型映射的对象键，却不会同步转换排序表中的字符串引用。
+        // 含下划线时改用稳定的宿主槽位，原始 ID 仍由 accepted_ids() 保留用于兼容路由。
+        let host_model_id = self.effective_host_model_id();
+        let slot = host_model_id
+            .strip_prefix("MODEL_PLACEHOLDER_")
+            .unwrap_or(host_model_id.as_ref());
+        Cow::Owned(format!("custom-byok-{}", slot.to_ascii_lowercase()))
     }
 
     pub fn accepted_ids(&self) -> [Cow<'_, str>; 3] {

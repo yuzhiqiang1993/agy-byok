@@ -186,6 +186,12 @@ impl ConfigStore {
         })
     }
 
+    pub fn clear_raw_official_catalog(&self) {
+        if let Ok(mut lock) = self.raw_official_catalog.write() {
+            *lock = None;
+        }
+    }
+
     pub fn set_raw_official_catalog(&self, catalog: String) {
         if let Ok(mut lock) = self.raw_official_catalog.write() {
             *lock = Some(catalog);
@@ -204,6 +210,7 @@ impl ConfigStore {
         let mut guard = self.config.write().unwrap();
         self.persist_config(&new_config)?;
         *guard = new_config;
+        self.clear_raw_official_catalog();
         Ok(())
     }
 
@@ -217,6 +224,7 @@ impl ConfigStore {
         new_config.validate()?;
         self.persist_config(&new_config)?;
         *guard = new_config.clone();
+        self.clear_raw_official_catalog();
         Ok(new_config)
     }
 
