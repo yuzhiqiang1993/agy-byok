@@ -7,7 +7,7 @@ pub(crate) mod response;
 mod serde_helpers;
 
 pub use config::{AppConfig, ConfigError, CustomHostPaths, DEFAULT_PROXY_PORT, MIN_PROXY_PORT};
-pub use error::{ErrorCategory, ProxyError, ConnectionTestContext};
+pub use error::{ConnectionTestContext, ErrorCategory, ProxyError};
 pub use model::{
     stable_hash, CustomModelCheckpointRetryConfig, ModelCapabilities, ModelCompressionPolicy,
     ModelModality, ModelRole, ModelTokenLimits, ReasoningCapability, ReasoningLevel,

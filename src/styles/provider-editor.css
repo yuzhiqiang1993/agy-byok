@@ -364,11 +364,12 @@ html[data-theme="dark"] .password-toggle-btn:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 11px;
+  min-height: 34px;
+  padding: 0 11px;
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   user-select: none;
 }
 .endpoint-summary:hover { color: var(--accent); }

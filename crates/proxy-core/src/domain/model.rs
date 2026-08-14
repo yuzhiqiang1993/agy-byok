@@ -10,8 +10,8 @@ mod token_limits;
 mod tokenizer;
 
 pub use checkpoint::{CustomModelCheckpointRetryConfig, ModelCompressionPolicy};
+pub use definition::stable_hash;
 pub use definition::{ModelCapabilities, ModelModality, ModelRole, UpstreamModel, VirtualModel};
 pub use reasoning::{ReasoningCapability, ReasoningLevel, ReasoningMapping};
 pub use token_limits::{ModelTokenLimits, TokenLimitSource};
 pub use tokenizer::{TiktokenEncoding, TokenizerConfig};
-pub use definition::stable_hash;
