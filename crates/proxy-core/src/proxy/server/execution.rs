@@ -219,7 +219,7 @@ impl ProxyServer {
                             mime_type: mime_type.clone(),
                             data_base64: clean_base64,
                         }
-                    },
+                    }
                     _ => continue,
                 };
                 for frame in encoder.encode_event(&event)? {

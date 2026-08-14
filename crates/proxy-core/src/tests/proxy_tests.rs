@@ -534,7 +534,8 @@ mod tests {
             virtual_model_id: "custom-vm-connection-tiered".to_string(),
             ..NeutralChatRequest::default()
         };
-        let resolved = RouteTable::resolve(&config, &request).expect("母条目应当能成功Fallback解析");
+        let resolved =
+            RouteTable::resolve(&config, &request).expect("母条目应当能成功Fallback解析");
         // 应当优先解析到 High 档位
         assert_eq!(resolved.virtual_model.id, "custom-vm-connection-high");
         assert_eq!(resolved.final_reasoning_level, Some(ReasoningLevel::High));
@@ -712,10 +713,7 @@ mod tests {
             0,
         );
 
-        let context = server
-            .test_model_connection("vm-connection")
-            .await
-            .unwrap();
+        let context = server.test_model_connection("vm-connection").await.unwrap();
 
         assert!(!context.success);
         assert_eq!(context.status_code, Some(401));

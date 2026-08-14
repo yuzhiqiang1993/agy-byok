@@ -53,7 +53,10 @@ fn parse_matching_pids(stdout: &str, executable: &Path) -> Vec<u32> {
     let executable_text = executable.display().to_string();
     let app_bundle_prefix = executable
         .ancestors()
-        .find(|p| p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app")))
+        .find(|p| {
+            p.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+        })
         .map(|p| format!("{}/", p.display()));
 
     let mut pids = Vec::new();
@@ -63,7 +66,9 @@ fn parse_matching_pids(stdout: &str, executable: &Path) -> Vec<u32> {
             let cmd = cmd.trim_start();
             let is_match = cmd == executable_text
                 || cmd.starts_with(&format!("{} ", executable_text))
-                || app_bundle_prefix.as_ref().is_some_and(|prefix| cmd.contains(prefix));
+                || app_bundle_prefix
+                    .as_ref()
+                    .is_some_and(|prefix| cmd.contains(prefix));
             if is_match {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     pids.push(pid);

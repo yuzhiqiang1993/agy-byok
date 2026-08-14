@@ -159,12 +159,7 @@ impl AntigravityModelDescriptor {
                 .collect::<Vec<_>>();
             // 为启用推理的自定义模型生成 tiered 母条目并注册 tieredModelIds，
             // 供新版 Antigravity 模型选择器按「单模型 + 档位子菜单」聚类。
-            inject_tiered_catalog(
-                catalog,
-                &models,
-                &checkpoint_output_limits,
-                &aliases,
-            );
+            inject_tiered_catalog(catalog, &models, &checkpoint_output_limits, &aliases);
             inject_models(
                 catalog
                     .get_mut("models")

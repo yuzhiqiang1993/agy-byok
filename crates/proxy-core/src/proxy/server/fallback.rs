@@ -9,13 +9,14 @@ use crate::domain::{
 use crate::routing::RouteTable;
 use std::time::Instant;
 
-
-
 use crate::domain::ConnectionTestContext;
 
 impl ProxyServer {
     /// 发送最小非流式请求，验证指定模型的路由、鉴权和响应解析。
-    pub async fn test_model_connection(&self, virtual_model_id: &str) -> Result<ConnectionTestContext, ProxyError> {
+    pub async fn test_model_connection(
+        &self,
+        virtual_model_id: &str,
+    ) -> Result<ConnectionTestContext, ProxyError> {
         self.test_model_connection_inner(virtual_model_id, None, true)
             .await
     }
@@ -123,45 +124,49 @@ impl ProxyServer {
                 .capabilities
                 .supports_output(crate::domain::ModelModality::Image);
 
-        let test_timeout = if is_image_model {
-            60_000
-        } else {
-            30_000
-        };
+        let test_timeout = if is_image_model { 60_000 } else { 30_000 };
 
-        route.provider.request_timeout_ms = route
-            .provider
-            .request_timeout_ms
-            .max(test_timeout);
+        route.provider.request_timeout_ms = route.provider.request_timeout_ms.max(test_timeout);
 
         use crate::providers::get_adapter;
         let adapter = get_adapter(&route.provider.protocol);
         let request_body_str = match adapter.build_request_payload(&route, &request) {
             Ok(payload) => serde_json::to_string_pretty(&payload).ok(),
-            Err(e) => return Ok(ConnectionTestContext {
-                success: false,
-                request_body: None,
-                response_body: None,
-                status_code: Some(e.status_code),
-                error_category: Some(e.category),
-                error_message: Some(e.message),
-            }),
+            Err(e) => {
+                return Ok(ConnectionTestContext {
+                    success: false,
+                    request_body: None,
+                    response_body: None,
+                    status_code: Some(e.status_code),
+                    error_category: Some(e.category),
+                    error_message: Some(e.message),
+                })
+            }
         };
 
         match self.send_upstream(&route, &request).await {
             Ok((_, response)) => {
                 let status = response.status().as_u16();
-                use crate::upstream_body::{read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES};
-                let buffered = match read_limited_response_body(response, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES).await {
+                use crate::upstream_body::{
+                    read_limited_response_body, DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES,
+                };
+                let buffered = match read_limited_response_body(
+                    response,
+                    DEFAULT_MAX_BUFFERED_UPSTREAM_BODY_BYTES,
+                )
+                .await
+                {
                     Ok(b) => b,
-                    Err(e) => return Ok(ConnectionTestContext {
-                        success: false,
-                        request_body: request_body_str,
-                        response_body: None,
-                        status_code: Some(status),
-                        error_category: Some(ErrorCategory::Internal),
-                        error_message: Some(format!("Failed to read body: {e}")),
-                    }),
+                    Err(e) => {
+                        return Ok(ConnectionTestContext {
+                            success: false,
+                            request_body: request_body_str,
+                            response_body: None,
+                            status_code: Some(status),
+                            error_category: Some(ErrorCategory::Internal),
+                            error_message: Some(format!("Failed to read body: {e}")),
+                        })
+                    }
                 };
                 let truncated = buffered.is_truncated();
                 let mut body = buffered.into_text();
@@ -187,7 +192,7 @@ impl ProxyServer {
                             status_code: Some(e.status_code),
                             error_category: Some(e.category),
                             error_message: Some(e.message),
-                        })
+                        }),
                     }
                 } else {
                     Ok(ConnectionTestContext {
@@ -200,16 +205,14 @@ impl ProxyServer {
                     })
                 }
             }
-            Err(e) => {
-                Ok(ConnectionTestContext {
-                    success: false,
-                    request_body: request_body_str,
-                    response_body: e.upstream_body,
-                    status_code: Some(e.status_code),
-                    error_category: Some(e.category),
-                    error_message: Some(e.message),
-                })
-            }
+            Err(e) => Ok(ConnectionTestContext {
+                success: false,
+                request_body: request_body_str,
+                response_body: e.upstream_body,
+                status_code: Some(e.status_code),
+                error_category: Some(e.category),
+                error_message: Some(e.message),
+            }),
         }
     }
 

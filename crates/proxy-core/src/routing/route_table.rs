@@ -169,7 +169,10 @@ fn resolve_tiered_fallback<'a>(
             let cat_key = vm.catalog_key();
             let cat_base = strip_known_level_suffix(cat_key.as_ref());
             let id_base = strip_known_level_suffix(vm.id.as_str());
-            cat_base == base_id || id_base == base_id || cat_key.starts_with(base_id) || vm.id.starts_with(base_id)
+            cat_base == base_id
+                || id_base == base_id
+                || cat_key.starts_with(base_id)
+                || vm.id.starts_with(base_id)
         })
         .collect();
 
@@ -203,7 +206,14 @@ fn resolve_tiered_fallback<'a>(
 
 fn strip_known_level_suffix(id: &str) -> &str {
     const LEVELS: &[&str] = &[
-        "-adaptive", "-x-high", "-medium", "-auto", "-high", "-max", "-low", "-off",
+        "-adaptive",
+        "-x-high",
+        "-medium",
+        "-auto",
+        "-high",
+        "-max",
+        "-low",
+        "-off",
     ];
     for suffix in LEVELS {
         if let Some(base) = id.strip_suffix(suffix) {
@@ -253,7 +263,7 @@ pub fn is_official_image_model_id(model_id: &str) -> bool {
 fn is_image_version_pattern(lower: &str) -> bool {
     if let Some(idx) = lower.find("image") {
         let rest = &lower[idx + 5..];
-        let rest = rest.trim_start_matches(|c| c == '-' || c == '_' || c == ' ');
+        let rest = rest.trim_start_matches(['-', '_', ' ']);
         if let Some(first_char) = rest.chars().next() {
             return first_char.is_ascii_digit() || first_char == 'v';
         }
@@ -319,4 +329,3 @@ mod tests {
         assert!(!is_official_image_model_id("grok-4.5"));
     }
 }
-
