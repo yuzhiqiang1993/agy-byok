@@ -885,6 +885,8 @@ mod tests {
         // 已在配置中的模型 ID、Catalog Key 和宿主占位符确定性匹配（支持 models/ 前缀）
         assert!(configured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
         assert!(configured_proxy.is_custom_model_id("models/MODEL_PLACEHOLDER_M400"));
+        assert!(configured_proxy.is_custom_model_id("virtual-1"));
+        assert!(configured_proxy.is_custom_model_id("models/virtual-1"));
         assert!(configured_proxy.is_custom_model_id("custom-gpt-5-high"));
         assert!(!configured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M300"));
     }

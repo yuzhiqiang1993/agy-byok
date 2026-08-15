@@ -1,6 +1,6 @@
 use crate::domain::{
-    AppConfig, ErrorCategory, NeutralChatRequest, ParameterOverrides, Provider, ProxyError,
-    ReasoningLevel, UpstreamModel, VirtualModel,
+    strip_reasoning_level_suffix, AppConfig, ErrorCategory, NeutralChatRequest, ParameterOverrides,
+    Provider, ProxyError, ReasoningLevel, UpstreamModel, VirtualModel, REASONING_LEVEL_PRIORITY,
 };
 use std::collections::HashMap;
 
@@ -42,7 +42,9 @@ impl RouteTable {
         let virtual_model = config
             .virtual_models
             .iter()
-            .find(|vm| vm.enabled && vm.matches_id(&request.virtual_model_id))
+            .find(|vm| {
+                is_routable_virtual_model(config, vm) && vm.matches_id(&request.virtual_model_id)
+            })
             .or_else(|| resolve_tiered_fallback(config, &request.virtual_model_id))
             .or_else(|| resolve_image_generation_route(config, request))
             .ok_or_else(|| {
@@ -155,31 +157,23 @@ impl RouteTable {
     }
 }
 
-/// 当请求 ID 是母条目（如 `*-tiered`）、Base Slug 或未匹配到的自定义占位符时，自动查找并 Fallback 到该模型已启用的默认档位（优先 High -> Medium -> Low）。
+/// 当请求 ID 是母条目（如 `*-tiered`）或 Base Slug 时，查找该模型族已启用的默认档位（优先 High -> Medium -> Low）。未知自定义 ID 保持本地失败，不猜测模型族。
 fn resolve_tiered_fallback<'a>(
     config: &'a AppConfig,
     requested_id: &str,
 ) -> Option<&'a VirtualModel> {
     let clean_id = requested_id.strip_prefix("models/").unwrap_or(requested_id);
-    let base_id = if let Some(base) = clean_id.strip_suffix("-tiered") {
-        base
-    } else {
-        strip_known_level_suffix(clean_id)
-    };
+    let base_id = clean_id
+        .strip_suffix("-tiered")
+        .unwrap_or_else(|| strip_reasoning_level_suffix(clean_id));
 
     let candidates: Vec<&'a VirtualModel> = config
         .virtual_models
         .iter()
-        .filter(|vm| vm.enabled)
+        .filter(|vm| is_routable_virtual_model(config, vm))
         .filter(|vm| {
-            let cat_key = vm.catalog_key();
-            let cat_base = strip_known_level_suffix(cat_key.as_ref());
-            let id_base = strip_known_level_suffix(vm.id.as_str());
-            cat_base == base_id
-                || id_base == base_id
-                || cat_key.starts_with(base_id)
-                || vm.id.starts_with(base_id)
-                || vm.matches_id(clean_id)
+            model_family_base(vm.id.as_str()) == base_id
+                || model_family_base(vm.catalog_key().as_ref()) == base_id
         })
         .collect();
 
@@ -188,18 +182,7 @@ fn resolve_tiered_fallback<'a>(
     }
 
     // 默认档位优先级: High -> Medium -> Low -> XHigh -> Max -> 其它
-    const PREFERRED_ORDER: &[ReasoningLevel] = &[
-        ReasoningLevel::High,
-        ReasoningLevel::Medium,
-        ReasoningLevel::Low,
-        ReasoningLevel::XHigh,
-        ReasoningLevel::Max,
-        ReasoningLevel::Adaptive,
-        ReasoningLevel::Auto,
-        ReasoningLevel::Off,
-    ];
-
-    for preferred in PREFERRED_ORDER {
+    for preferred in REASONING_LEVEL_PRIORITY {
         if let Some(vm) = candidates
             .iter()
             .find(|vm| vm.default_reasoning_level == Some(*preferred))
@@ -211,23 +194,45 @@ fn resolve_tiered_fallback<'a>(
     candidates.first().copied()
 }
 
-fn strip_known_level_suffix(id: &str) -> &str {
-    const LEVELS: &[&str] = &[
-        "-adaptive",
-        "-x-high",
-        "-medium",
-        "-auto",
-        "-high",
-        "-max",
-        "-low",
-        "-off",
-    ];
-    for suffix in LEVELS {
-        if let Some(base) = id.strip_suffix(suffix) {
-            return base;
-        }
+fn model_family_base(id: &str) -> &str {
+    strip_reasoning_level_suffix(id.strip_suffix("-tiered").unwrap_or(id))
+}
+
+fn is_routable_virtual_model(config: &AppConfig, virtual_model: &VirtualModel) -> bool {
+    if !virtual_model.enabled {
+        return false;
     }
-    id
+    let Some(upstream_model) = config
+        .upstream_models
+        .iter()
+        .find(|model| model.id == virtual_model.upstream_model_id)
+    else {
+        return false;
+    };
+    upstream_model.enabled
+        && config
+            .providers
+            .iter()
+            .any(|provider| provider.id == upstream_model.provider_id && provider.enabled)
+}
+
+pub fn matches_custom_model_id(config: &AppConfig, model_id: &str) -> bool {
+    let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
+    if clean_id.starts_with("custom-") {
+        return true;
+    }
+    if config
+        .virtual_models
+        .iter()
+        .any(|virtual_model| virtual_model.matches_id(clean_id))
+    {
+        return true;
+    }
+    let base_id = model_family_base(clean_id);
+    config.virtual_models.iter().any(|virtual_model| {
+        model_family_base(virtual_model.id.as_str()) == base_id
+            || model_family_base(virtual_model.catalog_key().as_ref()) == base_id
+    })
 }
 
 /// 判断模型 ID 是否属于官方/系统内置生图模型标识
@@ -284,14 +289,19 @@ pub(crate) fn find_active_custom_image_model(config: &AppConfig) -> Option<&Virt
         if !vm.enabled {
             return false;
         }
-        config.upstream_models.iter().any(|um| {
-            um.id == vm.upstream_model_id
-                && um.enabled
-                && um
-                    .capabilities
+        config
+            .upstream_models
+            .iter()
+            .find(|um| um.id == vm.upstream_model_id && um.enabled)
+            .is_some_and(|um| {
+                um.capabilities
                     .roles
                     .contains(&crate::domain::ModelRole::ImageGeneration)
-        })
+                    && config
+                        .providers
+                        .iter()
+                        .any(|provider| provider.id == um.provider_id && provider.enabled)
+            })
     })
 }
 

@@ -2,6 +2,7 @@ use super::ProxyServer;
 use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::ReasoningLevel;
 use crate::proxy::http_server::forwarding::rewrite_official_urls_str;
+use crate::routing::route_table::matches_custom_model_id;
 
 fn strip_ascii_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
     let start = value.len().checked_sub(suffix.len())?;
@@ -14,14 +15,9 @@ fn strip_ascii_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Opti
 
 impl ProxyServer {
     pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
-        let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
         let config = self.config_store.get_config();
-        clean_id.starts_with("custom-")
-            || config
-                .virtual_models
-                .iter()
-                .any(|model| model.matches_id(clean_id) || model.matches_id(model_id))
-            || (crate::routing::route_table::is_official_image_model_id(clean_id)
+        matches_custom_model_id(&config, model_id)
+            || (crate::routing::route_table::is_official_image_model_id(model_id)
                 && crate::routing::route_table::find_active_custom_image_model(&config).is_some())
     }
 

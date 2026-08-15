@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 
+const CUSTOM_HOST_MODEL_ID_PREFIX: &str = "MODEL_PLACEHOLDER_M";
+const CUSTOM_HOST_MODEL_ID_START: u16 = 400;
+const CUSTOM_HOST_MODEL_ID_END: u16 = 600;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelRole {
@@ -112,8 +116,8 @@ impl VirtualModel {
         match &self.host_model_id {
             Some(host_model_id) => Cow::Borrowed(host_model_id),
             None => Cow::Owned(format!(
-                "MODEL_PLACEHOLDER_M{}",
-                400 + stable_hash(&self.id) % 200
+                "{CUSTOM_HOST_MODEL_ID_PREFIX}{}",
+                CUSTOM_HOST_MODEL_ID_START + stable_hash(&self.id)
             )),
         }
     }
@@ -153,18 +157,32 @@ impl VirtualModel {
     }
 
     pub fn has_valid_host_model_id(&self) -> bool {
-        let host_id = self.effective_host_model_id();
-        host_id.starts_with("MODEL_PLACEHOLDER_") && host_id.len() > "MODEL_PLACEHOLDER_".len()
+        is_valid_custom_host_model_id(self.effective_host_model_id().as_ref())
     }
 }
 
-pub fn stable_hash(value: &str) -> u16 {
+pub fn is_valid_custom_host_model_id(value: &str) -> bool {
+    let Some(number) = value.strip_prefix(CUSTOM_HOST_MODEL_ID_PREFIX) else {
+        return false;
+    };
+    number.len() > 1
+        && !number.starts_with('0')
+        && number.parse::<u16>().is_ok_and(|number| {
+            (CUSTOM_HOST_MODEL_ID_START..CUSTOM_HOST_MODEL_ID_END).contains(&number)
+        })
+}
+
+fn custom_host_model_id_slot_count() -> u16 {
+    CUSTOM_HOST_MODEL_ID_END - CUSTOM_HOST_MODEL_ID_START
+}
+
+fn stable_hash(value: &str) -> u16 {
     let mut hash = 0x811c9dc5_u32;
     for byte in value.bytes() {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x01000193);
     }
-    (hash % 200) as u16
+    (hash % u32::from(custom_host_model_id_slot_count())) as u16
 }
 
 #[cfg(test)]

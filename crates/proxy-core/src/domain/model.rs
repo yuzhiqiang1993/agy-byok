@@ -11,8 +11,12 @@ mod tokenizer;
 
 pub use checkpoint::{CustomModelCheckpointRetryConfig, ModelCompressionPolicy};
 pub use definition::{
-    stable_hash, ModelCapabilities, ModelModality, ModelRole, UpstreamModel, VirtualModel,
+    is_valid_custom_host_model_id, ModelCapabilities, ModelModality, ModelRole, UpstreamModel,
+    VirtualModel,
 };
-pub use reasoning::{ReasoningCapability, ReasoningLevel, ReasoningMapping};
+pub use reasoning::{
+    strip_reasoning_level_suffix, ReasoningCapability, ReasoningLevel, ReasoningMapping,
+    REASONING_LEVEL_PRIORITY,
+};
 pub use token_limits::{ModelTokenLimits, TokenLimitSource};
 pub use tokenizer::{TiktokenEncoding, TokenizerConfig};

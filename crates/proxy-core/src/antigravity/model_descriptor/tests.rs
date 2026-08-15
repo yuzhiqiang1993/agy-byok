@@ -223,13 +223,37 @@ fn official_policy_map_matches_object_key_and_array_id() {
 }
 
 #[test]
+fn ordinary_model_fields_do_not_create_checkpoint_workers() {
+    let catalog = json!({
+        "models": {
+            "ordinary-m71": {
+                "model": "MODEL_PLACEHOLDER_M71",
+                "maxOutputTokens": 1_024,
+                "modelExperiments": checkpoint_experiments_with_model("MODEL_PLACEHOLDER_M50")
+            },
+            "worker-m50": {
+                "model": "MODEL_PLACEHOLDER_M50",
+                "maxOutputTokens": 65_535,
+                "modelExperiments": checkpoint_experiments_with_model("MODEL_PLACEHOLDER_M50")
+            }
+        }
+    });
+
+    let workers = super::checkpoint::official_checkpoint_worker_limits(&catalog);
+
+    assert_eq!(workers.get("MODEL_PLACEHOLDER_M50"), Some(&65_535));
+    assert!(!workers.contains_key("MODEL_PLACEHOLDER_M71"));
+}
+
+#[test]
 fn official_policy_output_is_clamped_to_checkpoint_model_limit() {
     let mut catalog = json!({
         "models": {
             "gemini-3.1-flash-lite": {
                 "model": "MODEL_PLACEHOLDER_M50",
                 "maxTokens": 1_048_576,
-                "maxOutputTokens": 65_535
+                "maxOutputTokens": 65_535,
+                "modelExperiments": checkpoint_experiments_with_model("MODEL_PLACEHOLDER_M50")
             },
             "gemini-3.6-flash-high": {
                 "model": "MODEL_PLACEHOLDER_M71",

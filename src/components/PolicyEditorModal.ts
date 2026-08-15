@@ -10,11 +10,6 @@ type CompressionPresetId = "CONTEXT_256K" | "CONTEXT_372K" | "CONTEXT_500K" | "C
 type PolicyMode = "NONE" | CompressionPresetId | "CUSTOM";
 // 官方模型只覆盖三个 Token 阈值，自定义模型则完整注入当前策略。
 type CompressionPolicyScope = "official_threshold_override" | "custom_full_policy";
-type CompressionWorkerMode =
-  | "CURRENT_MODEL"
-  | "MODEL_PLACEHOLDER_M50"
-  | "MODEL_PLACEHOLDER_M71"
-  | "MODEL_PLACEHOLDER_M72";
 
 interface CompressionWorkerPolicy {
   checkpointModel: string;
@@ -51,11 +46,7 @@ const DEFAULT_OUTPUT_RESERVE = 16_384;
 const DEFAULT_MAX_OUTPUT_RESERVE = 65_536;
 
 const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M50";
-const FIXED_WORKER_MODES: Exclude<CompressionWorkerMode, "CURRENT_MODEL">[] = [
-  "MODEL_PLACEHOLDER_M50",
-  "MODEL_PLACEHOLDER_M71",
-  "MODEL_PLACEHOLDER_M72",
-];
+const WORKER_MODEL_PATTERN = /^MODEL_PLACEHOLDER_M\d+$/;
 const DEFAULT_POLICY_LIMITS = {
   token_threshold: 50_000,
   max_token_limit: 128_000,
@@ -191,15 +182,13 @@ function clonePolicy(policy: ModelCompressionPolicy): ModelCompressionPolicy {
   };
 }
 
-function isFixedWorkerMode(value: string | undefined): value is Exclude<CompressionWorkerMode, "CURRENT_MODEL"> {
-  return value !== undefined && FIXED_WORKER_MODES.includes(
-    value as Exclude<CompressionWorkerMode, "CURRENT_MODEL">,
-  );
+function isValidWorkerModel(value: string | undefined): value is string {
+  return value !== undefined && WORKER_MODEL_PATTERN.test(value);
 }
 
 function workerPolicyFrom(policy: ModelCompressionPolicy): CompressionWorkerPolicy {
   return {
-    checkpointModel: isFixedWorkerMode(policy.checkpoint_model)
+    checkpointModel: isValidWorkerModel(policy.checkpoint_model)
       ? policy.checkpoint_model
       : DEFAULT_CHECKPOINT_MODEL,
     useLastPlannerModel: policy.use_last_planner_model,
@@ -209,7 +198,7 @@ function workerPolicyFrom(policy: ModelCompressionPolicy): CompressionWorkerPoli
 function defaultWorkerPolicy(options: PolicyEditorModalOptions): CompressionWorkerPolicy {
   const upstream = options.upstreamCompression;
   return {
-    checkpointModel: isFixedWorkerMode(upstream?.checkpointModel)
+    checkpointModel: isValidWorkerModel(upstream?.checkpointModel)
       ? upstream.checkpointModel
       : DEFAULT_CHECKPOINT_MODEL,
     useLastPlannerModel: upstream?.useLastPlannerModel ?? false,

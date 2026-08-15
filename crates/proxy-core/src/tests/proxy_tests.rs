@@ -605,6 +605,83 @@ mod tests {
     }
 
     #[test]
+    fn tiered_fallback_does_not_cross_similar_model_families() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-gpt-5-low".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+        config.virtual_models[0].enabled = false;
+        let mut other_family = config.virtual_models[0].clone();
+        other_family.enabled = true;
+        other_family.id = "custom-gpt-5.1-high".to_string();
+        other_family.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        other_family.default_reasoning_level = Some(ReasoningLevel::High);
+        config.virtual_models.push(other_family);
+
+        let error = RouteTable::resolve(&config, &chat_request("custom-gpt-5")).unwrap_err();
+
+        assert_eq!(error.category, ErrorCategory::ModelNotFound);
+    }
+
+    #[test]
+    fn tiered_fallback_ignores_disabled_upstream_and_provider_variants() {
+        for (upstream_enabled, provider_enabled) in [(false, true), (true, false), (false, false)] {
+            let mut config = connection_test_config("http://localhost/chat".to_string());
+            config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+                levels: BTreeMap::from([
+                    (
+                        ReasoningLevel::Low,
+                        ReasoningMapping::Effort("low".to_string()),
+                    ),
+                    (
+                        ReasoningLevel::High,
+                        ReasoningMapping::Effort("high".to_string()),
+                    ),
+                ]),
+                ..ReasoningCapability::default()
+            };
+            config.virtual_models[0].id = "custom-gpt-5-low".to_string();
+            config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+            config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+
+            let mut high_provider = config.providers[0].clone();
+            high_provider.id = "p-gpt-5-high".to_string();
+            high_provider.enabled = provider_enabled;
+            config.providers.push(high_provider);
+
+            let mut high_upstream = config.upstream_models[0].clone();
+            high_upstream.id = "um-gpt-5-high".to_string();
+            high_upstream.provider_id = "p-gpt-5-high".to_string();
+            high_upstream.enabled = upstream_enabled;
+            config.upstream_models.push(high_upstream);
+
+            let mut high_model = config.virtual_models[0].clone();
+            high_model.id = "custom-gpt-5-high".to_string();
+            high_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+            high_model.upstream_model_id = "um-gpt-5-high".to_string();
+            high_model.default_reasoning_level = Some(ReasoningLevel::High);
+            config.virtual_models.push(high_model);
+
+            let resolved = RouteTable::resolve(&config, &chat_request("custom-gpt-5"))
+                .expect("the enabled low variant should remain routable");
+            assert_eq!(resolved.virtual_model.id, "custom-gpt-5-low");
+        }
+    }
+
+    #[test]
     fn model_catalog_keeps_x_high_variant_visible_to_antigravity() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
@@ -1933,7 +2010,7 @@ mod tests {
 
     #[tokio::test]
     async fn official_image_request_redirects_to_active_custom_image_model() {
-        let config = AppConfig {
+        let mut config = AppConfig {
             proxy_port: 51234,
             providers: vec![Provider {
                 id: "p-image".to_string(),
@@ -2000,13 +2077,35 @@ mod tests {
         let route = RouteTable::resolve(&config, &request).unwrap();
         assert_eq!(route.virtual_model.id, "custom-gpt-image-2");
         assert_eq!(route.upstream_model.upstream_model_id, "gpt-image-2");
+
+        config.providers[0].enabled = false;
+        let error = RouteTable::resolve(&config, &request).unwrap_err();
+        assert_eq!(error.category, ErrorCategory::ModelNotFound);
     }
 
     #[test]
     fn live_catalog_injection_heals_all_checkpoint_models_and_ensures_valid_references() {
-        let official_json: serde_json::Value = serde_json::from_str(
-            include_str!("../../../../docs/official_live_models_response.json")
-        ).unwrap();
+        let official_json: Value =
+            serde_json::from_str(include_str!("fixtures/official_live_models_response.json"))
+                .unwrap();
+        let valid_workers = {
+            let official_models = official_json["response"]["models"]
+                .as_object()
+                .expect("official fixture must contain a model object");
+            official_models
+                .values()
+                .filter_map(|entry| {
+                    entry["modelExperiments"]["experiments"]["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]
+                        ["stringValue"]
+                        .as_str()
+                })
+                .filter_map(|raw| serde_json::from_str::<Value>(raw).ok())
+                .filter_map(|payload| payload["checkpoint_model"].as_str().map(str::to_owned))
+                .collect::<std::collections::HashSet<_>>()
+        };
+
+        assert!(valid_workers.contains("MODEL_PLACEHOLDER_M50"));
+        assert!(!valid_workers.contains("MODEL_PLACEHOLDER_M71"));
 
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].compression_policy = Some(ModelCompressionPolicy {
@@ -2014,37 +2113,44 @@ mod tests {
             checkpoint_model: "MODEL_PLACEHOLDER_M71".to_string(),
             ..ModelCompressionPolicy::default()
         });
+        let catalog_key = config.virtual_models[0].catalog_key().into_owned();
         let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
 
-        let prepared = server.prepare_model_catalog_response(official_json, "http://127.0.0.1:12345");
-        let catalog: serde_json::Value = serde_json::from_str(&prepared).unwrap();
+        let prepared =
+            server.prepare_model_catalog_response(official_json, "http://127.0.0.1:12345");
+        let catalog: Value = serde_json::from_str(&prepared).unwrap();
+        let models_map = catalog["response"]["models"]
+            .as_object()
+            .expect("prepared catalog must contain a model object");
 
-        // 收集所有在 models 字典中存在的 model placeholder
-        let models_map = catalog["response"]["models"].as_object().unwrap();
-        let valid_placeholders: std::collections::HashSet<&str> = models_map
-            .values()
-            .filter_map(|entry| entry.get("model").and_then(serde_json::Value::as_str))
-            .collect();
+        let custom_raw = models_map[&catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let custom_checkpoint: Value = serde_json::from_str(custom_raw).unwrap();
+        assert_eq!(
+            custom_checkpoint["checkpoint_model"],
+            "MODEL_PLACEHOLDER_M50"
+        );
 
-        // 验证所有自定义模型条目的 checkpoint_model 都指向 valid_placeholders 中的有效模型
         for (key, entry) in models_map {
-            if key.starts_with("custom-") {
-                if let Some(exp) = entry.get("modelExperiments")
-                    .and_then(|m| m.get("experiments"))
-                    .and_then(|e| e.get("CASCADE_USE_EXPERIMENT_CHECKPOINTER"))
-                    .and_then(|c| c.get("stringValue"))
-                    .and_then(serde_json::Value::as_str)
-                {
-                    let parsed: serde_json::Value = serde_json::from_str(exp).unwrap();
-                    let cp_model = parsed["checkpoint_model"].as_str().unwrap();
-                    assert!(
-                        valid_placeholders.contains(cp_model),
-                        "Custom model {} references unknown checkpoint_model {}",
-                        key, cp_model
-                    );
-                }
+            if !key.starts_with("custom-") {
+                continue;
             }
+            let Some(raw) = entry["modelExperiments"]["experiments"]
+                ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+                .as_str()
+            else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(raw).unwrap();
+            let worker = payload["checkpoint_model"]
+                .as_str()
+                .expect("checkpoint payload must name a worker");
+            assert!(
+                valid_workers.contains(worker),
+                "Custom model {key} references unknown checkpoint worker {worker}"
+            );
         }
     }
 }
-

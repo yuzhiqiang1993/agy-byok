@@ -235,7 +235,7 @@ impl AppConfig {
             validate_id("VirtualModel host model", &host_model_id)?;
             if !model.has_valid_host_model_id() {
                 return Err(ConfigError::InvalidValue(format!(
-                    "VirtualModel {} host model ID must match MODEL_PLACEHOLDER_M400..M599",
+                    "VirtualModel {} host model ID must use an available custom model slot",
                     model.id
                 )));
             }
@@ -741,5 +741,30 @@ mod tests {
 
         let error = config.validate().unwrap_err();
         assert!(error.to_string().contains("must be -1, 0"));
+    }
+
+    #[test]
+    fn custom_host_model_ids_use_only_the_custom_slot_range() {
+        let mut config = media_config(ProviderProtocol::GeminiGenerateContent, &[]);
+        config.virtual_models.push(VirtualModel {
+            id: "virtual".to_string(),
+            host_model_id: None,
+            upstream_model_id: "upstream".to_string(),
+            display_name: "Model".to_string(),
+            default_reasoning_level: None,
+            parameter_overrides: ParameterOverrides::default(),
+            fallback_virtual_model_id: None,
+            enabled: true,
+        });
+
+        for (host_model_id, expected_valid) in [
+            ("MODEL_PLACEHOLDER_M50", false),
+            ("MODEL_PLACEHOLDER_M400", true),
+            ("MODEL_PLACEHOLDER_M600", false),
+            ("MODEL_PLACEHOLDER_Mx", false),
+        ] {
+            config.virtual_models[0].host_model_id = Some(host_model_id.to_string());
+            assert_eq!(config.validate().is_ok(), expected_valid, "{host_model_id}");
+        }
     }
 }

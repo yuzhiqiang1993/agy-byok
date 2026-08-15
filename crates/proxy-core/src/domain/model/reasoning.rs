@@ -45,6 +45,36 @@ pub struct ReasoningCapability {
     pub levels: BTreeMap<ReasoningLevel, ReasoningMapping>,
 }
 
+pub const REASONING_LEVEL_PRIORITY: &[ReasoningLevel] = &[
+    ReasoningLevel::High,
+    ReasoningLevel::Medium,
+    ReasoningLevel::Low,
+    ReasoningLevel::XHigh,
+    ReasoningLevel::Max,
+    ReasoningLevel::Adaptive,
+    ReasoningLevel::Auto,
+    ReasoningLevel::Off,
+];
+
+const REASONING_LEVEL_SUFFIXES: &[&str] = &[
+    "-adaptive",
+    "-x-high",
+    "-x_high",
+    "-medium",
+    "-auto",
+    "-high",
+    "-max",
+    "-low",
+    "-off",
+];
+
+pub fn strip_reasoning_level_suffix(id: &str) -> &str {
+    REASONING_LEVEL_SUFFIXES
+        .iter()
+        .find_map(|suffix| id.strip_suffix(suffix))
+        .unwrap_or(id)
+}
+
 impl ReasoningCapability {
     pub fn mapping_for(&self, level: ReasoningLevel) -> Option<&ReasoningMapping> {
         self.levels.get(&level)

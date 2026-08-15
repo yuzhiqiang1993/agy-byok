@@ -124,10 +124,11 @@ impl ModelCompressionPolicy {
 }
 
 fn is_valid_checkpoint_model(value: &str) -> bool {
-    // UI 仍只提供已验证的 Worker，但官方目录中的新 placeholder 必须能够原样继承。
     value
         .strip_prefix("MODEL_PLACEHOLDER_M")
-        .is_some_and(|number| !number.is_empty() && number.parse::<u32>().is_ok())
+        .is_some_and(|number| {
+            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 fn validate_token_limits(
