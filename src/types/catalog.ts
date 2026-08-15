@@ -46,6 +46,7 @@ export interface UpstreamCompressionPolicy {
   maxOutputTokens?: number;
   checkpointModel?: string;
   useLastPlannerModel?: boolean;
+  strategy?: string;
 }
 
 export type ModelKind = "chat" | "image";

@@ -128,7 +128,7 @@ fn custom_model_without_policy_does_not_inject_checkpointer() {
 }
 
 #[test]
-fn custom_model_policy_is_applied_and_clamped_to_model_limits() {
+fn custom_model_policy_is_applied_exactly_as_configured_without_clamping() {
     let (virtual_model, mut upstream_model) = models();
     upstream_model.token_limits = ModelTokenLimits {
         context_window: Some(200_000),
@@ -147,15 +147,15 @@ fn custom_model_policy_is_applied_and_clamped_to_model_limits() {
     );
 
     let checkpoint = checkpoint(&catalog["models"]["custom-model"]);
-    assert_eq!(checkpoint["token_threshold"], "170000");
-    assert_eq!(checkpoint["max_token_limit"], "180000");
-    assert_eq!(checkpoint["max_output_tokens"], "10000");
+    assert_eq!(checkpoint["token_threshold"], "250000");
+    assert_eq!(checkpoint["max_token_limit"], "300000");
+    assert_eq!(checkpoint["max_output_tokens"], "20000");
     assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M72");
     assert_eq!(checkpoint["retry_config"]["max_retries"], 0);
 }
 
 #[test]
-fn estimated_context_does_not_clamp_catalog_input_checkpointer_capacity() {
+fn custom_model_policy_ignores_estimated_capacity_and_trusts_config() {
     let (virtual_model, mut upstream_model) = models();
     upstream_model.token_limits = ModelTokenLimits {
         context_window: Some(128_000),
@@ -327,7 +327,7 @@ fn deprecated_official_policy_is_applied_to_both_mapped_model_entries() {
 }
 
 #[test]
-fn official_policy_only_replaces_three_token_fields() {
+fn official_policy_replaces_token_fields_and_worker_strategy() {
     let mut catalog = json!({
         "response": {
             "models": {
@@ -342,7 +342,11 @@ fn official_policy_only_replaces_three_token_fields() {
     let original = checkpoint(&catalog["response"]["models"]["official-default"]);
     let policies = BTreeMap::from([(
         "official-default".to_string(),
-        policy(50_000, 100_000, 10_000),
+        ModelCompressionPolicy {
+            strategy: "CHECKPOINT_STRATEGY_SAME_MODEL".to_string(),
+            use_last_planner_model: true,
+            ..policy(50_000, 100_000, 10_000)
+        },
     )]);
 
     AntigravityModelDescriptor::apply_official_model_overrides(&mut catalog, &policies);
@@ -351,7 +355,9 @@ fn official_policy_only_replaces_three_token_fields() {
     assert_eq!(modified["token_threshold"], "50000");
     assert_eq!(modified["max_token_limit"], "100000");
     assert_eq!(modified["max_output_tokens"], "10000");
-    for field in ["enabled", "checkpoint_model", "strategy", "retry_config"] {
+    assert_eq!(modified["strategy"], "CHECKPOINT_STRATEGY_SAME_MODEL");
+    assert_eq!(modified["use_last_planner_model"], true);
+    for field in ["enabled", "checkpoint_model", "retry_config"] {
         assert_eq!(modified[field], original[field]);
     }
 }

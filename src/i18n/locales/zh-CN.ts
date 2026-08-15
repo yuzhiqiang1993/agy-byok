@@ -194,7 +194,6 @@ export const zhCN = {
     policyContextWindow: "可用上下文",
     policyCapacityBarTitle: "上下文容量分布",
 
-    policySegmentedTitle: "策略预设档位",
     policyPillTooltip: "{label} · 触发: {threshold} / 上限: {limit} / 预留: {output}",
     policyPillTooltipDefault: "{label} · 保留原生默认无覆盖",
     policyContextChatSegment: "无损对话区",
@@ -203,6 +202,9 @@ export const zhCN = {
     policyThreshold: "压缩触发阈值",
     policyMaxLimit: "Checkpoint 上限",
     policyMaxOutput: "输出预留 Token",
+    policyWorkerStrategy: "负责压缩的执行模型",
+    policyStrategySameModel: "跟随当前模型",
+    policyStrategyDefault: "官方默认",
 
 
     presetOfficialDefault: "官方默认",
@@ -220,10 +222,6 @@ export const zhCN = {
     policyCustomUnconfiguredHelp: "不设置模型级覆盖，遵循该上游模型自身的上下文规则。",
     policyEmptyNotice: "当前模型将保留官方原生 Checkpointer 与上下文限制。",
     policyEmptyNoticeCustom: "当前模型不会注入额外的 Checkpointer 配置。",
-    policySourceOfficialDefault: "策略来源：官方原生 Checkpointer，当前不设置覆盖。",
-    policySourceOfficialOverride: "策略来源：官方原生 Checkpointer；仅覆盖触发阈值、Checkpoint 上限和输出预留，其他字段保持官方值。",
-    policySourceUpstreamDefault: "策略来源：上游默认，当前不注入额外的 Checkpointer。",
-    policySourceByokFull: "策略来源：BYOK 完整策略；将完整注入 Checkpointer 配置。",
 
     policyInvalid: "请输入有效整数：触发阈值 < Checkpoint 上限，输出预留至少为 16,384，且触发阈值 + 输出预留不超过上限；同时不能超过模型容量或输出上限（模型未声明时最多为 65,536）。",
     policySaveFailed: "压缩策略保存失败：{message}",

@@ -228,6 +228,7 @@ pub(super) fn extract_upstream_compression(item: &Value) -> Option<UpstreamCompr
         max_output_tokens,
         checkpoint_model: payload.checkpoint_model,
         use_last_planner_model: payload.use_last_planner_model,
+        strategy: payload.strategy,
     })
 }
 

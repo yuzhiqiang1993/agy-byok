@@ -235,6 +235,9 @@ export const enUS: TranslationDict = {
     policyThreshold: "Compression Threshold",
     policyMaxLimit: "Checkpoint Limit",
     policyMaxOutput: "Reserved Output Tokens",
+    policyWorkerStrategy: "Compression Worker Model",
+    policyStrategySameModel: "Follow Current Model",
+    policyStrategyDefault: "Official Default",
 
 
     presetOfficialDefault: "Official Default",
@@ -252,10 +255,6 @@ export const enUS: TranslationDict = {
     policyCustomUnconfiguredHelp: "Do not add a model-level override; follow this upstream model's own context behavior.",
     policyEmptyNotice: "This model keeps the official native Checkpointer and context limits.",
     policyEmptyNoticeCustom: "No additional Checkpointer configuration will be injected for this model.",
-    policySourceOfficialDefault: "Source: official native Checkpointer; no override is currently applied.",
-    policySourceOfficialOverride: "Source: official native Checkpointer; only the threshold, checkpoint limit, and output reserve are overridden. All other fields keep their official values.",
-    policySourceUpstreamDefault: "Source: upstream default; no additional Checkpointer configuration is injected.",
-    policySourceByokFull: "Source: complete BYOK policy; the full Checkpointer configuration will be injected.",
 
     policyInvalid: "Enter valid integers: threshold < checkpoint limit, reserved output must be at least 16,384, and threshold + reserved output must not exceed the limit or the model's reported capacity/output limit (65,536 when the model does not report one).",
     policySaveFailed: "Failed to save compression policy: {message}",
@@ -404,7 +403,6 @@ export const enUS: TranslationDict = {
     tokenContextWindow: "Context window",
     policyCapacityBarTitle: "Context Capacity Allocation",
 
-    policySegmentedTitle: "Policy Capacity Tier",
     policyPillTooltip: "{label} · Trigger: {threshold} / Limit: {limit} / Reserved: {output}",
     policyPillTooltipDefault: "{label} · Retain native default configuration",
     policyContextChatSegment: "Lossless Conversation",

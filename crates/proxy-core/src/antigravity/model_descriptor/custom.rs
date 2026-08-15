@@ -405,10 +405,6 @@ fn apply_custom_model_compression_policy(
     if !policy.enabled {
         return;
     }
-    let (_, _, output_token_limit) = token_limits(upstream_model);
-    let capacity = upstream_model
-        .token_limits
-        .effective_compression_capacity(DEFAULT_CONTEXT_WINDOW, DEFAULT_INPUT_TOKEN_LIMIT);
 
     let effective_checkpoint_model =
         if checkpoint_worker_limits.contains_key(&policy.checkpoint_model) {
@@ -419,23 +415,18 @@ fn apply_custom_model_compression_policy(
             policy.checkpoint_model.as_str()
         };
 
-    let effective_output_limit = checkpoint_worker_limits
-        .get(effective_checkpoint_model)
-        .copied()
-        .map_or(output_token_limit, |checkpoint_limit| {
-            output_token_limit.min(checkpoint_limit)
-        });
-
     let mut policy_to_apply = policy.clone();
     if policy_to_apply.checkpoint_model != effective_checkpoint_model {
         policy_to_apply.checkpoint_model = effective_checkpoint_model.to_string();
     }
 
+    // 对于自定义模型，我们完全信任前端 UI 基于百分比等规则计算出的安全值配置，
+    // 不使用上游的 capacity 和 worker 输出限制进行强制钳制。
     apply_model_compression_policy(
         descriptor,
         &policy_to_apply,
-        capacity,
-        effective_output_limit,
+        None,
+        None,
         Some(&policy_to_apply),
     );
 }

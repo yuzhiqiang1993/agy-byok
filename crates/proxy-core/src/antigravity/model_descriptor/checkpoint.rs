@@ -318,17 +318,23 @@ fn apply_policy_with_entry_limits(
         .map_or(entry_output_limit, |checkpoint_limit| {
             entry_output_limit.min(checkpoint_limit)
         });
-    apply_model_compression_policy(entry, policy, capacity, output_token_limit, None);
+    apply_model_compression_policy(
+        entry,
+        policy,
+        Some(capacity),
+        Some(output_token_limit),
+        None,
+    );
 }
 
 pub(super) fn apply_model_compression_policy(
     entry: &mut Value,
     policy: &ModelCompressionPolicy,
-    capacity: u32,
-    output_token_limit: u32,
+    capacity: Option<u32>,
+    output_token_limit: Option<u32>,
     fallback_template: Option<&ModelCompressionPolicy>,
 ) {
-    let Some(resolved) = policy.resolve_effective(Some(capacity), Some(output_token_limit)) else {
+    let Some(resolved) = policy.resolve_effective(capacity, output_token_limit) else {
         return;
     };
     let token_threshold = resolved.token_threshold;
@@ -357,6 +363,14 @@ pub(super) fn apply_model_compression_policy(
     payload.insert(
         "max_output_tokens".to_string(),
         Value::String(max_output_tokens.to_string()),
+    );
+    payload.insert(
+        "strategy".to_string(),
+        Value::String(resolved.strategy.clone()),
+    );
+    payload.insert(
+        "use_last_planner_model".to_string(),
+        Value::Bool(resolved.use_last_planner_model),
     );
 
     let Some(entry) = entry.as_object_mut() else {

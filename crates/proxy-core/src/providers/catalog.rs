@@ -97,6 +97,8 @@ pub struct UpstreamCompressionPolicy {
     pub checkpoint_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_last_planner_model: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

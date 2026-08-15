@@ -14,6 +14,7 @@ type CompressionPolicyScope = "official_threshold_override" | "custom_full_polic
 interface CompressionWorkerPolicy {
   checkpointModel: string;
   useLastPlannerModel: boolean;
+  strategy: string;
 }
 
 interface CompressionPreset {
@@ -118,7 +119,7 @@ function createPolicy(
   return {
     enabled: true,
     checkpoint_model: worker.checkpointModel,
-    strategy: "CHECKPOINT_STRATEGY_UNSPECIFIED",
+    strategy: worker.strategy,
     max_overhead_ratio: "0.30",
     moving_window_size: "1",
     use_last_planner_model: worker.useLastPlannerModel,
@@ -192,6 +193,7 @@ function workerPolicyFrom(policy: ModelCompressionPolicy): CompressionWorkerPoli
       ? policy.checkpoint_model
       : DEFAULT_CHECKPOINT_MODEL,
     useLastPlannerModel: policy.use_last_planner_model,
+    strategy: policy.strategy || "CHECKPOINT_STRATEGY_UNSPECIFIED",
   };
 }
 
@@ -202,6 +204,7 @@ function defaultWorkerPolicy(options: PolicyEditorModalOptions): CompressionWork
       ? upstream.checkpointModel
       : DEFAULT_CHECKPOINT_MODEL,
     useLastPlannerModel: upstream?.useLastPlannerModel ?? false,
+    strategy: upstream?.strategy || "CHECKPOINT_STRATEGY_UNSPECIFIED",
   };
 }
 
@@ -401,17 +404,12 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   let mode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
   let draft = options.currentPolicy ? clonePolicy(options.currentPolicy) : null;
 
-  const source = document.createElement("p");
-  source.className = "policy-source-note";
-
   const presetField = document.createElement("div");
   presetField.className = "policy-preset-field";
-  const presetFieldLabel = document.createElement("span");
-  presetFieldLabel.textContent = t("models.policySegmentedTitle");
 
   const presetSegmented = document.createElement("div");
   presetSegmented.className = "policy-preset-segmented";
-  presetField.append(presetFieldLabel, presetSegmented);
+  presetField.append(presetSegmented);
 
   const help = document.createElement("p");
   help.className = "policy-help";
@@ -425,7 +423,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   error.tabIndex = -1;
   error.hidden = true;
 
-  body.append(source, presetField, help, form, error);
+  body.append(presetField, help, form, error);
 
   const renderSegmented = (): void => {
     presetSegmented.replaceChildren();
@@ -710,16 +708,52 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     if (draft) renderPolicyMetrics(form, draft, options.capacity);
   };
 
+  const renderWorkerStrategy = (container: HTMLElement) => {
+    if (!draft) return;
+
+    const strategyField = document.createElement("div");
+    strategyField.className = "policy-preset-field";
+    strategyField.style.marginTop = "16px";
+
+    const label = document.createElement("span");
+    label.textContent = t("models.policyWorkerStrategy");
+
+    const segmented = document.createElement("div");
+    segmented.className = "policy-preset-segmented";
+
+    const isSameModel = draft.strategy === "CHECKPOINT_STRATEGY_SAME_MODEL" && draft.use_last_planner_model;
+
+    const sameModelBtn = document.createElement("button");
+    sameModelBtn.type = "button";
+    sameModelBtn.className = `policy-pill-tab ${isSameModel ? "active" : ""}`;
+    sameModelBtn.textContent = t("models.policyStrategySameModel");
+    sameModelBtn.onclick = () => {
+      if (!draft) return;
+      draft.strategy = "CHECKPOINT_STRATEGY_SAME_MODEL";
+      draft.use_last_planner_model = true;
+      render();
+    };
+
+    const defaultBtn = document.createElement("button");
+    defaultBtn.type = "button";
+    defaultBtn.className = `policy-pill-tab ${!isSameModel ? "active" : ""}`;
+    defaultBtn.textContent = t("models.policyStrategyDefault");
+    defaultBtn.onclick = () => {
+      if (!draft) return;
+      draft.strategy = "CHECKPOINT_STRATEGY_UNSPECIFIED";
+      draft.use_last_planner_model = false;
+      render();
+    };
+
+    segmented.append(sameModelBtn, defaultBtn);
+    strategyField.append(label, segmented);
+    container.append(strategyField);
+  };
+
   const render = (): void => {
     form.replaceChildren();
     error.hidden = true;
-    source.textContent = options.scope === "official_threshold_override"
-      ? mode === "NONE"
-        ? t("models.policySourceOfficialDefault")
-        : t("models.policySourceOfficialOverride")
-      : mode === "NONE"
-        ? t("models.policySourceUpstreamDefault")
-        : t("models.policySourceByokFull");
+
     if (mode === "NONE") {
       renderDefaultPolicy();
       return;
@@ -739,11 +773,10 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         createLimitInput(t("models.policyMaxOutput"), "max_output_tokens"),
       );
       form.append(limits);
-      renderPolicyMetrics(form, draft, options.capacity);
-    } else {
-      renderPolicyMetrics(form, draft, options.capacity);
     }
-
+    
+    renderWorkerStrategy(form);
+    renderPolicyMetrics(form, draft, options.capacity);
   };
 
   renderSegmented();

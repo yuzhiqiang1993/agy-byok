@@ -146,11 +146,12 @@ fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_f
         models[0].upstream_compression,
         Some(UpstreamCompressionPolicy {
             enabled: true,
-            token_threshold: 80_000,
-            max_token_limit: 100_000,
-            max_output_tokens: Some(20_000),
+            token_threshold: 80000,
+            max_token_limit: 100000,
+            max_output_tokens: Some(20000),
             checkpoint_model: Some("MODEL_PLACEHOLDER_M71".to_string()),
             use_last_planner_model: Some(true),
+            strategy: None,
         })
     );
     assert_eq!(
@@ -162,6 +163,7 @@ fn parses_checkpointer_payload_numbers_and_strings_without_fabricating_missing_f
             max_output_tokens: Some(10_000),
             checkpoint_model: None,
             use_last_planner_model: None,
+            strategy: None,
         })
     );
     assert_eq!(models[2].upstream_compression, None);
@@ -207,6 +209,7 @@ fn parses_official_direct_catalog_token_limits_and_checkpointer_metadata() {
             max_output_tokens: Some(32_000),
             checkpoint_model: None,
             use_last_planner_model: Some(false),
+            strategy: None,
         })
     );
 }
