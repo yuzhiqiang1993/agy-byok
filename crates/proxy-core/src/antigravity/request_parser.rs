@@ -17,7 +17,11 @@ impl AntigravityRequestParser {
                 400,
             )
         })?;
-        Self::model_id_from_object(&val)
+        Self::extract_model_id_from_value(&val)
+    }
+
+    pub fn extract_model_id_from_value(val: &Value) -> Result<String, ProxyError> {
+        Self::model_id_from_object(val)
             .or_else(|| val.get("request").and_then(Self::model_id_from_object))
             .map(|model_id| {
                 model_id
@@ -61,7 +65,7 @@ impl AntigravityRequestParser {
             .filter(|request| request.is_object())
             .unwrap_or(&val);
 
-        let virtual_model_id = Self::extract_model_id(body)?;
+        let virtual_model_id = Self::extract_model_id_from_value(&val)?;
 
         let stream = val["stream"]
             .as_bool()

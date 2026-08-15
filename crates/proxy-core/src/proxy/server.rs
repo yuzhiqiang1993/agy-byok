@@ -1,5 +1,6 @@
 mod activity_recorder;
 mod client_pool;
+mod connection_test;
 mod execution;
 mod fallback;
 mod model_catalog;
