@@ -4,31 +4,32 @@ import type { UpstreamCompressionPolicy } from "../types/catalog";
 import type { ModelCompressionPolicy } from "../types/config";
 import { errorMessage } from "../utils/errorUtils";
 import { createModal, type ModalInstance } from "./common/Modal";
+import {
+  type CompressionPolicyScope,
+  type PolicyMode,
+  DEFAULT_POLICY_LIMITS,
+  PRESET_IDS,
+  clonePolicy,
+  createPolicy,
+  createPresetPolicy,
+  defaultWorkerPolicy,
+  formatTokenCount,
+  initialMode,
+  isValidPolicy,
+  presetById,
+  presetLabel,
+  presetSupported,
+  recommendedPresetForCapacity,
+  workerPolicyFrom,
+} from "./policy/policyPresets";
+import {
+  getPolicyPillStatus,
+  renderPolicyMetrics,
+} from "./policy/policyVisuals";
 
-type CompressionPresetId = "CONTEXT_256K" | "CONTEXT_372K" | "CONTEXT_500K" | "CONTEXT_1M";
+export { getPolicyPillStatus };
 
-type PolicyMode = "NONE" | CompressionPresetId | "CUSTOM";
-// 官方模型只覆盖三个 Token 阈值，自定义模型则完整注入当前策略。
-type CompressionPolicyScope = "official_threshold_override" | "custom_full_policy";
-
-interface CompressionWorkerPolicy {
-  checkpointModel: string;
-  useLastPlannerModel: boolean;
-  strategy: string;
-}
-
-interface CompressionPreset {
-  id: CompressionPresetId;
-  labelKey:
-    | "models.presetContext256K"
-    | "models.presetContext372K"
-    | "models.presetContext500K"
-    | "models.presetContext1M";
-  minCapacity: number;
-  values: Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens">;
-}
-
-interface PolicyEditorModalOptions {
+export interface PolicyEditorModalOptions {
   scope: CompressionPolicyScope;
   modelName: string;
   currentPolicy: ModelCompressionPolicy | null;
@@ -42,356 +43,6 @@ interface PolicyEditorModalOptions {
   onSave: (policy: ModelCompressionPolicy | null) => Promise<void>;
 }
 
-const DEFAULT_OUTPUT_RESERVE = 16_384;
-// 模型未声明输出上限时采用保守兜底；明确上限由模型自身决定。
-const DEFAULT_MAX_OUTPUT_RESERVE = 65_536;
-
-const DEFAULT_CHECKPOINT_MODEL = "MODEL_PLACEHOLDER_M50";
-const WORKER_MODEL_PATTERN = /^MODEL_PLACEHOLDER_M\d+$/;
-const DEFAULT_POLICY_LIMITS = {
-  token_threshold: 50_000,
-  max_token_limit: 128_000,
-  max_output_tokens: DEFAULT_OUTPUT_RESERVE,
-};
-
-const COMPRESSION_PRESETS: readonly CompressionPreset[] = [
-  {
-    id: "CONTEXT_256K",
-    labelKey: "models.presetContext256K",
-    minCapacity: 256_000,
-    values: { token_threshold: 102_400, max_token_limit: 153_600, max_output_tokens: 30_720 },
-  },
-  {
-    id: "CONTEXT_372K",
-    labelKey: "models.presetContext372K",
-    minCapacity: 372_000,
-    values: { token_threshold: 148_800, max_token_limit: 223_200, max_output_tokens: 44_640 },
-  },
-  {
-    id: "CONTEXT_500K",
-    labelKey: "models.presetContext500K",
-    minCapacity: 500_000,
-    values: { token_threshold: 200_000, max_token_limit: 300_000, max_output_tokens: 60_000 },
-  },
-  {
-    id: "CONTEXT_1M",
-    labelKey: "models.presetContext1M",
-    minCapacity: 1_000_000,
-    values: { token_threshold: 419_430, max_token_limit: 629_145, max_output_tokens: 65_535 },
-  },
-];
-
-const PRESET_IDS = COMPRESSION_PRESETS.map((preset) => preset.id);
-
-function presetById(id: CompressionPresetId): CompressionPreset {
-  return COMPRESSION_PRESETS.find((preset) => preset.id === id) ?? COMPRESSION_PRESETS[0];
-}
-
-function presetLabel(id: CompressionPresetId): string {
-  return t(presetById(id).labelKey);
-}
-
-function presetSupported(
-  preset: CompressionPreset,
-  capacity: number | null,
-  outputTokenLimit: number | null,
-): boolean {
-  if (capacity == null || capacity < preset.minCapacity) return false;
-  return outputTokenLimit == null || preset.values.max_output_tokens <= outputTokenLimit;
-}
-
-function recommendedPresetForCapacity(
-  capacity: number | null,
-  outputTokenLimit?: number | null,
-): CompressionPreset | null {
-  if (capacity == null || capacity <= 0) return null;
-  return (
-    [...COMPRESSION_PRESETS]
-      .reverse()
-      .find((preset) => presetSupported(preset, capacity, outputTokenLimit ?? null)) ?? null
-  );
-}
-
-function createPolicy(
-  limits: Pick<ModelCompressionPolicy, "token_threshold" | "max_token_limit" | "max_output_tokens">,
-  worker: CompressionWorkerPolicy,
-): ModelCompressionPolicy {
-  return {
-    enabled: true,
-    checkpoint_model: worker.checkpointModel,
-    strategy: worker.strategy,
-    max_overhead_ratio: "0.30",
-    moving_window_size: "1",
-    use_last_planner_model: worker.useLastPlannerModel,
-    is_sync: false,
-    max_user_requests: 10,
-    include_last_user_message: false,
-    include_conversation_log: true,
-    include_running_task_snapshots: true,
-    include_subagent_snapshots: true,
-    include_artifact_snapshots: true,
-    retry_config: {
-      max_retries: 0,
-      initial_sleep_duration_ms: 1_000,
-      exponential_multiplier: 2,
-      include_error_feedback: false,
-    },
-    ...limits,
-  };
-}
-
-function createPresetPolicy(
-  id: CompressionPresetId,
-  worker: CompressionWorkerPolicy,
-  baseline?: ModelCompressionPolicy | null,
-): ModelCompressionPolicy {
-  const values = presetById(id).values;
-  return baseline
-    ? { ...clonePolicy(baseline), ...values }
-    : createPolicy(values, worker);
-}
-
-function matchingPreset(
-  policy: ModelCompressionPolicy,
-  capacity: number | null,
-  outputTokenLimit: number | null,
-): CompressionPresetId | null {
-  if (!capacity || capacity <= 0) return null;
-  const exact = COMPRESSION_PRESETS.find((preset) => (
-    presetSupported(preset, capacity, outputTokenLimit)
-      && policy.token_threshold === preset.values.token_threshold
-      && policy.max_token_limit === preset.values.max_token_limit
-      && policy.max_output_tokens === preset.values.max_output_tokens
-  ))?.id;
-  if (exact) return exact;
-  return null;
-}
-
-function initialMode(
-  policy: ModelCompressionPolicy | null,
-  capacity: number | null,
-  outputTokenLimit: number | null,
-): PolicyMode {
-  if (!policy) return "NONE";
-  return matchingPreset(policy, capacity, outputTokenLimit) ?? "CUSTOM";
-}
-
-function clonePolicy(policy: ModelCompressionPolicy): ModelCompressionPolicy {
-  return {
-    ...policy,
-    retry_config: { ...policy.retry_config },
-  };
-}
-
-function isValidWorkerModel(value: string | undefined): value is string {
-  return value !== undefined && WORKER_MODEL_PATTERN.test(value);
-}
-
-function workerPolicyFrom(policy: ModelCompressionPolicy): CompressionWorkerPolicy {
-  return {
-    checkpointModel: isValidWorkerModel(policy.checkpoint_model)
-      ? policy.checkpoint_model
-      : DEFAULT_CHECKPOINT_MODEL,
-    useLastPlannerModel: policy.use_last_planner_model,
-    strategy: policy.strategy || "CHECKPOINT_STRATEGY_UNSPECIFIED",
-  };
-}
-
-function defaultWorkerPolicy(options: PolicyEditorModalOptions): CompressionWorkerPolicy {
-  const upstream = options.upstreamCompression;
-  return {
-    checkpointModel: isValidWorkerModel(upstream?.checkpointModel)
-      ? upstream.checkpointModel
-      : DEFAULT_CHECKPOINT_MODEL,
-    useLastPlannerModel: upstream?.useLastPlannerModel ?? false,
-    strategy: upstream?.strategy || "CHECKPOINT_STRATEGY_UNSPECIFIED",
-  };
-}
-
-
-function formatTokenCount(value: number): string {
-  if (value >= 1_000_000) {
-    const millions = value / 1_000_000;
-    return `${Number.isInteger(millions) ? millions : millions.toFixed(2).replace(/\.?0+$/, "")}M`;
-  }
-  if (value >= 1_000) {
-    const thousands = value / 1_000;
-    return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1).replace(/\.0$/, "")}K`;
-  }
-  return value.toLocaleString();
-}
-
-function isValidPolicy(
-  policy: ModelCompressionPolicy,
-  capacity: number | null,
-  outputTokenLimit: number | null,
-): boolean {
-  const { token_threshold: threshold, max_token_limit: limit, max_output_tokens: output } = policy;
-  const maximumOutputReserve = outputTokenLimit ?? DEFAULT_MAX_OUTPUT_RESERVE;
-  return [threshold, limit, output].every((value) => Number.isSafeInteger(value) && value > 0)
-    && output >= DEFAULT_OUTPUT_RESERVE
-    && output <= maximumOutputReserve
-    && threshold < limit
-    && output < limit
-    && threshold + output <= limit
-    && (capacity == null || limit <= capacity)
-    && (outputTokenLimit == null || output <= outputTokenLimit);
-}
-
-function createMetric(label: string, value: number, subtext?: string): HTMLDivElement {
-  const metric = document.createElement("div");
-  metric.className = "policy-metric";
-
-  const name = document.createElement("span");
-  name.textContent = label;
-
-  const valueRow = document.createElement("div");
-  const count = document.createElement("strong");
-  count.textContent = value.toLocaleString();
-  valueRow.append(count);
-
-  if (subtext) {
-    const badge = document.createElement("small");
-    badge.textContent = subtext;
-    valueRow.append(badge);
-  }
-
-  metric.append(name, valueRow);
-  return metric;
-}
-
-function renderPolicyMetrics(
-  container: HTMLElement,
-  policy: ModelCompressionPolicy,
-  capacity: number | null,
-): void {
-  const metrics = document.createElement("div");
-  metrics.className = "policy-metric-grid";
-
-  metrics.append(
-    createMetric(t("models.policyThreshold"), policy.token_threshold, formatTokenCount(policy.token_threshold)),
-    createMetric(t("models.policyMaxLimit"), policy.max_token_limit, formatTokenCount(policy.max_token_limit)),
-    createMetric(t("models.policyMaxOutput"), policy.max_output_tokens, formatTokenCount(policy.max_output_tokens)),
-  );
-  container.append(metrics);
-  renderCapacityBar(container, policy, capacity);
-}
-
-function renderCapacityBar(
-  container: HTMLElement,
-  policy: ModelCompressionPolicy | null,
-  capacity: number | null,
-): void {
-  if (!policy || !capacity || capacity <= 0) return;
-
-  const threshold = policy.token_threshold;
-  const limit = policy.max_token_limit;
-
-  const thresholdPct = Math.min(100, Math.max(0, (threshold / capacity) * 100));
-  const limitPct = Math.min(100, Math.max(0, (limit / capacity) * 100));
-  const compressPct = Math.max(0, limitPct - thresholdPct);
-  const reservePct = Math.max(0, 100 - limitPct);
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "policy-capacity-bar-wrapper";
-
-  const labelRow = document.createElement("div");
-  labelRow.className = "policy-capacity-bar-labels";
-
-  const title = document.createElement("span");
-  title.className = "policy-bar-title";
-  title.textContent = t("models.policyCapacityBarTitle");
-
-  const legend = document.createElement("div");
-  legend.className = "policy-bar-legend";
-
-  const chatLegend = document.createElement("span");
-  chatLegend.className = "legend-item legend-chat";
-  chatLegend.textContent = t("models.policyContextChatSegment");
-
-  const compressLegend = document.createElement("span");
-  compressLegend.className = "legend-item legend-compress";
-  compressLegend.textContent = t("models.policyContextCompressSegment");
-
-  const reserveLegend = document.createElement("span");
-  reserveLegend.className = "legend-item legend-reserve";
-  reserveLegend.textContent = t("models.policyContextReserveSegment");
-
-  legend.append(chatLegend, compressLegend, reserveLegend);
-  labelRow.append(title, legend);
-
-  const bar = document.createElement("div");
-  bar.className = "policy-capacity-bar";
-
-  const chatSegment = document.createElement("div");
-  chatSegment.className = "bar-segment segment-chat";
-  chatSegment.style.width = `${thresholdPct.toFixed(2)}%`;
-  chatSegment.title = `${t("models.policyContextChatSegment")}: 0 ～ ${formatTokenCount(threshold)}`;
-
-  const compressSegment = document.createElement("div");
-  compressSegment.className = "bar-segment segment-compress";
-  compressSegment.style.width = `${compressPct.toFixed(2)}%`;
-  compressSegment.title = `${t("models.policyContextCompressSegment")}: ${formatTokenCount(threshold)} ～ ${formatTokenCount(limit)}`;
-
-  const reserveSegment = document.createElement("div");
-  reserveSegment.className = "bar-segment segment-reserve";
-  reserveSegment.style.width = `${reservePct.toFixed(2)}%`;
-  reserveSegment.title = `${t("models.policyContextReserveSegment")}: ${formatTokenCount(limit)} ～ ${formatTokenCount(capacity)}`;
-
-  bar.append(chatSegment, compressSegment, reserveSegment);
-
-  const ticksRow = document.createElement("div");
-  ticksRow.className = "policy-capacity-ticks";
-
-  const tickStart = document.createElement("span");
-  tickStart.textContent = "0";
-
-  const tickTrigger = document.createElement("span");
-  tickTrigger.className = "tick-trigger";
-  tickTrigger.textContent = `${formatTokenCount(threshold)}`;
-
-  const tickLimit = document.createElement("span");
-  tickLimit.className = "tick-limit";
-  tickLimit.textContent = `${formatTokenCount(limit)}`;
-
-  const tickCap = document.createElement("span");
-  tickCap.className = "tick-cap";
-  tickCap.textContent = `${formatTokenCount(capacity)}`;
-
-  ticksRow.append(tickStart, tickTrigger, tickLimit, tickCap);
-
-  wrapper.append(labelRow, bar, ticksRow);
-  container.append(wrapper);
-}
-
-
-export function getPolicyPillStatus(
-  policy: ModelCompressionPolicy | null,
-  capacity: number | null,
-  outputTokenLimit: number | null,
-  defaultLabel: string,
-): { label: string; isManaged: boolean; tooltip: string } {
-  if (!policy || !policy.enabled) {
-    return {
-      label: defaultLabel,
-      isManaged: false,
-      tooltip: t("models.policyPillTooltipDefault", { label: defaultLabel }),
-    };
-  }
-  const preset = matchingPreset(policy, capacity, outputTokenLimit);
-  const label = preset ? presetLabel(preset) : t("models.presetCustom");
-  return {
-    label,
-    isManaged: true,
-    tooltip: t("models.policyPillTooltip", {
-      label,
-      threshold: formatTokenCount(policy.token_threshold),
-      limit: formatTokenCount(policy.max_token_limit),
-      output: formatTokenCount(policy.max_output_tokens),
-    }),
-  };
-}
-
 export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   const returnFocus = document.activeElement instanceof HTMLElement
     ? document.activeElement
@@ -400,8 +51,8 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
   const body = document.createElement("div");
   body.className = "policy-editor-body";
 
-  const defaultWorker = defaultWorkerPolicy(options);
-  let mode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
+  const defaultWorker = defaultWorkerPolicy(options.upstreamCompression);
+  let mode: PolicyMode = initialMode(options.currentPolicy, options.capacity, options.outputTokenLimit);
   let draft = options.currentPolicy ? clonePolicy(options.currentPolicy) : null;
 
   const presetField = document.createElement("div");
@@ -503,7 +154,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
         max_token_limit: upstream.maxTokenLimit,
         max_output_tokens: upstream.maxOutputTokens && upstream.maxOutputTokens > 0
           ? upstream.maxOutputTokens
-          : DEFAULT_OUTPUT_RESERVE,
+          : DEFAULT_POLICY_LIMITS.max_output_tokens,
       }, defaultWorker);
       renderPolicyMetrics(form, policy, options.capacity);
       return;
@@ -568,7 +219,6 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
     inputWrapper.append(input, unit);
 
     const capacity = options.capacity;
-
     let updatePillHighlight = (): boolean => false;
 
     const updateBadge = () => {
@@ -774,7 +424,7 @@ export function showPolicyEditorModal(options: PolicyEditorModalOptions): void {
       );
       form.append(limits);
     }
-    
+
     renderWorkerStrategy(form);
     renderPolicyMetrics(form, draft, options.capacity);
   };

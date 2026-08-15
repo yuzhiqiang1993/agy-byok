@@ -2,7 +2,9 @@ use super::ProxyServer;
 use crate::antigravity::AntigravityModelDescriptor;
 use crate::domain::ReasoningLevel;
 use crate::proxy::http_server::forwarding::rewrite_official_urls_str;
-use crate::routing::route_table::matches_custom_model_id;
+use crate::routing::{
+    find_active_custom_image_model, is_official_image_model_id, matches_custom_model_id,
+};
 
 fn strip_ascii_case_insensitive_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
     let start = value.len().checked_sub(suffix.len())?;
@@ -17,8 +19,8 @@ impl ProxyServer {
     pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
         let config = self.config_store.get_config();
         matches_custom_model_id(&config, model_id)
-            || (crate::routing::route_table::is_official_image_model_id(model_id)
-                && crate::routing::route_table::find_active_custom_image_model(&config).is_some())
+            || (is_official_image_model_id(model_id)
+                && find_active_custom_image_model(&config).is_some())
     }
 
     /// 使用与模型目录代理响应相同的完整链路生成最终 JSON。
