@@ -1,4 +1,5 @@
 mod commands;
+pub mod doctor;
 mod host;
 mod native_ui;
 mod platform;
@@ -116,6 +117,8 @@ pub fn run() {
                 commands::proxy::proxy_status,
                 commands::proxy::start_proxy,
                 commands::proxy::stop_proxy,
+                commands::doctor::run_doctor_diagnosis,
+                commands::doctor::run_doctor_auto_fix,
                 commands::ide::discover_ide,
                 commands::ide::set_custom_ide_path,
                 commands::ide::reset_custom_ide_path,

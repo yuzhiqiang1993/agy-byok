@@ -62,6 +62,10 @@ export async function switchTab(targetId: string): Promise<void> {
     pane.classList.toggle("active", pane.id === targetId);
   }
   updatePageHeader(targetId);
+  const doctorBtn = document.querySelector<HTMLButtonElement>("#open-doctor-btn");
+  if (doctorBtn) {
+    doctorBtn.hidden = targetId !== "tab-status";
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -72,5 +76,9 @@ export function setupTabManager(): void {
       const targetId = trigger.dataset.target;
       if (targetId) switchTab(targetId);
     });
+  }
+  const doctorBtn = document.querySelector<HTMLButtonElement>("#open-doctor-btn");
+  if (doctorBtn) {
+    doctorBtn.hidden = activeTabId !== "tab-status";
   }
 }

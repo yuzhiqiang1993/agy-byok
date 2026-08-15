@@ -12,6 +12,7 @@ import { setupCliCard, renderCli, renderCliLoadFailure } from "./components/CliC
 import { renderProviders } from "./components/ProviderList";
 import { setupProviderEditor } from "./components/ProviderEditor";
 import { setActivityItems, setActivityLoadFailed, setupActivityList } from "./components/ActivityList";
+import { openDoctorModal } from "./components/DoctorModal";
 import { showNotice, setupNoticeBar } from "./components/NoticeBar";
 import { initThemeManager } from "./components/ThemeManager";
 import { setupTabManager } from "./components/TabManager";
@@ -126,6 +127,13 @@ initThemeManager();
 setupTabManager();
 setupSettingsView();
 
+const doctorBtn = document.querySelector<HTMLButtonElement>("#open-doctor-btn");
+if (doctorBtn) {
+  doctorBtn.addEventListener("click", () => {
+    openDoctorModal();
+  });
+}
+
 updateDOMTranslations();
 setupUpdateManager();
 
@@ -209,13 +217,29 @@ async function initialize(): Promise<void> {
 
   if (activityResult.status === "fulfilled") {
     setActivityItems(activityResult.value);
+    const recentErrors = activityResult.value.filter(
+      (item) => item.statusCode >= 400 || item.errorCategory !== null,
+    );
+    if (recentErrors.length > 0) {
+      showNotice(t("doctor.bannerAnomaly"), "error", {
+        label: t("doctor.btnDiagnose"),
+        onClick: () => {
+          openDoctorModal();
+        },
+      });
+    }
   } else {
     failures.push(t("overview.activityStatusItem"));
     setActivityLoadFailed(errorMessage(activityResult.reason));
   }
 
   if (failures.length > 0) {
-    showNotice(t("overview.statusLoadFailed", { items: failures.join(", ") }), "error");
+    showNotice(t("overview.statusLoadFailed", { items: failures.join(", ") }), "error", {
+      label: t("doctor.btnDiagnose"),
+      onClick: () => {
+        openDoctorModal();
+      },
+    });
   }
 }
 

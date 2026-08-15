@@ -102,7 +102,7 @@ pub(crate) async fn start_proxy(state: State<'_, DesktopState>) -> Result<ProxyS
         .map_err(|error| report(PROXY_START_FAILED, error))
 }
 
-async fn start_proxy_inner(state: &DesktopState) -> Result<ProxyStatus, String> {
+pub(crate) async fn start_proxy_inner(state: &DesktopState) -> Result<ProxyStatus, String> {
     let _mutation_guard = state.proxy_host_mutation_lock.lock().await;
     let mut handle = state.proxy_handle.lock().await;
     if handle.is_some() {
