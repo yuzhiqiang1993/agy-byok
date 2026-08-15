@@ -268,11 +268,22 @@ fn delete_incompatible_config(
     path: &Path,
     reason: &dyn fmt::Display,
 ) -> Result<AppConfig, ConfigStoreError> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup_path = path.with_extension(format!("json.bak.{}", timestamp));
+    if let Err(error) = fs::copy(path, &backup_path) {
+        tracing::warn!(path = %path.display(), backup = %backup_path.display(), %error, "无法备份不兼容的配置文件");
+    } else {
+        tracing::info!(path = %path.display(), backup = %backup_path.display(), "已自动备份不兼容的配置文件");
+    }
+
     fs::remove_file(path).map_err(|source| ConfigStoreError::DeleteIncompatible {
         path: path.to_path_buf(),
         source,
     })?;
-    tracing::warn!(path = %path.display(), %reason, "已删除与当前版本不兼容的配置文件");
+    tracing::warn!(path = %path.display(), %reason, "已删除与当前版本不兼容的配置文件并初始化默认配置");
     if let Err(error) = sync_parent_directory(path) {
         tracing::warn!(path = %path.display(), %error, "不兼容配置已删除，但父目录同步失败");
     }

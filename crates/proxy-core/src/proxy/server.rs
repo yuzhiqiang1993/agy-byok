@@ -30,7 +30,7 @@ pub struct ProxyServer {
     activity_log: Arc<ActivityLog>,
     auth_manager: AuthManager,
     http_client: Client,
-    provider_http_clients: Mutex<HashMap<u64, Client>>,
+    provider_http_clients: Mutex<HashMap<u64, (Client, std::time::Instant)>>,
     port: u16,
 }
 
