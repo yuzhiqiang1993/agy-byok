@@ -466,4 +466,3 @@ pub(crate) async fn test_provider_model_connection(
 
     connection_test_result(result, duration_ms)
 }
-

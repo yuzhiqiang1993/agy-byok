@@ -1,6 +1,6 @@
 use crate::domain::{
-    model_family_base, strip_reasoning_level_suffix, AppConfig, VirtualModel,
-    CUSTOM_MODEL_PREFIX, MODEL_NAMESPACE_PREFIX, REASONING_LEVEL_PRIORITY,
+    model_family_base, strip_reasoning_level_suffix, AppConfig, VirtualModel, CUSTOM_MODEL_PREFIX,
+    MODEL_NAMESPACE_PREFIX, REASONING_LEVEL_PRIORITY,
 };
 
 /// 校验模型是否满足启用且其关联的上游及供应商均可用

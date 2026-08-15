@@ -23,7 +23,12 @@ pub async fn check_hosts(state: &DesktopState) -> Vec<DiagnosticItem> {
     // ==========================================
     // 1. Antigravity IDE 诊断
     // ==========================================
-    match discover_ide_sync(host_paths.ide.as_ref(), root, &target_endpoint, proxy_running) {
+    match discover_ide_sync(
+        host_paths.ide.as_ref(),
+        root,
+        &target_endpoint,
+        proxy_running,
+    ) {
         Ok(ide_status) if ide_status.installed => {
             match ide_status.integration_state {
                 ClientIntegrationState::Managed => {
@@ -56,8 +61,12 @@ pub async fn check_hosts(state: &DesktopState) -> Vec<DiagnosticItem> {
                         id: "host.ide.port_mismatch".to_string(),
                         category: DiagnosticCategory::Host,
                         title: "Antigravity IDE 端口与当前代理不一致".to_string(),
-                        message: format!("IDE 当前指向旧端点，如需使用当前代理需要更新为：{target_endpoint}。"),
-                        suggestion: Some("点击【一键修复】即可自动修正 settings.json 配置。".to_string()),
+                        message: format!(
+                            "IDE 当前指向旧端点，如需使用当前代理需要更新为：{target_endpoint}。"
+                        ),
+                        suggestion: Some(
+                            "点击【一键修复】即可自动修正 settings.json 配置。".to_string(),
+                        ),
                         level: DiagnosticLevel::Warning,
                         auto_fixable: true,
                         action: Some(FixAction::RepairIdeSettings),
@@ -68,7 +77,9 @@ pub async fn check_hosts(state: &DesktopState) -> Vec<DiagnosticItem> {
                         id: "host.ide.external".to_string(),
                         category: DiagnosticCategory::Host,
                         title: "Antigravity IDE 由外部配置管理".to_string(),
-                        message: format!("settings.json 已正确指向 {target_endpoint}（外部托管）。"),
+                        message: format!(
+                            "settings.json 已正确指向 {target_endpoint}（外部托管）。"
+                        ),
                         suggestion: None,
                         level: DiagnosticLevel::Pass,
                         auto_fixable: false,
@@ -119,7 +130,12 @@ pub async fn check_hosts(state: &DesktopState) -> Vec<DiagnosticItem> {
     // ==========================================
     // 2. Antigravity App 诊断
     // ==========================================
-    match discover_app_sync(host_paths.app.as_ref(), root, &target_endpoint, proxy_running) {
+    match discover_app_sync(
+        host_paths.app.as_ref(),
+        root,
+        &target_endpoint,
+        proxy_running,
+    ) {
         Ok(app_status) if app_status.installed => {
             match app_status.integration_state {
                 ClientIntegrationState::Managed | ClientIntegrationState::External => {

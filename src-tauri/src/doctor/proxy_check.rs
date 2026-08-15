@@ -17,7 +17,9 @@ pub async fn check_proxy(state: &DesktopState) -> Vec<DiagnosticItem> {
             id: "proxy.not_running".to_string(),
             category: DiagnosticCategory::Proxy,
             title: "本地代理服务未运行".to_string(),
-            message: format!("代理服务处于停止状态，无法拦截转发请求（配置端口：{configured_port}）。"),
+            message: format!(
+                "代理服务处于停止状态，无法拦截转发请求（配置端口：{configured_port}）。"
+            ),
             suggestion: Some("请启动本地代理服务。".to_string()),
             level: DiagnosticLevel::Error,
             auto_fixable: true,

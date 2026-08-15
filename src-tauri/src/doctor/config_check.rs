@@ -95,7 +95,9 @@ pub async fn check_config_and_providers(state: &DesktopState) -> Vec<DiagnosticI
                             "上游当前未提供以下模型：{}。调用这些模型会直接导致 400 错误。",
                             invalid_models.join(", ")
                         ),
-                        suggestion: Some("建议点击【一键清理失效模型】移除不存在的条目。".to_string()),
+                        suggestion: Some(
+                            "建议点击【一键清理失效模型】移除不存在的条目。".to_string(),
+                        ),
                         level: DiagnosticLevel::Error,
                         auto_fixable: true,
                         action: Some(FixAction::PruneInvalidModels {
@@ -125,7 +127,9 @@ pub async fn check_config_and_providers(state: &DesktopState) -> Vec<DiagnosticI
                     category: DiagnosticCategory::Provider,
                     title: format!("提供商「{}」连通失败", provider.name),
                     message: format!("无法连接上游端点或鉴权失败：{}", err.message),
-                    suggestion: Some("请检查提供商的 API Key、网络代理或 Endpoint 地址是否正确。".to_string()),
+                    suggestion: Some(
+                        "请检查提供商的 API Key、网络代理或 Endpoint 地址是否正确。".to_string(),
+                    ),
                     level: DiagnosticLevel::Error,
                     auto_fixable: false,
                     action: None,

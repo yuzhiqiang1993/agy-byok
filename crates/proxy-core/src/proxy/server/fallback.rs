@@ -7,7 +7,6 @@ use crate::routing::RouteTable;
 use std::time::Instant;
 
 impl ProxyServer {
-
     /// 处理单个中立聊天请求，包含 Adapter 转译、网络发送与备用路由降级
     pub(crate) async fn handle_chat_request(
         &self,

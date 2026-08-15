@@ -73,9 +73,7 @@ pub(crate) fn resolve_image_generation_route<'a>(
     config: &'a AppConfig,
     request: &NeutralChatRequest,
 ) -> Option<&'a VirtualModel> {
-    let wants_image = request
-        .output_modalities
-        .contains(&ModelModality::Image)
+    let wants_image = request.output_modalities.contains(&ModelModality::Image)
         || is_official_image_model_id(&request.virtual_model_id);
     if wants_image {
         find_active_custom_image_model(config)

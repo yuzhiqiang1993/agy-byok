@@ -26,7 +26,10 @@ pub async fn run_diagnosis(state: &DesktopState) -> DoctorReport {
     // 计算总体健康度
     let overall_status = if all_items.iter().any(|i| i.level == DiagnosticLevel::Error) {
         DiagnosticLevel::Error
-    } else if all_items.iter().any(|i| i.level == DiagnosticLevel::Warning) {
+    } else if all_items
+        .iter()
+        .any(|i| i.level == DiagnosticLevel::Warning)
+    {
         DiagnosticLevel::Warning
     } else {
         DiagnosticLevel::Pass
@@ -112,12 +115,17 @@ pub async fn run_auto_fix(state: &DesktopState, action: FixAction) -> Result<Doc
                     let removed_upstream_ids: std::collections::HashSet<String> = cfg
                         .upstream_models
                         .iter()
-                        .filter(|um| um.provider_id == provider_id && invalid_set.contains(&um.upstream_model_id))
+                        .filter(|um| {
+                            um.provider_id == provider_id
+                                && invalid_set.contains(&um.upstream_model_id)
+                        })
                         .map(|um| um.id.clone())
                         .collect();
 
-                    cfg.upstream_models.retain(|um| !removed_upstream_ids.contains(&um.id));
-                    cfg.virtual_models.retain(|vm| !removed_upstream_ids.contains(&vm.upstream_model_id));
+                    cfg.upstream_models
+                        .retain(|um| !removed_upstream_ids.contains(&um.id));
+                    cfg.virtual_models
+                        .retain(|vm| !removed_upstream_ids.contains(&vm.upstream_model_id));
                 })
                 .map_err(|e| format!("更新配置失败：{e}"))?;
         }
