@@ -155,13 +155,19 @@ impl RouteTable {
     }
 }
 
-/// 当请求 ID 是母条目（如 `*-tiered`）时，自动查找并 Fallback 到该模型已启用的默认档位（优先 High -> Medium -> Low）。
+/// 当请求 ID 是母条目（如 `*-tiered`）、Base Slug 或未匹配到的自定义占位符时，自动查找并 Fallback 到该模型已启用的默认档位（优先 High -> Medium -> Low）。
 fn resolve_tiered_fallback<'a>(
     config: &'a AppConfig,
     requested_id: &str,
 ) -> Option<&'a VirtualModel> {
-    let base_id = requested_id.strip_suffix("-tiered")?;
-    let candidates: Vec<&'a VirtualModel> = config
+    let clean_id = requested_id.strip_prefix("models/").unwrap_or(requested_id);
+    let base_id = if let Some(base) = clean_id.strip_suffix("-tiered") {
+        base
+    } else {
+        strip_known_level_suffix(clean_id)
+    };
+
+    let mut candidates: Vec<&'a VirtualModel> = config
         .virtual_models
         .iter()
         .filter(|vm| vm.enabled)
@@ -173,8 +179,18 @@ fn resolve_tiered_fallback<'a>(
                 || id_base == base_id
                 || cat_key.starts_with(base_id)
                 || vm.id.starts_with(base_id)
+                || vm.matches_id(clean_id)
         })
         .collect();
+
+    // 如果按 ID/Slug 未找到候选，但请求属于自定义占位符（400..600），从所有启用模型中 Fallback
+    if candidates.is_empty() && crate::domain::is_custom_placeholder(clean_id) {
+        candidates = config
+            .virtual_models
+            .iter()
+            .filter(|vm| vm.enabled)
+            .collect();
+    }
 
     if candidates.is_empty() {
         return None;

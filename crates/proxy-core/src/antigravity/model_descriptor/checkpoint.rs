@@ -225,6 +225,37 @@ pub(super) fn official_model_aliases(models_json: &Value) -> BTreeMap<String, St
     aliases
 }
 
+pub(super) fn official_default_checkpoint_model(models_json: &Value) -> Option<String> {
+    let models = catalog_models(models_json);
+    let check_entry = |entry: &Value| -> Option<String> {
+        let payload = existing_checkpoint_payload(entry)?;
+        let model = payload.get("checkpoint_model")?.as_str()?;
+        if !model.trim().is_empty() {
+            Some(model.to_string())
+        } else {
+            None
+        }
+    };
+    match models {
+        Value::Object(entries) => {
+            for entry in entries.values() {
+                if let Some(model) = check_entry(entry) {
+                    return Some(model);
+                }
+            }
+        }
+        Value::Array(entries) => {
+            for entry in entries {
+                if let Some(model) = check_entry(entry) {
+                    return Some(model);
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
 fn apply_policy_with_entry_limits(
     entry: &mut Value,
     policy: &ModelCompressionPolicy,

@@ -14,7 +14,7 @@ fn model_compression_policy_round_trips_with_complete_required_fields() {
     let policy = policy();
     let value = serde_json::to_value(&policy).unwrap();
 
-    assert_eq!(value["checkpoint_model"], "MODEL_PLACEHOLDER_M71");
+    assert_eq!(value["checkpoint_model"], "MODEL_PLACEHOLDER_M50");
     assert_eq!(value["token_threshold"], 80_000);
     assert_eq!(value["max_token_limit"], 100_000);
     assert_eq!(value["max_output_tokens"], 20_000);

@@ -46,7 +46,7 @@ impl Default for ModelCompressionPolicy {
     fn default() -> Self {
         Self {
             enabled: true,
-            checkpoint_model: "MODEL_PLACEHOLDER_M71".to_string(),
+            checkpoint_model: "MODEL_PLACEHOLDER_M50".to_string(),
             strategy: "CHECKPOINT_STRATEGY_UNSPECIFIED".to_string(),
             max_overhead_ratio: "0.30".to_string(),
             moving_window_size: "1".to_string(),

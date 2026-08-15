@@ -870,9 +870,13 @@ mod tests {
     }
 
     #[test]
-    fn only_configured_placeholder_ids_are_classified_as_custom_models() {
+    fn custom_placeholders_and_custom_prefixed_ids_are_classified_as_custom_models() {
         let unconfigured_proxy = ProxyServer::new(ConfigStore::in_memory(AppConfig::default()), 0);
-        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
+        // 所有 M400-M599 自定义占位符区间及带 models/ 前缀均识别为 custom model，防止误转发官方
+        assert!(unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
+        assert!(unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M461"));
+        assert!(unconfigured_proxy.is_custom_model_id("models/MODEL_PLACEHOLDER_M400"));
+        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M300"));
         assert!(unconfigured_proxy.is_custom_model_id("custom-missing"));
 
         let mut config = model_config("http://127.0.0.1/generate".to_string());

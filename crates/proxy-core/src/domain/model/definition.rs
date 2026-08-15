@@ -146,18 +146,23 @@ impl VirtualModel {
     }
 
     pub fn matches_id(&self, model_id: &str) -> bool {
+        let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
         self.accepted_ids()
             .iter()
-            .any(|accepted_id| accepted_id.as_ref() == model_id)
+            .any(|accepted_id| accepted_id.as_ref() == clean_id || accepted_id.as_ref() == model_id)
     }
 
     pub fn has_valid_host_model_id(&self) -> bool {
-        let host_model_id = self.effective_host_model_id();
-        host_model_id
-            .strip_prefix("MODEL_PLACEHOLDER_M")
-            .and_then(|value| value.parse::<u16>().ok())
-            .is_some_and(|value| (400..600).contains(&value))
+        is_custom_placeholder(&self.effective_host_model_id())
     }
+}
+
+pub fn is_custom_placeholder(model_id: &str) -> bool {
+    let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
+    clean_id
+        .strip_prefix("MODEL_PLACEHOLDER_M")
+        .and_then(|value| value.parse::<u16>().ok())
+        .is_some_and(|value| (400..600).contains(&value))
 }
 
 pub fn stable_hash(value: &str) -> u16 {

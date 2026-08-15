@@ -1,14 +1,13 @@
 use super::checkpoint::{
     apply_model_compression_policy, canonical_model_id, official_checkpoint_output_limits,
-    official_model_aliases,
+    official_default_checkpoint_model, official_model_aliases,
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
 use crate::domain::{
-    stable_hash, ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningMapping,
+    ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningLevel, ReasoningMapping,
     UpstreamModel, VirtualModel,
 };
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
 // 只要目录返回了模型级限制，token_limits() 就会优先使用真实值。
@@ -114,6 +113,7 @@ impl AntigravityModelDescriptor {
 
         let aliases = official_model_aliases(models_json);
         let checkpoint_output_limits = official_checkpoint_output_limits(models_json);
+        let default_checkpoint_model = official_default_checkpoint_model(models_json);
 
         let catalog = catalog_container_mut(models_json);
         if catalog.get("models").is_some() {
@@ -159,7 +159,13 @@ impl AntigravityModelDescriptor {
                 .collect::<Vec<_>>();
             // 为启用推理的自定义模型生成 tiered 母条目并注册 tieredModelIds，
             // 供新版 Antigravity 模型选择器按「单模型 + 档位子菜单」聚类。
-            inject_tiered_catalog(catalog, &models, &checkpoint_output_limits, &aliases);
+            inject_tiered_catalog(
+                catalog,
+                &models,
+                &checkpoint_output_limits,
+                &aliases,
+                default_checkpoint_model.as_deref(),
+            );
             inject_models(
                 catalog
                     .get_mut("models")
@@ -167,6 +173,7 @@ impl AntigravityModelDescriptor {
                 models,
                 &checkpoint_output_limits,
                 &aliases,
+                default_checkpoint_model.as_deref(),
             );
             place_catalog_keys_in_byok_sort(
                 catalog.get_mut("agentModelSorts"),
@@ -180,7 +187,13 @@ impl AntigravityModelDescriptor {
                 &image_generation_model_ids,
             );
         } else {
-            inject_models(catalog, models, &checkpoint_output_limits, &aliases);
+            inject_models(
+                catalog,
+                models,
+                &checkpoint_output_limits,
+                &aliases,
+                default_checkpoint_model.as_deref(),
+            );
         }
     }
 }
@@ -193,56 +206,44 @@ fn inject_tiered_catalog(
     models: &[(&VirtualModel, &UpstreamModel, &Provider)],
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
+    default_checkpoint_model: Option<&str>,
 ) {
-    // 同一上游模型只生成一个母条目（取第一个档位条目作为模板）。
-    let mut groups: Vec<(&VirtualModel, &UpstreamModel, &Provider)> = Vec::new();
-    let mut seen_upstreams: HashSet<&str> = HashSet::new();
-    for (virtual_model, upstream_model, provider) in models {
+    // 同一上游模型按上游 ID 分组收集其所有档位条目。
+    let mut group_map: std::collections::BTreeMap<&str, Vec<(&VirtualModel, &UpstreamModel, &Provider)>> =
+        std::collections::BTreeMap::new();
+    for item @ (_, upstream_model, _) in models {
         if !upstream_model.capabilities.reasoning.supports_reasoning() {
             continue;
         }
-        if seen_upstreams.insert(upstream_model.id.as_str()) {
-            groups.push((virtual_model, upstream_model, provider));
-        }
+        group_map
+            .entry(upstream_model.id.as_str())
+            .or_default()
+            .push(*item);
     }
-    if groups.is_empty() {
+    if group_map.is_empty() {
         return;
     }
 
-    // 收集所有子档位已占用的 placeholder，防止母条目与子条目共用造成键覆盖冲突
-    let occupied_placeholders: HashSet<String> = models
-        .iter()
-        .map(|(virtual_model, _, _)| virtual_model.effective_host_model_id().into_owned())
-        .collect();
-
-    // 先构建母条目，避免在持有 models 可变借用时迭代 groups。
+    // 先构建母条目，避免在持有 models 可变借用时迭代 group_map。
     let mut entries_to_insert: Vec<(String, Value)> = Vec::new();
-    for (virtual_model, upstream_model, provider) in &groups {
-        let catalog_key = virtual_model.catalog_key();
+    for (_, group_models) in group_map {
+        let (first_vm, upstream_model, provider) = group_models[0];
+        let preferred_vm = preferred_virtual_for_group(&group_models);
+        let catalog_key = first_vm.catalog_key();
         let base_id = strip_level_suffix(catalog_key.as_ref());
         let tiered_key = format!("{base_id}-tiered");
-        let base_display_name = strip_display_level_suffix(&virtual_model.display_name);
-
-        // 为母条目分配一个独立且未被子档位占用的专用 placeholder (400-599)
-        let mut candidate_num = 400 + (stable_hash(&tiered_key) % 200);
-        for _ in 0..200 {
-            let candidate = format!("MODEL_PLACEHOLDER_M{candidate_num}");
-            if !occupied_placeholders.contains(&candidate) {
-                break;
-            }
-            candidate_num = (candidate_num + 1 - 400) % 200 + 400;
-        }
-        let tiered_host_model_id = format!("MODEL_PLACEHOLDER_M{candidate_num}");
+        let base_display_name = strip_display_level_suffix(&first_vm.display_name);
+        let tiered_host_model_id = preferred_vm.effective_host_model_id();
 
         let mut entry = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
-            virtual_model,
+            preferred_vm,
             upstream_model,
             provider,
         );
         entry["displayName"] = json!(base_display_name);
-        entry["model"] = json!(tiered_host_model_id.clone());
-        entry["planModel"] = json!(tiered_host_model_id.clone());
-        entry["requestedModel"] = json!(tiered_host_model_id);
+        entry["model"] = json!(tiered_host_model_id.as_ref());
+        entry["planModel"] = json!(tiered_host_model_id.as_ref());
+        entry["requestedModel"] = json!(tiered_host_model_id.as_ref());
         // 母条目表示「动态档位」，由 IDE 侧子菜单选择后以具体档位条目发请求。
         entry["thinkingBudget"] = json!(-1);
         // 母条目继承上游模型的 Checkpoint 压缩策略，保证元数据完备
@@ -251,6 +252,7 @@ fn inject_tiered_catalog(
             upstream_model,
             checkpoint_output_limits,
             aliases,
+            default_checkpoint_model,
         );
         entries_to_insert.push((tiered_key, entry));
     }
@@ -293,6 +295,33 @@ fn inject_tiered_catalog(
         tiered_model_ids[group_key] = json!(tiered_entries);
     }
     catalog["tieredModelIds"] = tiered_model_ids;
+}
+
+fn preferred_virtual_for_group<'a>(
+    models: &[(&'a VirtualModel, &UpstreamModel, &Provider)],
+) -> &'a VirtualModel {
+    const PREFERRED_ORDER: &[ReasoningLevel] = &[
+        ReasoningLevel::High,
+        ReasoningLevel::Medium,
+        ReasoningLevel::Low,
+        ReasoningLevel::XHigh,
+        ReasoningLevel::Max,
+        ReasoningLevel::Adaptive,
+        ReasoningLevel::Auto,
+        ReasoningLevel::Off,
+    ];
+    for preferred in PREFERRED_ORDER {
+        if let Some((vm, _, _)) = models
+            .iter()
+            .find(|(vm, _, _)| vm.default_reasoning_level == Some(*preferred))
+        {
+            return vm;
+        }
+    }
+    models
+        .first()
+        .map(|(vm, _, _)| *vm)
+        .expect("models must not be empty")
 }
 
 /// 去掉 ID 末尾的档位后缀（长后缀优先，避免 `-x-high` 被 `-high` 误拆）。
@@ -395,6 +424,7 @@ fn apply_custom_model_compression_policy(
     upstream_model: &UpstreamModel,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
+    default_checkpoint_model: Option<&str>,
 ) {
     let Some(policy) = upstream_model.compression_policy.as_ref() else {
         return;
@@ -406,20 +436,37 @@ fn apply_custom_model_compression_policy(
     let capacity = upstream_model
         .token_limits
         .effective_compression_capacity(DEFAULT_CONTEXT_WINDOW, DEFAULT_INPUT_TOKEN_LIMIT);
+
     let canonical_checkpoint = canonical_model_id(&policy.checkpoint_model, aliases);
+    let effective_checkpoint_model = if checkpoint_output_limits.contains_key(canonical_checkpoint)
+        || checkpoint_output_limits.contains_key(&policy.checkpoint_model)
+    {
+        &policy.checkpoint_model
+    } else if let Some(default_model) = default_checkpoint_model {
+        default_model
+    } else {
+        &policy.checkpoint_model
+    };
+
     let effective_output_limit = checkpoint_output_limits
-        .get(canonical_checkpoint)
-        .or_else(|| checkpoint_output_limits.get(&policy.checkpoint_model))
+        .get(canonical_model_id(effective_checkpoint_model, aliases))
+        .or_else(|| checkpoint_output_limits.get(effective_checkpoint_model))
         .copied()
         .map_or(output_token_limit, |checkpoint_limit| {
             output_token_limit.min(checkpoint_limit)
         });
+
+    let mut policy_to_apply = policy.clone();
+    if policy_to_apply.checkpoint_model != effective_checkpoint_model {
+        policy_to_apply.checkpoint_model = effective_checkpoint_model.to_string();
+    }
+
     apply_model_compression_policy(
         descriptor,
-        policy,
+        &policy_to_apply,
         capacity,
         effective_output_limit,
-        Some(policy),
+        Some(&policy_to_apply),
     );
 }
 
@@ -428,6 +475,7 @@ fn custom_model_object(
     upstream_model: &UpstreamModel,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
+    default_checkpoint_model: Option<&str>,
 ) -> Value {
     let mut descriptor =
         AntigravityModelDescriptor::build_model_object(virtual_model, upstream_model);
@@ -436,6 +484,7 @@ fn custom_model_object(
         upstream_model,
         checkpoint_output_limits,
         aliases,
+        default_checkpoint_model,
     );
     descriptor
 }
@@ -446,6 +495,7 @@ fn custom_cloud_code_catalog_entry(
     provider: &Provider,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
+    default_checkpoint_model: Option<&str>,
 ) -> Value {
     let mut descriptor = AntigravityModelDescriptor::build_cloud_code_catalog_entry(
         virtual_model,
@@ -457,6 +507,7 @@ fn custom_cloud_code_catalog_entry(
         upstream_model,
         checkpoint_output_limits,
         aliases,
+        default_checkpoint_model,
     );
     descriptor
 }
@@ -466,6 +517,7 @@ fn inject_models(
     models: Vec<(&VirtualModel, &UpstreamModel, &Provider)>,
     checkpoint_output_limits: &std::collections::BTreeMap<String, u32>,
     aliases: &std::collections::BTreeMap<String, String>,
+    default_checkpoint_model: Option<&str>,
 ) {
     match target {
         Value::Array(entries) => {
@@ -478,6 +530,7 @@ fn inject_models(
                             upstream_model,
                             checkpoint_output_limits,
                             aliases,
+                            default_checkpoint_model,
                         )
                     }),
             );
@@ -492,6 +545,7 @@ fn inject_models(
                         provider,
                         checkpoint_output_limits,
                         aliases,
+                        default_checkpoint_model,
                     ),
                 );
             }
@@ -507,6 +561,7 @@ fn inject_models(
                         provider,
                         checkpoint_output_limits,
                         aliases,
+                        default_checkpoint_model,
                     ),
                 );
             }

@@ -181,7 +181,45 @@ mod tests {
         assert_eq!(checkpoint["token_threshold"], "260400");
         assert_eq!(checkpoint["max_token_limit"], "334800");
         assert_eq!(checkpoint["max_output_tokens"], "18600");
-        assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M71");
+        assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M50");
+    }
+
+    #[test]
+    fn legacy_checkpoint_model_auto_falls_back_to_official_live_model() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        // 模拟用户配置中残留的旧版 M71
+        config.upstream_models[0].compression_policy = Some(ModelCompressionPolicy {
+            enabled: true,
+            checkpoint_model: "MODEL_PLACEHOLDER_M71".to_string(),
+            ..ModelCompressionPolicy::default()
+        });
+        let catalog_key = config.virtual_models[0].catalog_key().into_owned();
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        // 官方响应中只包含 M50
+        let catalog = server.handle_model_list(json!({
+            "models": {
+                "gemini-3.1-flash-lite": {
+                    "model": "MODEL_PLACEHOLDER_M50",
+                    "maxOutputTokens": 65536,
+                    "modelExperiments": {
+                        "experiments": {
+                            "CASCADE_USE_EXPERIMENT_CHECKPOINTER": {
+                                "stringValue": "{\"checkpoint_model\":\"MODEL_PLACEHOLDER_M50\",\"enabled\":true}"
+                            }
+                        }
+                    }
+                }
+            }
+        }));
+        let raw = catalog["models"][catalog_key]["modelExperiments"]["experiments"]
+            ["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]["stringValue"]
+            .as_str()
+            .expect("custom model must contain checkpoint settings");
+        let checkpoint: serde_json::Value = serde_json::from_str(raw).unwrap();
+
+        // 验证自动校准为官方正在使用的 M50，防止 Antigravity Language Server 校验失败终止
+        assert_eq!(checkpoint["checkpoint_model"], "MODEL_PLACEHOLDER_M50");
     }
 
     #[test]
@@ -485,15 +523,15 @@ mod tests {
         let catalog = ProxyServer::new(ConfigStore::in_memory(config), 0)
             .handle_model_list(json!({ "models": {} }));
 
-        // 生成一个 tiered 母条目（无档位后缀、动态思考预算、独立 placeholder）
+        // 生成一个 tiered 母条目（无档位后缀、动态思考预算、使用首选档位 placeholder）
         let tiered = &catalog["models"]["custom-vm-connection-tiered"];
         assert_eq!(tiered["displayName"], "Connection Model");
         assert_eq!(tiered["thinkingBudget"], -1);
         let low_entry = &catalog["models"]["custom-vm-connection-low"];
         let high_entry = &catalog["models"]["custom-vm-connection-high"];
-        // 验证母条目拥有独立 placeholder，不与子档位冲突
+        // 验证母条目采用首选档位 (High) 的有效占位符，消除孤立占位符
+        assert_eq!(tiered["model"], high_entry["model"]);
         assert_ne!(tiered["model"], low_entry["model"]);
-        assert_ne!(tiered["model"], high_entry["model"]);
 
         // 注册进 tieredModelIds（实验分组 key "custom"）
         assert_eq!(
@@ -506,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn tiered_parent_route_resolves_to_preferred_variant() {
+    fn tiered_parent_and_slug_and_placeholder_resolve_to_preferred_variant() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
             levels: BTreeMap::from([
@@ -522,6 +560,7 @@ mod tests {
             ..ReasoningCapability::default()
         };
         config.virtual_models[0].id = "custom-vm-connection-low".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
         config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
         let mut high_model = config.virtual_models[0].clone();
         high_model.id = "custom-vm-connection-high".to_string();
@@ -529,16 +568,40 @@ mod tests {
         high_model.default_reasoning_level = Some(ReasoningLevel::High);
         config.virtual_models.push(high_model);
 
-        // 模拟直接向母条目 ID 发送请求
-        let request = NeutralChatRequest {
+        // 1. 模拟直接向母条目 ID (*-tiered) 发送请求
+        let request_tiered = NeutralChatRequest {
             virtual_model_id: "custom-vm-connection-tiered".to_string(),
             ..NeutralChatRequest::default()
         };
         let resolved =
-            RouteTable::resolve(&config, &request).expect("母条目应当能成功Fallback解析");
-        // 应当优先解析到 High 档位
+            RouteTable::resolve(&config, &request_tiered).expect("母条目应当能成功Fallback解析");
         assert_eq!(resolved.virtual_model.id, "custom-vm-connection-high");
         assert_eq!(resolved.final_reasoning_level, Some(ReasoningLevel::High));
+
+        // 2. 模拟向不带档位后缀的 Base Slug 发送请求
+        let request_slug = NeutralChatRequest {
+            virtual_model_id: "custom-vm-connection".to_string(),
+            ..NeutralChatRequest::default()
+        };
+        let resolved_slug =
+            RouteTable::resolve(&config, &request_slug).expect("Base Slug 应当能成功Fallback解析");
+        assert_eq!(resolved_slug.virtual_model.id, "custom-vm-connection-high");
+        assert_eq!(
+            resolved_slug.final_reasoning_level,
+            Some(ReasoningLevel::High)
+        );
+
+        // 3. 模拟直接使用占位符 (带/不带 models/ 前缀)
+        let request_placeholder = NeutralChatRequest {
+            virtual_model_id: "models/MODEL_PLACEHOLDER_M401".to_string(),
+            ..NeutralChatRequest::default()
+        };
+        let resolved_placeholder = RouteTable::resolve(&config, &request_placeholder)
+            .expect("带 models/ 占位符应当能成功解析");
+        assert_eq!(
+            resolved_placeholder.virtual_model.id,
+            "custom-vm-connection-high"
+        );
     }
 
     #[test]
@@ -1938,4 +2001,50 @@ mod tests {
         assert_eq!(route.virtual_model.id, "custom-gpt-image-2");
         assert_eq!(route.upstream_model.upstream_model_id, "gpt-image-2");
     }
+
+    #[test]
+    fn live_catalog_injection_heals_all_checkpoint_models_and_ensures_valid_references() {
+        let official_json: serde_json::Value = serde_json::from_str(
+            include_str!("../../../../docs/official_live_models_response.json")
+        ).unwrap();
+
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].compression_policy = Some(ModelCompressionPolicy {
+            enabled: true,
+            checkpoint_model: "MODEL_PLACEHOLDER_M71".to_string(),
+            ..ModelCompressionPolicy::default()
+        });
+        let server = ProxyServer::new(ConfigStore::in_memory(config), 0);
+
+        let prepared = server.prepare_model_catalog_response(official_json, "http://127.0.0.1:12345");
+        let catalog: serde_json::Value = serde_json::from_str(&prepared).unwrap();
+
+        // 收集所有在 models 字典中存在的 model placeholder
+        let models_map = catalog["response"]["models"].as_object().unwrap();
+        let valid_placeholders: std::collections::HashSet<&str> = models_map
+            .values()
+            .filter_map(|entry| entry.get("model").and_then(serde_json::Value::as_str))
+            .collect();
+
+        // 验证所有自定义模型条目的 checkpoint_model 都指向 valid_placeholders 中的有效模型
+        for (key, entry) in models_map {
+            if key.starts_with("custom-") {
+                if let Some(exp) = entry.get("modelExperiments")
+                    .and_then(|m| m.get("experiments"))
+                    .and_then(|e| e.get("CASCADE_USE_EXPERIMENT_CHECKPOINTER"))
+                    .and_then(|c| c.get("stringValue"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    let parsed: serde_json::Value = serde_json::from_str(exp).unwrap();
+                    let cp_model = parsed["checkpoint_model"].as_str().unwrap();
+                    assert!(
+                        valid_placeholders.contains(cp_model),
+                        "Custom model {} references unknown checkpoint_model {}",
+                        key, cp_model
+                    );
+                }
+            }
+        }
+    }
 }
+
