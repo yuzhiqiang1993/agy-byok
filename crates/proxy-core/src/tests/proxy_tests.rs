@@ -637,6 +637,39 @@ mod tests {
     }
 
     #[test]
+    fn disabled_concrete_reasoning_variant_does_not_fallback_to_another_variant() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-gpt-5-low".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+
+        let mut disabled_high = config.virtual_models[0].clone();
+        disabled_high.id = "custom-gpt-5-high".to_string();
+        disabled_high.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        disabled_high.default_reasoning_level = Some(ReasoningLevel::High);
+        disabled_high.enabled = false;
+        config.virtual_models.push(disabled_high);
+
+        let error = RouteTable::resolve(&config, &chat_request("custom-gpt-5-high"))
+            .expect_err("disabled concrete variant must not select the low variant");
+
+        assert_eq!(error.category, ErrorCategory::ModelNotFound);
+    }
+
+    #[test]
     fn tiered_fallback_ignores_disabled_upstream_and_provider_variants() {
         for (upstream_enabled, provider_enabled) in [(false, true), (true, false), (false, false)] {
             let mut config = connection_test_config("http://localhost/chat".to_string());
@@ -682,6 +715,74 @@ mod tests {
     }
 
     #[test]
+    fn tiered_parent_uses_the_canonical_family_for_non_custom_ids() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::Low,
+                    ReasoningMapping::Effort("low".to_string()),
+                ),
+                (
+                    ReasoningLevel::High,
+                    ReasoningMapping::Effort("high".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "gpt-5-low".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::Low);
+        let mut high_model = config.virtual_models[0].clone();
+        high_model.id = "gpt-5-high".to_string();
+        high_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        high_model.default_reasoning_level = Some(ReasoningLevel::High);
+        config.virtual_models.push(high_model);
+
+        let catalog = ProxyServer::new(ConfigStore::in_memory(config.clone()), 0)
+            .handle_model_list(json!({ "models": {} }));
+        assert!(catalog["models"]["custom-gpt-5-tiered"].is_object());
+        assert!(catalog["models"].get("gpt-5-tiered").is_none());
+
+        let resolved = RouteTable::resolve(&config, &chat_request("custom-gpt-5-tiered"))
+            .expect("canonical tiered parent should resolve");
+        assert_eq!(resolved.virtual_model.id, "gpt-5-high");
+    }
+
+    #[test]
+    fn tiered_parent_recovers_variants_from_slot_backed_catalog_keys() {
+        let mut config = connection_test_config("http://localhost/chat".to_string());
+        config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
+            levels: BTreeMap::from([
+                (
+                    ReasoningLevel::XHigh,
+                    ReasoningMapping::Effort("xhigh".to_string()),
+                ),
+                (
+                    ReasoningLevel::Max,
+                    ReasoningMapping::Effort("max".to_string()),
+                ),
+            ]),
+            ..ReasoningCapability::default()
+        };
+        config.virtual_models[0].id = "custom-vm-connection-x_high".to_string();
+        config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
+        config.virtual_models[0].default_reasoning_level = Some(ReasoningLevel::XHigh);
+        config.virtual_models[0].enabled = false;
+        let mut max_model = config.virtual_models[0].clone();
+        max_model.id = "custom-vm-connection-max".to_string();
+        max_model.host_model_id = Some("MODEL_PLACEHOLDER_M401".to_string());
+        max_model.default_reasoning_level = Some(ReasoningLevel::Max);
+        max_model.enabled = true;
+        config.virtual_models.push(max_model);
+
+        let resolved = RouteTable::resolve(&config, &chat_request("custom-byok-m400-tiered"))
+            .expect("slot-backed tiered parent should use the next enabled variant");
+
+        assert_eq!(resolved.virtual_model.id, "custom-vm-connection-max");
+    }
+
+    #[test]
     fn model_catalog_keeps_x_high_variant_visible_to_antigravity() {
         let mut config = connection_test_config("http://localhost/chat".to_string());
         config.upstream_models[0].capabilities.reasoning = ReasoningCapability {
@@ -721,6 +822,8 @@ mod tests {
         assert!(!x_high_catalog_key.contains('_'));
         assert!(catalog["models"][&x_high_catalog_key].is_object());
         assert!(catalog["models"][&max_catalog_key].is_object());
+        assert!(catalog["models"]["custom-vm-connection-tiered"].is_object());
+        assert!(catalog["models"].get("custom-byok-m400-tiered").is_none());
         assert_eq!(
             catalog["agentModelSorts"][0]["groups"][0]["modelIds"],
             json!([x_high_catalog_key, max_catalog_key])
@@ -2134,7 +2237,7 @@ mod tests {
         );
 
         for (key, entry) in models_map {
-            if !key.starts_with("custom-") {
+            if !key.starts_with(CUSTOM_MODEL_PREFIX) {
                 continue;
             }
             let Some(raw) = entry["modelExperiments"]["experiments"]

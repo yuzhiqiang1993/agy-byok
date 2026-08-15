@@ -4,10 +4,12 @@ use super::checkpoint::{
 };
 use super::{catalog_container_mut, AntigravityModelDescriptor};
 use crate::domain::{
-    strip_reasoning_level_suffix, ModelModality, ModelRole, Provider, ProviderProtocol,
-    ReasoningMapping, UpstreamModel, VirtualModel, REASONING_LEVEL_PRIORITY,
+    ModelModality, ModelRole, Provider, ProviderProtocol, ReasoningMapping, UpstreamModel,
+    VirtualModel, REASONING_LEVEL_PRIORITY,
 };
 use serde_json::{json, Map, Value};
+
+type CustomModelEntry<'a> = (&'a VirtualModel, &'a UpstreamModel, &'a Provider);
 
 // 供应商目录没有提供限制时使用保守的经验回退值；它不会写回模型配置。
 // 只要目录返回了模型级限制，token_limits() 就会优先使用真实值。
@@ -203,17 +205,18 @@ fn inject_tiered_catalog(
     checkpoint_worker_limits: &std::collections::BTreeMap<String, u32>,
     default_checkpoint_model: Option<&str>,
 ) {
-    // 同一上游模型按上游 ID 分组收集其所有档位条目。
-    let mut group_map: std::collections::BTreeMap<
-        &str,
-        Vec<(&VirtualModel, &UpstreamModel, &Provider)>,
-    > = std::collections::BTreeMap::new();
-    for item @ (_, upstream_model, _) in models {
+    // 同一上游模型的同一模型族按上游 ID 和无档位族名分组。
+    let mut group_map: std::collections::BTreeMap<(String, String), Vec<CustomModelEntry<'_>>> =
+        std::collections::BTreeMap::new();
+    for item @ (virtual_model, upstream_model, _) in models {
         if !upstream_model.capabilities.reasoning.supports_reasoning() {
             continue;
         }
         group_map
-            .entry(upstream_model.id.as_str())
+            .entry((
+                upstream_model.id.clone(),
+                virtual_model.catalog_family_base().into_owned(),
+            ))
             .or_default()
             .push(*item);
     }
@@ -226,8 +229,7 @@ fn inject_tiered_catalog(
     for (_, group_models) in group_map {
         let (first_vm, upstream_model, provider) = group_models[0];
         let preferred_vm = preferred_virtual_for_group(&group_models);
-        let catalog_key = first_vm.catalog_key();
-        let base_id = strip_reasoning_level_suffix(catalog_key.as_ref());
+        let base_id = first_vm.catalog_family_base();
         let tiered_key = format!("{base_id}-tiered");
         let base_display_name = strip_display_level_suffix(&first_vm.display_name);
         let tiered_host_model_id = preferred_vm.effective_host_model_id();

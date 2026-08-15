@@ -1,5 +1,5 @@
 use super::{catalog_models, catalog_models_mut, AntigravityModelDescriptor};
-use crate::domain::ModelCompressionPolicy;
+use crate::domain::{ModelCompressionPolicy, MODEL_NAMESPACE_PREFIX};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,7 +30,7 @@ impl AntigravityModelDescriptor {
                             .or_else(|| item.get("model"))
                             .and_then(Value::as_str);
                         if let Some(id) = id {
-                            let clean_id = id.strip_prefix("models/").unwrap_or(id);
+                            let clean_id = id.strip_prefix(MODEL_NAMESPACE_PREFIX).unwrap_or(id);
                             let canonical = canonical_model_id(clean_id, &aliases);
                             !disabled_models.contains(id)
                                 && !disabled_models.contains(clean_id)
@@ -55,7 +55,8 @@ impl AntigravityModelDescriptor {
                             {
                                 model_ids.retain(|mid| {
                                     mid.as_str().is_none_or(|id| {
-                                        let clean_id = id.strip_prefix("models/").unwrap_or(id);
+                                        let clean_id =
+                                            id.strip_prefix(MODEL_NAMESPACE_PREFIX).unwrap_or(id);
                                         let canonical = canonical_model_id(clean_id, &aliases);
                                         !disabled_models.contains(id)
                                             && !disabled_models.contains(clean_id)

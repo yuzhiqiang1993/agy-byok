@@ -1,6 +1,7 @@
 use crate::domain::{
     ErrorCategory, MessageRole, ModelModality, NeutralChatRequest, NeutralContentBlock,
     NeutralMessage, NeutralTool, NeutralToolFunction, ParameterOverrides, ProxyError,
+    MODEL_NAMESPACE_PREFIX,
 };
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -20,7 +21,7 @@ impl AntigravityRequestParser {
             .or_else(|| val.get("request").and_then(Self::model_id_from_object))
             .map(|model_id| {
                 model_id
-                    .strip_prefix("models/")
+                    .strip_prefix(MODEL_NAMESPACE_PREFIX)
                     .unwrap_or(model_id)
                     .to_owned()
             })

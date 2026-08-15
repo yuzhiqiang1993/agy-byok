@@ -75,6 +75,10 @@ pub fn strip_reasoning_level_suffix(id: &str) -> &str {
         .unwrap_or(id)
 }
 
+pub fn model_family_base(id: &str) -> &str {
+    strip_reasoning_level_suffix(id.strip_suffix("-tiered").unwrap_or(id))
+}
+
 impl ReasoningCapability {
     pub fn mapping_for(&self, level: ReasoningLevel) -> Option<&ReasoningMapping> {
         self.levels.get(&level)

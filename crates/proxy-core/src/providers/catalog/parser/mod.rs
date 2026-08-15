@@ -3,7 +3,7 @@ mod reasoning;
 use super::{ProviderCatalogModel, UpstreamCompressionPolicy};
 use crate::domain::{
     CustomModelCheckpointRetryConfig, ModelCompressionPolicy, ModelModality, ModelRole,
-    ProviderProtocol,
+    ProviderProtocol, MODEL_NAMESPACE_PREFIX,
 };
 use reasoning::parse_reasoning_metadata;
 use serde_json::{Map, Value};
@@ -830,7 +830,10 @@ fn parse_positive_u32(value: &Value) -> Option<u32> {
 fn normalize_model_id(value: &str, protocol: &ProviderProtocol) -> String {
     let value = value.trim();
     if matches!(protocol, ProviderProtocol::GeminiGenerateContent) {
-        value.strip_prefix("models/").unwrap_or(value).to_string()
+        value
+            .strip_prefix(MODEL_NAMESPACE_PREFIX)
+            .unwrap_or(value)
+            .to_string()
     } else {
         value.to_string()
     }

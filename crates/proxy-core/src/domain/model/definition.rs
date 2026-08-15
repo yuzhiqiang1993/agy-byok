@@ -1,5 +1,5 @@
 use super::checkpoint::ModelCompressionPolicy;
-use super::reasoning::{ReasoningCapability, ReasoningLevel};
+use super::reasoning::{model_family_base, ReasoningCapability, ReasoningLevel};
 use super::token_limits::ModelTokenLimits;
 use super::tokenizer::TokenizerConfig;
 use crate::domain::provider::ParameterOverrides;
@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 
+pub const MODEL_NAMESPACE_PREFIX: &str = "models/";
+pub const CUSTOM_MODEL_PREFIX: &str = "custom-";
+const CUSTOM_BYOK_MODEL_PREFIX: &str = "custom-byok-";
+const CUSTOM_HOST_MODEL_SLOT_PREFIX: &str = "MODEL_PLACEHOLDER_";
 const CUSTOM_HOST_MODEL_ID_PREFIX: &str = "MODEL_PLACEHOLDER_M";
 const CUSTOM_HOST_MODEL_ID_START: u16 = 400;
 const CUSTOM_HOST_MODEL_ID_END: u16 = 600;
@@ -122,12 +126,26 @@ impl VirtualModel {
         }
     }
 
-    pub fn catalog_key(&self) -> Cow<'_, str> {
-        let prefixed_id = if self.id.starts_with("custom-") {
+    fn prefixed_catalog_id(&self) -> Cow<'_, str> {
+        if self.id.starts_with(CUSTOM_MODEL_PREFIX) {
             Cow::Borrowed(self.id.as_str())
         } else {
-            Cow::Owned(format!("custom-{}", self.id))
-        };
+            Cow::Owned(format!("{CUSTOM_MODEL_PREFIX}{}", self.id))
+        }
+    }
+
+    pub fn catalog_family_base(&self) -> Cow<'_, str> {
+        Cow::Owned(model_family_base(self.prefixed_catalog_id().as_ref()).to_string())
+    }
+
+    pub fn matches_family_base(&self, family_base: &str) -> bool {
+        model_family_base(self.id.as_str()) == family_base
+            || self.catalog_family_base().as_ref() == family_base
+            || model_family_base(self.catalog_key().as_ref()) == family_base
+    }
+
+    pub fn catalog_key(&self) -> Cow<'_, str> {
+        let prefixed_id = self.prefixed_catalog_id();
         if !prefixed_id.contains('_') {
             return prefixed_id;
         }
@@ -136,9 +154,12 @@ impl VirtualModel {
         // 含下划线时改用稳定的宿主槽位，原始 ID 仍由 accepted_ids() 保留用于兼容路由。
         let host_model_id = self.effective_host_model_id();
         let slot = host_model_id
-            .strip_prefix("MODEL_PLACEHOLDER_")
+            .strip_prefix(CUSTOM_HOST_MODEL_SLOT_PREFIX)
             .unwrap_or(host_model_id.as_ref());
-        Cow::Owned(format!("custom-byok-{}", slot.to_ascii_lowercase()))
+        Cow::Owned(format!(
+            "{CUSTOM_BYOK_MODEL_PREFIX}{}",
+            slot.to_ascii_lowercase()
+        ))
     }
 
     pub fn accepted_ids(&self) -> [Cow<'_, str>; 3] {
@@ -150,7 +171,9 @@ impl VirtualModel {
     }
 
     pub fn matches_id(&self, model_id: &str) -> bool {
-        let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
+        let clean_id = model_id
+            .strip_prefix(MODEL_NAMESPACE_PREFIX)
+            .unwrap_or(model_id);
         self.accepted_ids()
             .iter()
             .any(|accepted_id| accepted_id.as_ref() == clean_id || accepted_id.as_ref() == model_id)

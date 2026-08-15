@@ -2,30 +2,50 @@ import type { AppConfig, VirtualModel, ParameterOverrides, ProviderProtocol } fr
 import type { ReasoningLevel } from "../types/reasoning";
 import { t } from "../i18n";
 
+export const CUSTOM_HOST_MODEL_ID_PREFIX = "MODEL_PLACEHOLDER_M";
+export const CUSTOM_HOST_MODEL_SLOT_PREFIX = "MODEL_PLACEHOLDER_";
+export const CUSTOM_HOST_MODEL_ID_START = 400;
+export const CUSTOM_HOST_MODEL_ID_END = 600;
+const CUSTOM_HOST_MODEL_ID_SLOT_COUNT =
+  CUSTOM_HOST_MODEL_ID_END - CUSTOM_HOST_MODEL_ID_START;
+const MODEL_NAMESPACE_PREFIX = "models/";
+const CUSTOM_MODEL_PREFIX = "custom-";
+const CUSTOM_BYOK_MODEL_PREFIX = "custom-byok-";
+
 export function effectiveHostModelId(model: VirtualModel): string {
   if (model.host_model_id) return model.host_model_id;
   let hash = 0x811c9dc5;
   for (const byte of new TextEncoder().encode(model.id)) {
     hash = Math.imul((hash ^ byte) >>> 0, 0x01000193) >>> 0;
   }
-  return `MODEL_PLACEHOLDER_M${400 + (hash % 200)}`;
+  return `${CUSTOM_HOST_MODEL_ID_PREFIX}${CUSTOM_HOST_MODEL_ID_START + (hash % CUSTOM_HOST_MODEL_ID_SLOT_COUNT)}`;
 }
 
 function virtualModelCatalogKey(model: VirtualModel): string {
-  return model.id.startsWith("custom-") ? model.id : `custom-${model.id}`;
+  const prefixedId = model.id.startsWith(CUSTOM_MODEL_PREFIX)
+    ? model.id
+    : `${CUSTOM_MODEL_PREFIX}${model.id}`;
+  if (!prefixedId.includes("_")) return prefixedId;
+
+  const hostModelId = effectiveHostModelId(model);
+  const slot = hostModelId.replace(CUSTOM_HOST_MODEL_SLOT_PREFIX, "").toLowerCase();
+  return `${CUSTOM_BYOK_MODEL_PREFIX}${slot}`;
 }
 
 export function findVirtualModelByAcceptedId(config: AppConfig, modelId: string): VirtualModel | undefined {
+  const cleanId = modelId.startsWith(MODEL_NAMESPACE_PREFIX)
+    ? modelId.slice(MODEL_NAMESPACE_PREFIX.length)
+    : modelId;
   return config.virtual_models.find((model) =>
-    model.id === modelId
-    || effectiveHostModelId(model) === modelId
-    || virtualModelCatalogKey(model) === modelId
+    model.id === cleanId
+    || effectiveHostModelId(model) === cleanId
+    || virtualModelCatalogKey(model) === cleanId
   );
 }
 
 export function nextHostModelId(occupied: Set<string>): string {
-  for (let value = 400; value < 600; value += 1) {
-    const candidate = `MODEL_PLACEHOLDER_M${value}`;
+  for (let value = CUSTOM_HOST_MODEL_ID_START; value < CUSTOM_HOST_MODEL_ID_END; value += 1) {
+    const candidate = `${CUSTOM_HOST_MODEL_ID_PREFIX}${value}`;
     if (!occupied.has(candidate)) {
       occupied.add(candidate);
       return candidate;

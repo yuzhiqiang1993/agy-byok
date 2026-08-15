@@ -1,6 +1,7 @@
 use crate::domain::{
-    strip_reasoning_level_suffix, AppConfig, ErrorCategory, NeutralChatRequest, ParameterOverrides,
-    Provider, ProxyError, ReasoningLevel, UpstreamModel, VirtualModel, REASONING_LEVEL_PRIORITY,
+    model_family_base, strip_reasoning_level_suffix, AppConfig, ErrorCategory, NeutralChatRequest,
+    ParameterOverrides, Provider, ProxyError, ReasoningLevel, UpstreamModel, VirtualModel,
+    CUSTOM_MODEL_PREFIX, MODEL_NAMESPACE_PREFIX, REASONING_LEVEL_PRIORITY,
 };
 use std::collections::HashMap;
 
@@ -162,18 +163,55 @@ fn resolve_tiered_fallback<'a>(
     config: &'a AppConfig,
     requested_id: &str,
 ) -> Option<&'a VirtualModel> {
-    let clean_id = requested_id.strip_prefix("models/").unwrap_or(requested_id);
-    let base_id = clean_id
-        .strip_suffix("-tiered")
-        .unwrap_or_else(|| strip_reasoning_level_suffix(clean_id));
+    let clean_id = requested_id
+        .strip_prefix(MODEL_NAMESPACE_PREFIX)
+        .unwrap_or(requested_id);
+    if config
+        .virtual_models
+        .iter()
+        .any(|virtual_model| virtual_model.matches_id(clean_id))
+    {
+        // An exact configured identifier must not be reinterpreted as a
+        // family request when that VirtualModel is disabled or unavailable.
+        return None;
+    }
+    let is_tiered_parent = clean_id.ends_with("-tiered");
+    let base_id = if let Some(base_id) = clean_id.strip_suffix("-tiered") {
+        base_id
+    } else {
+        let base_id = strip_reasoning_level_suffix(clean_id);
+        // A concrete reasoning variant must resolve exactly. Only a tiered
+        // parent or an unsuffixed base slug may choose a preferred variant.
+        if base_id != clean_id {
+            return None;
+        }
+        base_id
+    };
+
+    // A slot-backed catalog key can represent only one concrete variant (for
+    // example an `x_high` ID). Older tiered parents were generated from that
+    // key, so recover their complete tier through the matching model family.
+    let tiered_family_bases = if is_tiered_parent {
+        config
+            .virtual_models
+            .iter()
+            .filter(|vm| vm.matches_family_base(base_id))
+            .map(|vm| vm.catalog_family_base().into_owned())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let candidates: Vec<&'a VirtualModel> = config
         .virtual_models
         .iter()
         .filter(|vm| is_routable_virtual_model(config, vm))
         .filter(|vm| {
-            model_family_base(vm.id.as_str()) == base_id
-                || model_family_base(vm.catalog_key().as_ref()) == base_id
+            vm.matches_family_base(base_id)
+                || (is_tiered_parent
+                    && tiered_family_bases
+                        .iter()
+                        .any(|family_base| vm.catalog_family_base().as_ref() == family_base))
         })
         .collect();
 
@@ -192,10 +230,6 @@ fn resolve_tiered_fallback<'a>(
     }
 
     candidates.first().copied()
-}
-
-fn model_family_base(id: &str) -> &str {
-    strip_reasoning_level_suffix(id.strip_suffix("-tiered").unwrap_or(id))
 }
 
 fn is_routable_virtual_model(config: &AppConfig, virtual_model: &VirtualModel) -> bool {
@@ -217,8 +251,10 @@ fn is_routable_virtual_model(config: &AppConfig, virtual_model: &VirtualModel) -
 }
 
 pub fn matches_custom_model_id(config: &AppConfig, model_id: &str) -> bool {
-    let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
-    if clean_id.starts_with("custom-") {
+    let clean_id = model_id
+        .strip_prefix(MODEL_NAMESPACE_PREFIX)
+        .unwrap_or(model_id);
+    if clean_id.starts_with(CUSTOM_MODEL_PREFIX) {
         return true;
     }
     if config
@@ -229,10 +265,10 @@ pub fn matches_custom_model_id(config: &AppConfig, model_id: &str) -> bool {
         return true;
     }
     let base_id = model_family_base(clean_id);
-    config.virtual_models.iter().any(|virtual_model| {
-        model_family_base(virtual_model.id.as_str()) == base_id
-            || model_family_base(virtual_model.catalog_key().as_ref()) == base_id
-    })
+    config
+        .virtual_models
+        .iter()
+        .any(|virtual_model| virtual_model.matches_family_base(base_id))
 }
 
 /// 判断模型 ID 是否属于官方/系统内置生图模型标识
