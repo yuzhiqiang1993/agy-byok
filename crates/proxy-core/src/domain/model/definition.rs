@@ -153,16 +153,9 @@ impl VirtualModel {
     }
 
     pub fn has_valid_host_model_id(&self) -> bool {
-        is_custom_placeholder(&self.effective_host_model_id())
+        let host_id = self.effective_host_model_id();
+        host_id.starts_with("MODEL_PLACEHOLDER_") && host_id.len() > "MODEL_PLACEHOLDER_".len()
     }
-}
-
-pub fn is_custom_placeholder(model_id: &str) -> bool {
-    let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
-    clean_id
-        .strip_prefix("MODEL_PLACEHOLDER_M")
-        .and_then(|value| value.parse::<u16>().ok())
-        .is_some_and(|value| (400..600).contains(&value))
 }
 
 pub fn stable_hash(value: &str) -> u16 {

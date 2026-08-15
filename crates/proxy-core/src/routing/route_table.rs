@@ -167,7 +167,7 @@ fn resolve_tiered_fallback<'a>(
         strip_known_level_suffix(clean_id)
     };
 
-    let mut candidates: Vec<&'a VirtualModel> = config
+    let candidates: Vec<&'a VirtualModel> = config
         .virtual_models
         .iter()
         .filter(|vm| vm.enabled)
@@ -182,15 +182,6 @@ fn resolve_tiered_fallback<'a>(
                 || vm.matches_id(clean_id)
         })
         .collect();
-
-    // 如果按 ID/Slug 未找到候选，但请求属于自定义占位符（400..600），从所有启用模型中 Fallback
-    if candidates.is_empty() && crate::domain::is_custom_placeholder(clean_id) {
-        candidates = config
-            .virtual_models
-            .iter()
-            .filter(|vm| vm.enabled)
-            .collect();
-    }
 
     if candidates.is_empty() {
         return None;

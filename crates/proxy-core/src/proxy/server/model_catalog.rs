@@ -16,8 +16,7 @@ impl ProxyServer {
     pub(crate) fn is_custom_model_id(&self, model_id: &str) -> bool {
         let clean_id = model_id.strip_prefix("models/").unwrap_or(model_id);
         let config = self.config_store.get_config();
-        crate::domain::is_custom_placeholder(clean_id)
-            || clean_id.starts_with("custom-")
+        clean_id.starts_with("custom-")
             || config
                 .virtual_models
                 .iter()

@@ -870,19 +870,23 @@ mod tests {
     }
 
     #[test]
-    fn custom_placeholders_and_custom_prefixed_ids_are_classified_as_custom_models() {
+    fn custom_model_id_is_determined_by_configured_fields_and_custom_prefix() {
         let unconfigured_proxy = ProxyServer::new(ConfigStore::in_memory(AppConfig::default()), 0);
-        // 所有 M400-M599 自定义占位符区间及带 models/ 前缀均识别为 custom model，防止误转发官方
-        assert!(unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
-        assert!(unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M461"));
-        assert!(unconfigured_proxy.is_custom_model_id("models/MODEL_PLACEHOLDER_M400"));
-        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M300"));
+        // custom- 前缀确定性匹配
         assert!(unconfigured_proxy.is_custom_model_id("custom-missing"));
+        assert!(unconfigured_proxy.is_custom_model_id("models/custom-missing"));
+        // 未在配置中的占位符不匹配
+        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
+        assert!(!unconfigured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M300"));
 
         let mut config = model_config("http://127.0.0.1/generate".to_string());
         config.virtual_models[0].host_model_id = Some("MODEL_PLACEHOLDER_M400".to_string());
         let configured_proxy = ProxyServer::new(ConfigStore::in_memory(config), 0);
+        // 已在配置中的模型 ID、Catalog Key 和宿主占位符确定性匹配（支持 models/ 前缀）
         assert!(configured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M400"));
+        assert!(configured_proxy.is_custom_model_id("models/MODEL_PLACEHOLDER_M400"));
+        assert!(configured_proxy.is_custom_model_id("custom-gpt-5-high"));
+        assert!(!configured_proxy.is_custom_model_id("MODEL_PLACEHOLDER_M300"));
     }
 
     #[tokio::test]

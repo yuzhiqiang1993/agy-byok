@@ -1,5 +1,20 @@
 # 更新日志
 
+## [1.3.1] - 2026-08-15
+
+### Bug Fixes / 问题修复
+
+- **自定义模型对话路由拦截与修复 (Custom Model Routing & Dispatch)**：
+  - 修复自定义模型母条目（Tiered Parent）在 Antigravity 宿主中对话时被误判为原生模型转发至 Google 官方服务器导致秒报 EOF 错误的问题。
+  - 完善 `is_custom_model_id` 判定机制，完全基于确定的模型配置字段（ID、Catalog Key、宿主占位符）、`custom-` 命名空间前缀及 `models/` 剥离进行精准匹配，彻底移除任何硬编码数字区间。
+  - 增强 `RouteTable::resolve` 的 Fallback 回退路由，支持母条目 (`*-tiered`) 与 Base Slug 确定性匹配已启用的默认档位。
+  - 统一母条目（Tiered Parent）占位符与首选档位（High/Medium/Low）占位符保持一致，消除孤立动态占位符。
+
+- **Checkpointer 策略自愈与执行器校验修复 (Checkpointer Resilience)**：
+  - 修复 Antigravity Language Server 在 Agent 模式下因校验到旧版 `MODEL_PLACEHOLDER_M71` 抛出 `model not found` 并终止执行的问题。
+  - 增加动态探测官方有效 `checkpoint_model` 机制，若配置中的占位符在官方模型字典中不存在，自动校准并 Fallback 到官方当前正在使用的有效模型（`MODEL_PLACEHOLDER_M50`）。
+  - 将默认 Checkpoint 模型基线统一更新为 `MODEL_PLACEHOLDER_M50`。
+
 ## [1.3.0] - 2026-08-14
 
 ### What's New / 新增功能

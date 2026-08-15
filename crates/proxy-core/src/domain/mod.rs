@@ -9,10 +9,10 @@ mod serde_helpers;
 pub use config::{AppConfig, ConfigError, CustomHostPaths, DEFAULT_PROXY_PORT, MIN_PROXY_PORT};
 pub use error::{ConnectionTestContext, ErrorCategory, ProxyError};
 pub use model::{
-    is_custom_placeholder, stable_hash, CustomModelCheckpointRetryConfig, ModelCapabilities,
-    ModelCompressionPolicy, ModelModality, ModelRole, ModelTokenLimits, ReasoningCapability,
-    ReasoningLevel, ReasoningMapping, TiktokenEncoding, TokenLimitSource, TokenizerConfig,
-    UpstreamModel, VirtualModel,
+    stable_hash, CustomModelCheckpointRetryConfig, ModelCapabilities, ModelCompressionPolicy,
+    ModelModality, ModelRole, ModelTokenLimits, ReasoningCapability, ReasoningLevel,
+    ReasoningMapping, TiktokenEncoding, TokenLimitSource, TokenizerConfig, UpstreamModel,
+    VirtualModel,
 };
 pub use provider::{ParameterOverrides, Provider, ProviderProtocol};
 pub(crate) use request::{
