@@ -71,6 +71,47 @@ jobs:
             exit 1
           }
 
+      - name: Extract changelog for current version
+        id: changelog
+        shell: bash
+        run: |
+          version="$(jq -r '.version' package.json)"
+          # 提取当前版本在 CHANGELOG.md 中的内容（两个 ## 标题之间）
+          changelog=$(awk -v ver="$version" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$changelog" ]; then
+            changelog="暂无更新说明。"
+          fi
+
+          # 使用 GITHUB_OUTPUT 多行语法传递
+          {
+            echo "body<<RELEASE_EOF"
+            echo "$changelog"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 📦 下载指引"
+            echo ""
+            echo "- macOS Apple Silicon（M 系列）：下载名称包含 \`macOS-Apple-Silicon\` 的 DMG"
+            echo "- macOS Intel：下载名称包含 \`macOS-Intel\` 的 DMG"
+            echo "- Windows 64 位：下载 EXE"
+            echo ""
+            echo "其余文件由应用自动更新使用，无需手动下载。"
+            echo ""
+            echo "> ⚠️ **macOS 用户注意**：首次安装后如果提示\"已损坏\"或无法打开，请在终端执行以下命令解除隔离限制："
+            echo '> ```bash'
+            echo '> sudo xattr -rd com.apple.quarantine "/Applications/AGY BYOK.app"'
+            echo '> ```'
+            echo "RELEASE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -79,14 +120,7 @@ jobs:
           projectPath: .
           tagName: app-v__VERSION__
           releaseName: AGY BYOK v__VERSION__
-          releaseBody: |
-            请按设备选择安装包：
-
-            - macOS Apple Silicon（M 系列）：下载名称包含 `macOS-Apple-Silicon` 的 DMG
-            - macOS Intel：下载名称包含 `macOS-Intel` 的 DMG
-            - Windows 64 位：下载 EXE
-
-            其余文件由应用自动更新使用，无需手动下载。
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
